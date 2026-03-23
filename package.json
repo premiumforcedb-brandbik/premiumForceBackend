@@ -1,0 +1,36 @@
+{
+  "name": "permium_force_backend",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "nodemon server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "install": "^0.13.0",
+    "nodemon": "^3.1.11"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.993.0",
+    "@aws-sdk/lib-storage": "^3.993.0",
+    "apple-sign-in-rest": "^1.0.3",
+    "apple-signin-auth": "^2.0.0",
+    "axios": "^1.13.6",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "firebase-admin": "^13.7.0",
+    "google-auth-library": "^10.6.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.2.1",
+    "multer": "^2.0.2",
+    "multer-s3": "^3.0.1",
+    "twilio": "^5.12.2"
+  }
+}

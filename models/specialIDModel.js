@@ -6,6 +6,7 @@ const specialIDSchema = new mongoose.Schema({
         required: [true, 'Code is required'],
         unique: true,
         trim: true,
+        uppercase: true
     },
     text: {
         type: String,
@@ -17,13 +18,7 @@ const specialIDSchema = new mongoose.Schema({
         type: Number,
         required: [true, 'Discount percentage is required'],
         min: [0, 'Discount percentage cannot be less than 0'],
-        max: [100, 'Discount percentage cannot exceed 100'],
-        validate: {
-            validator: function(value) {
-                return Number.isFinite(value);
-            },
-            message: 'Discount percentage must be a valid number'
-        }
+        max: [100, 'Discount percentage cannot exceed 100']
     },
     usedCount: {
         type: Number,
@@ -38,20 +33,46 @@ const specialIDSchema = new mongoose.Schema({
     timestamps: true
 });
 
-// Index for faster queries
-// specialIDSchema.index({ code: 1 });
+// Indexes for faster queries
+// specialIDSchema.index({ code: 1 }, { unique: true });
 specialIDSchema.index({ isActive: 1 });
 specialIDSchema.index({ discountPercentage: 1 });
 
-// // Method to increment used count
-specialIDSchema.methods.incrementUsedCount = async function() {
-    this.usedCount += 1;
-    return this.save();
+specialIDSchema.methods.incrementUsedCount = async function(incrementBy = 1) {
+    if (incrementBy < 0) {
+        throw new Error('Increment value cannot be negative');
+    }
+    
+    this.usedCount += incrementBy;
+    await this.save();
+    return this;
+}
+
+// Method to decrement used count
+specialIDSchema.methods.decrementUsedCount = async function(decrementBy = 1) {
+    if (decrementBy < 0) {
+        throw new Error('Decrement value cannot be negative');
+    }
+    
+    const newCount = this.usedCount - decrementBy;
+    
+    if (newCount < 0) {
+        throw new Error('Used count cannot be negative');
+    }
+    
+    this.usedCount = newCount;
+    await this.save();
+    return this;
 };
 
 // Static method to find active special IDs
 specialIDSchema.statics.findActive = function() {
     return this.find({ isActive: true });
+};
+
+// Static method to find by code
+specialIDSchema.statics.findByCode = function(code) {
+    return this.findOne({ code: code.toUpperCase(), isActive: true });
 };
 
 module.exports = mongoose.model('SpecialIDmodels', specialIDSchema);

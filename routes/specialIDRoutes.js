@@ -4,9 +4,9 @@ const mongoose = require('mongoose');
 const SpecialID = require('../models/specialIDModel');
 const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddleware');
 
-
+// ============= GET ALL SPECIAL IDs =============
 // @route   GET /api/specialids
-// @desc    Get all special IDs
+// @desc    Get all special IDs with filters
 router.get('/', async (req, res) => {
     try {
         const { active, minDiscount, maxDiscount, sort, limit = 50 } = req.query;
@@ -25,21 +25,21 @@ router.get('/', async (req, res) => {
             if (maxDiscount) query.discountPercentage.$lte = parseFloat(maxDiscount);
         }
         
-        let specialIDs = SpecialID.find(query);
+        let specialIDsQuery = SpecialID.find(query);
         
         // Sorting
         if (sort) {
             const sortOrder = sort.startsWith('-') ? -1 : 1;
             const sortField = sort.replace('-', '');
-            specialIDs = specialIDs.sort({ [sortField]: sortOrder });
+            specialIDsQuery = specialIDsQuery.sort({ [sortField]: sortOrder });
         } else {
-            specialIDs = specialIDs.sort({ createdAt: -1 });
+            specialIDsQuery = specialIDsQuery.sort({ createdAt: -1 });
         }
         
         // Limit results
-        specialIDs = specialIDs.limit(parseInt(limit));
+        specialIDsQuery = specialIDsQuery.limit(parseInt(limit));
         
-        const result = await specialIDs.exec();
+        const result = await specialIDsQuery.exec();
         
         res.json({
             success: true,
@@ -47,7 +47,7 @@ router.get('/', async (req, res) => {
             data: result
         });
     } catch (error) {
-        console.error(error);
+        console.error('GET all error:', error);
         res.status(500).json({ 
             success: false, 
             message: 'Server error', 
@@ -56,6 +56,7 @@ router.get('/', async (req, res) => {
     }
 });
 
+// ============= GET ACTIVE SPECIAL IDs =============
 // @route   GET /api/specialids/active
 // @desc    Get all active special IDs
 router.get('/active', async (req, res) => {
@@ -67,7 +68,7 @@ router.get('/active', async (req, res) => {
             data: specialIDs
         });
     } catch (error) {
-        console.error(error);
+        console.error('GET active error:', error);
         res.status(500).json({ 
             success: false, 
             message: 'Server error', 
@@ -76,6 +77,7 @@ router.get('/active', async (req, res) => {
     }
 });
 
+// ============= GET SPECIAL ID BY ID =============
 // @route   GET /api/specialids/:id
 // @desc    Get single special ID by ID
 router.get('/:id', async (req, res) => {
@@ -94,10 +96,10 @@ router.get('/:id', async (req, res) => {
             data: specialID
         });
     } catch (error) {
-        console.error(error);
+        console.error('GET by ID error:', error);
         
         // Handle invalid ObjectId
-        if (error.kind === 'ObjectId') {
+        if (error.kind === 'ObjectId' || error.name === 'CastError') {
             return res.status(400).json({ 
                 success: false, 
                 message: 'Invalid ID format' 
@@ -112,8 +114,9 @@ router.get('/:id', async (req, res) => {
     }
 });
 
+// ============= GET SPECIAL ID BY CODE =============
 // @route   GET /api/specialids/code/:code
-// @desc    Get special ID by code
+// @desc    Get special ID by code (public endpoint)
 router.get('/code/:code', async (req, res) => {
     try {
         const specialID = await SpecialID.findOne({ 
@@ -132,7 +135,7 @@ router.get('/code/:code', async (req, res) => {
             data: specialID
         });
     } catch (error) {
-        console.error(error);
+        console.error('GET by code error:', error);
         res.status(500).json({ 
             success: false, 
             message: 'Server error', 
@@ -141,9 +144,10 @@ router.get('/code/:code', async (req, res) => {
     }
 });
 
+// ============= CREATE SPECIAL ID =============
 // @route   POST /api/specialids
-// @desc    Create new special ID
-router.post('/',authenticateToken,authorizeAdmin, async (req, res) => {
+// @desc    Create new special ID (Admin only)
+router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
         const { code, text, discountPercentage, usedCount, isActive } = req.body;
         
@@ -152,6 +156,15 @@ router.post('/',authenticateToken,authorizeAdmin, async (req, res) => {
             return res.status(400).json({ 
                 success: false, 
                 message: 'Code and discountPercentage are required' 
+            });
+        }
+        
+        // Validate discount percentage
+        const discount = parseFloat(discountPercentage);
+        if (isNaN(discount) || discount < 0 || discount > 100) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Discount percentage must be a number between 0 and 100' 
             });
         }
         
@@ -171,7 +184,7 @@ router.post('/',authenticateToken,authorizeAdmin, async (req, res) => {
         const specialID = new SpecialID({
             code: code.toUpperCase(),
             text: text || '',
-            discountPercentage: parseFloat(discountPercentage),
+            discountPercentage: discount,
             usedCount: usedCount || 0,
             isActive: isActive !== undefined ? isActive : true
         });
@@ -183,8 +196,17 @@ router.post('/',authenticateToken,authorizeAdmin, async (req, res) => {
             message: 'Special ID created successfully',
             data: specialID
         });
+        
     } catch (error) {
-        console.error(error);
+        console.error('Create error:', error);
+        
+        // Handle duplicate key error
+        if (error.code === 11000) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Code already exists'
+            });
+        }
         
         // Handle validation errors
         if (error.name === 'ValidationError') {
@@ -204,13 +226,15 @@ router.post('/',authenticateToken,authorizeAdmin, async (req, res) => {
     }
 });
 
+// ============= UPDATE SPECIAL ID =============
 // @route   PUT /api/specialids/:id
-// @desc    Update special ID
-router.put('/:id',authenticateToken,authorizeAdmin, async (req, res) => {
+// @desc    Update special ID (Admin only)
+// authenticateToken, authorizeAdmin,
+router.put('/:id',  async (req, res) => {
     try {
         const { code, text, discountPercentage, usedCount, isActive } = req.body;
         
-        // Find and update
+        // Find the special ID
         const specialID = await SpecialID.findById(req.params.id);
         
         if (!specialID) {
@@ -218,6 +242,18 @@ router.put('/:id',authenticateToken,authorizeAdmin, async (req, res) => {
                 success: false, 
                 message: 'Special ID not found' 
             });
+        }
+        
+        // Validate discount percentage if provided
+        if (discountPercentage !== undefined) {
+            const discount = parseFloat(discountPercentage);
+            if (isNaN(discount) || discount < 0 || discount > 100) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'Discount percentage must be a number between 0 and 100' 
+                });
+            }
+            specialID.discountPercentage = discount;
         }
         
         // Check if code is being changed and if it already exists
@@ -233,15 +269,20 @@ router.put('/:id',authenticateToken,authorizeAdmin, async (req, res) => {
                     message: 'Code already exists' 
                 });
             }
+            specialID.code = code.toUpperCase();
         }
         
         // Update fields
-        if (code) specialID.code = code.toUpperCase();
         if (text !== undefined) specialID.text = text;
-        if (discountPercentage !== undefined) {
-            specialID.discountPercentage = parseFloat(discountPercentage);
+        if (usedCount !== undefined) {
+            if (usedCount < 0) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'Used count cannot be negative' 
+                });
+            }
+            specialID.usedCount = usedCount;
         }
-        if (usedCount !== undefined) specialID.usedCount = usedCount;
         if (isActive !== undefined) specialID.isActive = isActive;
         
         await specialID.save();
@@ -251,8 +292,9 @@ router.put('/:id',authenticateToken,authorizeAdmin, async (req, res) => {
             message: 'Special ID updated successfully',
             data: specialID
         });
+        
     } catch (error) {
-        console.error(error);
+        console.error('Update error:', error);
         
         if (error.name === 'ValidationError') {
             const messages = Object.values(error.errors).map(e => e.message);
@@ -271,11 +313,30 @@ router.put('/:id',authenticateToken,authorizeAdmin, async (req, res) => {
     }
 });
 
-
+// ============= INCREMENT USED COUNT =============
 // @route   PATCH /api/specialids/:id/increment
 // @desc    Increment used count
 router.patch('/:id/increment', async (req, res) => {
     try {
+        // Change parameter name to 'amount' to avoid confusion with database field
+        const { usedCount = 1 } = req.body;
+        
+        // Validate amount
+        if (typeof usedCount !== 'number' || isNaN(usedCount)) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Amount must be a valid number' 
+            });
+        }
+        
+        if (usedCount <= 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Amount must be greater than 0' 
+            });
+        }
+        
+        // Find the special ID
         const specialID = await SpecialID.findById(req.params.id);
         
         if (!specialID) {
@@ -288,19 +349,32 @@ router.patch('/:id/increment', async (req, res) => {
         if (!specialID.isActive) {
             return res.status(400).json({ 
                 success: false, 
-                message: 'Special ID is not active' 
+                message: 'Cannot increment inactive special ID' 
             });
         }
         
-        await specialID.incrementUsedCount();
+        // Save the previous count
+        const previousCount = specialID.usedCount;
+        
+        // Manual increment (more reliable)
+        specialID.usedCount += usedCount;
+        await specialID.save();
         
         res.json({
             success: true,
-            message: 'Used count incremented successfully',
-            data: specialID
+            message: `Used count incremented by ${usedCount}`,
+            data: {
+                id: specialID._id,
+                code: specialID.code,
+                usedCount: specialID.usedCount,
+                previousCount: previousCount,
+                discountPercentage: specialID.discountPercentage,
+                isActive: specialID.isActive
+            }
         });
+        
     } catch (error) {
-        console.error(error);
+        console.error('Increment error:', error);
         res.status(500).json({ 
             success: false, 
             message: 'Server error', 
@@ -309,11 +383,32 @@ router.patch('/:id/increment', async (req, res) => {
     }
 });
 
-// @route   DELETE /api/specialids/:id
-// @desc    Delete special ID
-router.delete('/:id', async (req, res) => {
+
+
+// ============= DECREMENT USED COUNT =============
+// @route   PATCH /api/specialids/:id/decrement
+// @desc    Decrement used count (Admin only)
+router.patch('/:id/decrement', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
-        const specialID = await SpecialID.findByIdAndDelete(req.params.id);
+        const { amount = 1 } = req.body;
+        
+        // Validate amount
+        if (typeof amount !== 'number' || isNaN(amount)) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Amount must be a valid number' 
+            });
+        }
+        
+        if (amount <= 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Amount must be greater than 0' 
+            });
+        }
+        
+        // Find the special ID
+        const specialID = await SpecialID.findById(req.params.id);
         
         if (!specialID) {
             return res.status(404).json({ 
@@ -322,12 +417,46 @@ router.delete('/:id', async (req, res) => {
             });
         }
         
+        // Save the previous count
+        const previousCount = specialID.usedCount;
+        
+        // Check if decrement would go below 0
+        if (specialID.usedCount - amount < 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: `Cannot decrement below 0. Current count: ${specialID.usedCount}` 
+            });
+        }
+        
+        // Decrement and save
+        await specialID.decrementUsedCount(amount);
+        
+        // Fetch the updated document
+        const updatedSpecialID = await SpecialID.findById(req.params.id);
+        
         res.json({
             success: true,
-            message: 'Special ID deleted successfully'
+            message: `Used count decremented by ${amount}`,
+            data: {
+                id: updatedSpecialID._id,
+                code: updatedSpecialID.code,
+                usedCount: updatedSpecialID.usedCount,
+                previousCount: previousCount,
+                discountPercentage: updatedSpecialID.discountPercentage,
+                isActive: updatedSpecialID.isActive
+            }
         });
+        
     } catch (error) {
-        console.error(error);
+        console.error('Decrement error:', error);
+        
+        if (error.message === 'Used count cannot be negative') {
+            return res.status(400).json({ 
+                success: false, 
+                message: error.message 
+            });
+        }
+        
         res.status(500).json({ 
             success: false, 
             message: 'Server error', 
@@ -336,9 +465,54 @@ router.delete('/:id', async (req, res) => {
     }
 });
 
+// ============= RESET USED COUNT =============
+// @route   PATCH /api/specialids/:id/reset
+// @desc    Reset used count to 0 (Admin only)
+router.patch('/:id/reset', authenticateToken, authorizeAdmin, async (req, res) => {
+    try {
+        // Find the special ID
+        const specialID = await SpecialID.findById(req.params.id);
+        
+        if (!specialID) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'Special ID not found' 
+            });
+        }
+        
+        const previousCount = specialID.usedCount;
+        
+        // Reset used count
+        specialID.usedCount = 0;
+        await specialID.save();
+        
+        res.json({
+            success: true,
+            message: 'Used count reset to 0',
+            data: {
+                id: specialID._id,
+                code: specialID.code,
+                usedCount: specialID.usedCount,
+                previousCount: previousCount,
+                discountPercentage: specialID.discountPercentage,
+                isActive: specialID.isActive
+            }
+        });
+        
+    } catch (error) {
+        console.error('Reset error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Server error', 
+            error: error.message 
+        });
+    }
+});
+
+// ============= TOGGLE ACTIVE STATUS =============
 // @route   PATCH /api/specialids/:id/toggle
-// @desc    Toggle active status
-router.patch('/:id/toggle', async (req, res) => {
+// @desc    Toggle active status (Admin only)
+router.patch('/:id/toggle', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
         const specialID = await SpecialID.findById(req.params.id);
         
@@ -358,7 +532,47 @@ router.patch('/:id/toggle', async (req, res) => {
             data: specialID
         });
     } catch (error) {
-        console.error(error);
+        console.error('Toggle error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Server error', 
+            error: error.message 
+        });
+    }
+});
+
+// ============= DELETE SPECIAL ID =============
+// @route   DELETE /api/specialids/:id
+// @desc    Delete special ID (Admin only)
+router.delete('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
+    try {
+        const specialID = await SpecialID.findByIdAndDelete(req.params.id);
+        
+        if (!specialID) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'Special ID not found' 
+            });
+        }
+        
+        res.json({
+            success: true,
+            message: 'Special ID deleted successfully',
+            data: {
+                id: specialID._id,
+                code: specialID.code
+            }
+        });
+    } catch (error) {
+        console.error('Delete error:', error);
+        
+        if (error.name === 'CastError') {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Invalid ID format' 
+            });
+        }
+        
         res.status(500).json({ 
             success: false, 
             message: 'Server error', 

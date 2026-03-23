@@ -4,6 +4,8 @@ const Driver = require('../models/driver_model');
 
 const AdminAssignDriver = require('../models/assign_admin_driver_model');
 const Booking = require('../models/booking_model');
+
+const HourlyBooking = require('../models/hourlyBookingModel');
 const Customer = require('../models/users_model');
 const DriverOTP = require('../models/driver_otp_model');
 const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
@@ -390,9 +392,117 @@ router.post('/complete-booking/tracking', authenticateDriver, async (req, res) =
 
 
 
+// Mark booking as completed by driver
+router.post('/complete-booking/tracking/HourlyBooking', authenticateDriver, async (req, res) => {
+  try {
+    const { bookingID } = req.body;
+    const driverId = req.driver.driverId;
+
+    // Validate required fields
+    if (!bookingID) {
+      return res.status(400).json({
+        success: false,
+        message: 'Booking ID is required'
+      });
+    }
+
+    // Find and update booking in one operation
+    const booking = await HourlyBooking.findOneAndUpdate(
+      {
+        _id: bookingID,
+        driverID: driverId,
+        bookingStatus: 'assigned'
+      },
+      {
+        $set: {
+          bookingStatus: 'starttracking',
+          completedAt: new Date()
+        }
+      },
+      { new: true }
+    ).select('bookingStatus completedAt pickupAddress  customerName customerID carName');
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found or you are not authorized to complete it'
+      });
+    }
+
+    // Update driver stats
+    await Driver.findByIdAndUpdate(driverId, {
+      $inc: { totalTrips: 1 },
+      $set: { lastTripCompletedAt: new Date() }
+    });
+
+    console.log(`Booking ${bookingID} marked as completed by driver ${driverId}`); 
+    console.log('Booking details:', booking);
+
+    // Get driver details for notification
+    const driver = await Driver.findById(driverId).select('driverName phoneNumber');
+    
+    // Get customer details for notification - THIS NOW WORKS BECAUSE Customer IS IMPORTED
+    const customer = await Customer.findById(booking.customerID).select('name email phone');
+
+    // Send notification to customer (if notifyUser function exists)
+    if (typeof notifyUser === 'function') {
+      await notifyUser(
+        booking.customerID,
+        '✅ Trip started and tracking has begun',
+        `Your Trip has tracking started`,
+        {
+          type: 'start tracking',
+          bookingId: bookingID.toString(),
+          status: 'start tracking',
+          completedAt: booking.completedAt,
+          bookingDetails: {
+            pickupLocation: booking.pickupAdddress,
+      
+            carName: booking.carName,
+            customerName: customer?.name,
+            driverName: driver?.driverName,
+            driverPhone: driver?.phoneNumber
+          }
+        }
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Tracking started successfully',
+      data: {
+        bookingId: booking._id,
+        status: booking.bookingStatus,
+        completedAt: booking.completedAt,
+        bookingDetails: {
+          pickupLocation: booking.pickupAdddress,
+
+          carName: booking.carName,
+          customerName: customer?.name || booking.customerName
+        },
+        driver: {
+          id: driverId,
+          name: driver?.driverName,
+          phone: driver?.phoneNumber,
+          totalTrips: driver?.totalTrips ? driver.totalTrips + 1 : 1
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Complete booking error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error completing booking',
+      error: error.message
+    });
+  }
+});
+
+
 
 // Mark booking as completed by driver
-router.post('/complete-booking', authenticateDriver, async (req, res) => {
+router.post('/complete-trip', authenticateDriver, async (req, res) => {
   try {
     const { bookingID } = req.body;
     const driverId = req.driver.driverId;
@@ -445,6 +555,14 @@ router.post('/complete-booking', authenticateDriver, async (req, res) => {
 
     // Send notification to customer (if notifyUser function exists)
     if (typeof notifyUser === 'function') {
+
+
+      await booking.updateStatus('completed');
+    
+    // Update driver as busy
+    await driver.setFree(bookingID);
+
+
       await notifyUser(
         booking.customerID,
         '✅ Trip Completed',
@@ -497,6 +615,125 @@ router.post('/complete-booking', authenticateDriver, async (req, res) => {
     });
   }
 });
+
+
+
+
+// Mark booking as completed by driver
+router.post('/complete-trip/HourlyBooking', authenticateDriver, async (req, res) => {
+  try {
+    const { bookingID } = req.body;
+    const driverId = req.driver.driverId;
+
+    // Validate required fields
+    if (!bookingID) {
+      return res.status(400).json({
+        success: false,
+        message: 'Booking ID is required'
+      });
+    }
+
+    // Find and update booking in one operation
+    const booking = await HourlyBooking.findOneAndUpdate(
+      {
+        _id: bookingID,
+        driverID: driverId,
+        bookingStatus: 'assigned'
+      },
+      {
+        $set: {
+          bookingStatus: 'completed',
+          completedAt: new Date()
+        }
+      },
+      { new: true }
+    ).select('bookingStatus completedAt pickupLocation dropLocation customerName customerID carName');
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found or you are not authorized to complete it'
+      });
+    }
+
+    // Update driver stats
+    await Driver.findByIdAndUpdate(driverId, {
+      $inc: { totalTrips: 1 },
+      $set: { lastTripCompletedAt: new Date() }
+    });
+
+    console.log(`Booking ${bookingID} marked as completed by driver ${driverId}`); 
+    console.log('Booking details:', booking);
+
+    // Get driver details for notification
+    const driver = await Driver.findById(driverId).select('driverName phoneNumber');
+    
+    // Get customer details for notification - THIS NOW WORKS BECAUSE Customer IS IMPORTED
+    const customer = await Customer.findById(booking.customerID).select('name email phone');
+
+    // Send notification to customer (if notifyUser function exists)
+    if (typeof notifyUser === 'function') {
+
+
+      await booking.updateStatus('completed');
+    
+    // Update driver as busy
+    await driver.setFree(bookingID);
+
+
+      await notifyUser(
+        booking.customerID,
+        '✅ Trip Completed',
+        `Your Trip has been completed successfully. Thank you for choosing our service!.Please review your experience`,
+        {
+          type: 'booking_completed',
+          bookingId: bookingID.toString(),
+          status: 'completed',
+          completedAt: booking.completedAt,
+          bookingDetails: {
+            pickupLocation: booking.pickupAdddress,
+        
+            carName: booking.carName,
+            customerName: customer?.name,
+            driverName: driver?.driverName,
+            driverPhone: driver?.phoneNumber
+          }
+        }
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Trip completed successfully',
+      data: {
+        bookingId: booking._id,
+        status: booking.bookingStatus,
+        completedAt: booking.completedAt,
+        bookingDetails: {
+          pickupLocation: booking.pickupAdddress,
+   
+          carName: booking.carName,
+          customerName: customer?.name || booking.customerName
+        },
+        driver: {
+          id: driverId,
+          name: driver?.driverName,
+          phone: driver?.phoneNumber,
+          totalTrips: driver?.totalTrips ? driver.totalTrips + 1 : 1
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Complete booking error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error completing booking',
+      error: error.message
+    });
+  }
+});
+
 
 
 // ============= ADMIN ROUTES (Admin Auth Required) =============

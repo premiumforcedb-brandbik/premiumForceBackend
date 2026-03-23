@@ -20,8 +20,9 @@ const adminAssignDriverSchema = new mongoose.Schema(
      required: true
     },
     assignedAt: {
+       required: [true, 'Assigned date and time is required'],
       type: Date,
-      default: Date.now
+      // default: Date.now
     }
   },
   {

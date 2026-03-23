@@ -159,4 +159,41 @@ const bookingSchema = new mongoose.Schema({
   timestamps: true // Adds createdAt and updatedAt automatically
 });
 
+
+
+
+
+
+
+
+// Method to update booking status with timestamps
+bookingSchema.methods.updateStatus = async function(status) {
+  const validStatuses = ['pending', 'assigned', 'starttracking', 'completed', 'cancelled'];
+  
+  if (!validStatuses.includes(status)) {
+    throw new Error('Invalid status');
+  }
+  
+  this.bookingStatus = status;
+  
+  // Set timestamps based on status
+  switch(status) {
+    case 'assigned':
+      this.driverAssignedAt = new Date();
+      break;
+    case 'starttracking':
+      this.trackingStartedAt = new Date();
+      break;
+    case 'completed':
+      this.completedAt = new Date();
+      break;
+  }
+  
+  await this.save();
+  return this;
+};
+
+
+
+
 module.exports = mongoose.model('Booking', bookingSchema);

@@ -23,57 +23,51 @@ const {   authenticateToken,
 // @desc    Assign a driver to admin
 // @route   POST /api/admin/assign-driver
 // @access  Private (Admin only)
+// ============= ASSIGN DRIVER (Regular Booking) =============
 router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
-   
     console.log('========== ASSIGN DRIVER DEBUG ==========');
     console.log('1. Request body:', req.body);
-    console.log('2. req.admin:', req.admin);
-    console.log('3. req.user:', req.user.adminId);
     
-    const { driverID, bookingID, customerID } = req.body;
-
-    // Check if admin exists in request
-    if (!req.user.adminId) {
-      console.log('5. ERROR: req.user is undefined or missing userId!');
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication failed - admin not found in request'
-      });
-    }
-
-    console.log('6. Admin ID from token:', req.user.adminId);
-    console.log('7. Admin full object:', JSON.stringify(req.user, null, 2));
-
-    const adminID = req.user.adminId;
+    const { driverID, bookingID, customerID, assignedAt } = req.body;
 
     // Validate required fields
-    if (!driverID) {
+    if (!driverID || !bookingID || !customerID) {
       return res.status(400).json({
         success: false,
-        message: 'Driver ID required'
-      });
-    }
-    
-    if (!bookingID) {
-      return res.status(400).json({
-        success: false,
-        message: 'Booking ID required'
+        message: 'driverID, bookingID, and customerID are required'
       });
     }
 
-    if (!customerID) {
+    // Validate assignedAt is provided
+    if (!assignedAt) {
       return res.status(400).json({
         success: false,
-        message: 'Customer ID required'
+        message: 'Assigned date and time (assignedAt) is required'
+      });
+    }
+
+    // Validate assignedAt format
+    const assignedDate = new Date(assignedAt);
+    if (isNaN(assignedDate.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid assignedAt format'
+      });
+    }
+
+    // Get admin ID from token
+    const adminID = req.user?.adminId || req.user?.id || req.user?._id;
+    
+    if (!adminID) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication failed - admin not found'
       });
     }
 
     // Check if driver exists
-    console.log('8. Looking for driver with ID:', driverID);
     const driver = await Driver.findById(driverID);
-    console.log('9. Driver found:', driver ? 'Yes' : 'No');
-    
     if (!driver) {
       return res.status(404).json({
         success: false,
@@ -81,10 +75,21 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
       });
     }
 
+    // Check if driver is already busy
+    if (driver.isBusy) {
+      return res.status(400).json({
+        success: false,
+        message: 'Driver is currently busy with another booking',
+        driver: {
+          id: driver._id,
+          name: driver.driverName,
+          currentBookingId: driver.currentBookingId
+        }
+      });
+    }
+
     // Check if booking exists
     const booking = await Booking.findById(bookingID);
-    console.log('9. Booking found:', booking);
-
     if (!booking) {
       return res.status(404).json({
         success: false,
@@ -92,159 +97,106 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
       });
     }
     
-    console.log('Booking found:', booking.bookingStatus);
+    console.log('Booking status:', booking.bookingStatus);
+    
+    // Check if booking is already assigned or completed
+    if (booking.bookingStatus !== 'pending' && booking.bookingStatus !== 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: `Booking is already ${booking.bookingStatus}. Cannot assign driver.`
+      });
+    }
+   
+    // conosle.log(booking.bookingStatus);
+    // Check if booking is already assigned or in progress
+    if (booking.bookingStatus !== 'pending' ) {
+      if(booking.bookingStatus !== 'completed'){
+   return res.status(400).json({
+        success: false,
+        message: `Booking is already ${booking.bookingStatus}. Cannot assign driver.`
+      });
 
+      }
+    }
+       console.log("The booking 108",booking.bookingStatus);
+  
+    console.log(booking.bookingStatus);
+
+    
+
+    // return;
     // Check if customer exists
+    
     const customer = await Customer.findById(customerID);
-    console.log('9. Customer found:', customer);
-
     if (!customer) {
       return res.status(404).json({
         success: false,
         message: 'Customer not found'
       });
     }
-    
-    console.log('Customer found:', customer);
 
-    // CHECK FOR EXISTING ASSIGNMENT
-    console.log('10. Checking existing assignments for driver:', driverID, 'and booking:',
-       bookingID, 'and customer:', customerID);
-    
+    // Check for existing assignment
     const existingAssignment = await AdminAssignDriver.findOne({
       driverID: driverID,
       bookingID: bookingID,
-      customerID: customerID,
+      assignedAt:assignedAt
     });
 
-    console.log('11. Existing assignment:', existingAssignment);
-console.log('Booking status:', booking.bookingStatus);
 
-console.log('Existing assignment status:', existingAssignment ? existingAssignment.status : 'N/A');
-console.log('Booking status:', booking.bookingStatus!='pending' ? "Not Pending" : 'N/A');
-
-// return;
-
-    // IF ASSIGNMENT ALREADY EXISTS
-    if ((existingAssignment && booking.bookingStatus=='assigned')||booking.bookingStatus!='completed' ) {
-      console.log('⚠️ DUPLICATE ASSIGNMENT ATTEMPT: Driver already assigned to this booking');
-      
-      const assignedAdmin = await Admin.findById(existingAssignment.adminID).select('name email');
-      const assignedDriver = await Driver.findById(existingAssignment.driverID).select('driverName phoneNumber email');
-      const assignedBooking = await Booking.findById(existingAssignment.bookingID).select('bookingDate status pickupLocation dropLocation');
-      
-      const adminName = assignedAdmin ? assignedAdmin.name || assignedAdmin.email || 'Unknown Admin' : 'Unknown Admin';
-      
-
+    if (existingAssignment) {
       return res.status(400).json({
         success: false,
         message: 'This driver is already assigned to this booking',
-        error: 'DUPLICATE_ASSIGNMENT',
-        alreadyAssigned: true,
-        data: {
-          assignment: {
-            id: existingAssignment._id,
-            driver: {
-              id: existingAssignment.driverID,
-              name: assignedDriver?.driverName || driver.driverName || 'Unknown Driver',
-              phone: assignedDriver?.phoneNumber || driver.phoneNumber
-            },
-            booking: {
-              id: existingAssignment.bookingID,
-              date: assignedBooking?.bookingDate || booking.bookingDate,
-              status: assignedBooking?.status || booking.status,
-              pickupLocation: assignedBooking?.pickupLocation,
-              dropLocation: assignedBooking?.dropLocation
-            },
-            assignedTo: {
-              id: existingAssignment.adminID,
-              name: adminName,
-              email: assignedAdmin?.email
-            },
-            assignedAt: existingAssignment.assignedAt || existingAssignment.createdAt,
-            status: existingAssignment.status
-          }
-        },
-        suggestion: 'To change the assignment, please update or delete the existing assignment first'
+        alreadyAssigned: true
       });
     }
 
-    // NO EXISTING ASSIGNMENT - CREATE NEW ONE
-    console.log('12. No existing assignment found. Creating new assignment with adminID:', adminID);
-    
-    const assignmentData = {
+     // Create new assignment
+    const assignment = new AdminAssignDriver({
       adminID: adminID.toString(),
       driverID,
       bookingID,
-      // customerID,
-      status: 'active',
-      assignedAt: new Date(),
-      createdAt: new Date()
-    };
-    
-    assignmentData.customerID = customerID;
-    
-    const assignment = new AdminAssignDriver(assignmentData);
+      customerID,
+      assignedAt: assignedDate,
+      status: 'active'
+    });
 
     await assignment.save();
-    console.log('13. Assignment saved with ID:', assignment._id);
-
-    // UPDATE THE BOOKING
-    console.log('14. Updating booking with customerID and driverID');
-    console.log('Booking ID:', bookingID);
-    console.log('Customer ID:', customerID);
-    console.log('Driver ID:', driverID);
 
 
     
-    const updatedBooking = await Booking.findByIdAndUpdate(
-      bookingID,
-      {
-        $set: {
-          customerID: customerID,
-          driverID: driverID,
-          driverAssignedAt: new Date(),
-          bookingStatus: 'assigned'
-        }
-      },
-      { new: true }
-    ).select('bookingDate status pickupLocation dropLocation customerName customerID driverID');
+    // Update driver as busy
+    await driver.setBusy(bookingID);
 
-    console.log('15. Booking updated successfully:', updatedBooking ? 'Yes' : 'No');
-
-    // FIXED: Changed from AdminAssignDoctor to AdminAssignDriver
-    const savedAssignment = await AdminAssignDriver.findById(assignment._id);
-    
-    // Fetch related data manually
+    // Fetch related data
     const [driverData, bookingData, adminData, customerData] = await Promise.all([
-      Driver.findById(savedAssignment.driverID).select('driverName phoneNumber email vehicleName vehicleNumber'),
-      Booking.findById(savedAssignment.bookingID).select('bookingDate status pickupLocation dropLocation customerName customerID driverID'),
-      Admin.findById(savedAssignment.adminID).select('name email'),
+      Driver.findById(driverID).select('driverName phoneNumber email isBusy currentBookingId'),
+      Booking.findById(bookingID).select('bookingStatus driverAssignedAt customerID driverID'),
+      Admin.findById(adminID).select('name email'),
       Customer.findById(customerID).select('name email phone address')
     ]);
 
-    console.log('16. Assignment data fetched successfully');
-    console.log('========== END DEBUG ==========');
-
-    // SUCCESS RESPONSE
     res.status(201).json({
       success: true,
-      message: 'Driver assigned successfully and booking updated',
+      message: 'Driver assigned successfully',
       data: {
         assignment: {
-          id: savedAssignment._id,
+          id: assignment._id,
           driver: driverData,
           booking: bookingData,
           customer: customerData,
           assignedBy: adminData,
-          assignedAt: savedAssignment.assignedAt,
-          status: savedAssignment.status
+          assignedAt: assignment.assignedAt,
+          status: assignment.status
+        },
+        driverStatus: {
+          isBusy: driver.isBusy,
+          currentBookingId: driver.currentBookingId
         },
         bookingUpdate: {
-          id: updatedBooking._id,
-          customerID: updatedBooking.customerID,
-          driverID: updatedBooking.driverID,
-          status: updatedBooking.bookingStatus
+          id: booking._id,
+          bookingStatus: booking.bookingStatus,
+          driverAssignedAt: booking.driverAssignedAt
         }
       }
     });
@@ -255,10 +207,8 @@ console.log('Booking status:', booking.bookingStatus!='pending' ? "Not Pending" 
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: 'This driver is already assigned to this booking',
-        error: 'DUPLICATE_ASSIGNMENT',
-        alreadyAssigned: true,
-        details: 'Duplicate key error - assignment already exists'
+        message: 'This assignment already exists',
+        error: 'DUPLICATE_ASSIGNMENT'
       });
     }
     
@@ -272,63 +222,50 @@ console.log('Booking status:', booking.bookingStatus!='pending' ? "Not Pending" 
 
 
 
-
 router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
-   
     console.log('========== ASSIGN DRIVER DEBUG ==========');
     console.log('1. Request body:', req.body);
-    console.log('2. req.user:', req.user);
-    console.log('3. req.admin:', req.admin);
     
-    const { driverID, bookingID, customerID } = req.body;
+    const { driverID, bookingID, customerID, assignedAt } = req.body;
 
-    // Validate required fields FIRST
-    if (!driverID) {
+    // Validate required fields
+    if (!driverID || !bookingID || !customerID) {
       return res.status(400).json({
         success: false,
-        message: 'Driver ID required'
-      });
-    }
-    
-    if (!bookingID) {
-      return res.status(400).json({
-        success: false,
-        message: 'Booking ID required'
+        message: 'driverID, bookingID, and customerID are required'
       });
     }
 
-    if (!customerID) {
+    // Validate assignedAt is provided
+    if (!assignedAt) {
       return res.status(400).json({
         success: false,
-        message: 'Customer ID required'
+        message: 'Assigned date and time (assignedAt) is required'
       });
     }
 
-    // Get admin ID
-    let adminID = null;
-    if (req.user) {
-      adminID = req.user.adminId || req.user.id || req.user._id || req.user.userId;
+    // Validate assignedAt format
+    const assignedDate = new Date(assignedAt);
+    if (isNaN(assignedDate.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid assignedAt format'
+      });
     }
+
+    // Get admin ID from token
+    const adminID = req.user?.adminId || req.user?.id || req.user?._id;
     
-    if (!adminID && req.admin) {
-      adminID = req.admin.adminId || req.admin.id || req.admin._id;
-    }
-
-    console.log('4. Extracted adminID:', adminID);
-
     if (!adminID) {
       return res.status(401).json({
         success: false,
-        message: 'Authentication failed - admin not found in request'
+        message: 'Authentication failed - admin not found'
       });
     }
 
     // Check if driver exists
-    console.log('5. Looking for driver with ID:', driverID);
     const driver = await Driver.findById(driverID);
-    console.log('6. Driver found:', driver ? 'Yes' : 'No');
-    
     if (!driver) {
       return res.status(404).json({
         success: false,
@@ -336,25 +273,59 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
       });
     }
 
-    // Check if booking exists (using HourlyBooking)
-    console.log('7. Looking for hourly booking with ID:', bookingID);
-    const booking = await HourlyBooking.findById(bookingID);
-    console.log('8. Booking found:', booking ? 'Yes' : 'No');
+    // Check if driver is already busy
+    if (driver.isBusy) {
+      return res.status(400).json({
+        success: false,
+        message: 'Driver is currently busy with another booking',
+        driver: {
+          id: driver._id,
+          name: driver.driverName,
+          currentBookingId: driver.currentBookingId
+        }
+      });
+    }
 
+    // Check if booking exists
+    const booking = await await HourlyBooking.findById(bookingID);
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: 'Hourly booking not found'
+        message: 'Booking not found'
       });
     }
     
-    console.log('9. Booking status:', booking.bookingStatus);
+    console.log('Booking status:', booking.bookingStatus);
+    
+    // Check if booking is already assigned or completed
+    if (booking.bookingStatus !== 'pending' && booking.bookingStatus !== 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: `Booking is already ${booking.bookingStatus}. Cannot assign driver.`
+      });
+    }
+   
+    // conosle.log(booking.bookingStatus);
+    // Check if booking is already assigned or in progress
+    if (booking.bookingStatus !== 'pending' ) {
+      if(booking.bookingStatus !== 'completed'){
+   return res.status(400).json({
+        success: false,
+        message: `Booking is already ${booking.bookingStatus}. Cannot assign driver.`
+      });
 
+      }
+    }
+       console.log("The booking 108",booking.bookingStatus);
+  
+    console.log(booking.bookingStatus);
+
+    
+
+    // return;
     // Check if customer exists
-    console.log('10. Looking for customer with ID:', customerID);
+    
     const customer = await Customer.findById(customerID);
-    console.log('11. Customer found:', customer ? 'Yes' : 'No');
-
     if (!customer) {
       return res.status(404).json({
         success: false,
@@ -362,191 +333,80 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
       });
     }
 
-    // CHECK FOR EXISTING ASSIGNMENT
-    console.log('12. Checking existing assignments for:');
-    console.log('   - Driver ID:', driverID);
-    console.log('   - Booking ID:', bookingID);
-    console.log('   - Customer ID:', customerID);
-    
+    // Check for existing assignment
     const existingAssignment = await AdminAssignDriver.findOne({
       driverID: driverID,
       bookingID: bookingID,
-      customerID: customerID,
+      assignedAt:assignedAt
     });
 
-    console.log('13. Existing assignment:', existingAssignment ? 'Found' : 'Not found');
 
     if (existingAssignment) {
-      console.log('14. ⚠️ DUPLICATE ASSIGNMENT ATTEMPT');
-      
-      // Fetch related data for better error message
-      const [assignedAdmin, assignedDriver, assignedBooking] = await Promise.all([
-        Admin.findById(existingAssignment.adminID).select('name email'),
-        Driver.findById(existingAssignment.driverID).select('driverName phoneNumber email'),
-        HourlyBooking.findById(existingAssignment.bookingID).select('hours pickupAdddress dropOffAddress bookingStatus')
-      ]);
-      
-      const adminName = assignedAdmin ? assignedAdmin.name || assignedAdmin.email || 'Unknown Admin' : 'Unknown Admin';
-      const driverName = assignedDriver ? assignedDriver.driverName || 'Unknown Driver' : driver?.driverName || 'Unknown Driver';
-
       return res.status(400).json({
         success: false,
         message: 'This driver is already assigned to this booking',
-        error: 'DUPLICATE_ASSIGNMENT',
-        alreadyAssigned: true,
-        data: {
-          assignment: {
-            id: existingAssignment._id,
-            driver: {
-              id: existingAssignment.driverID,
-              name: driverName,
-              phone: assignedDriver?.phoneNumber || driver?.phoneNumber
-            },
-            booking: {
-              id: existingAssignment.bookingID,
-              hours: assignedBooking?.hours || booking.hours,
-              pickupAddress: assignedBooking?.pickupAdddress || booking.pickupAdddress,
-              status: assignedBooking?.bookingStatus || booking.bookingStatus
-            },
-            assignedTo: {
-              id: existingAssignment.adminID,
-              name: adminName,
-              email: assignedAdmin?.email
-            },
-            assignedAt: existingAssignment.assignedAt || existingAssignment.createdAt,
-            status: existingAssignment.status
-          }
-        }
+        alreadyAssigned: true
       });
     }
 
-    // Check if booking is already assigned to someone else
-    if (booking.driverID && booking.driverID.toString() !== driverID && booking.driverID.toString() !== 'null') {
-      const currentDriver = await Driver.findById(booking.driverID).select('driverName phoneNumber');
-      
-      return res.status(400).json({
-        success: false,
-        message: 'This booking is already assigned to another driver',
-        currentDriver: currentDriver ? {
-          id: booking.driverID,
-          name: currentDriver.driverName
-        } : booking.driverID
-      });
-    }
-
-    // NO EXISTING ASSIGNMENT - CREATE NEW ONE
-    console.log('15. Creating new assignment with adminID:', adminID);
-    
-    const assignmentData = {
+     // Create new assignment
+    const assignment = new AdminAssignDriver({
       adminID: adminID.toString(),
       driverID,
       bookingID,
       customerID,
-      status: 'active',
-      assignedAt: new Date()
-    };
-    
-    const assignment = new AdminAssignDriver(assignmentData);
+      assignedAt: assignedDate,
+      status: 'active'
+    });
+
     await assignment.save();
-    console.log('16. Assignment saved with ID:', assignment._id);
 
-    // UPDATE THE BOOKING
-    console.log('17. Updating booking with customerID and driverID');
+
     
-    const updatedBooking = await HourlyBooking.findByIdAndUpdate(
-      bookingID,
-      {
-        $set: {
-          customerID: customerID,
-          driverID: driverID,
-          bookingStatus: 'assigned'
-        }
-      },
-      { new: true }
-    );
+    // Update driver as busy
+    await driver.setBusy(bookingID);
 
-    console.log('18. Booking updated successfully:', updatedBooking ? 'Yes' : 'No');
-
-    // FIXED: Use the correct IDs and models for fetching related data
-    console.log('19. Fetching related data with IDs:');
-    console.log('   - Assignment ID:', assignment._id);
-    console.log('   - Driver ID:', driverID);
-    console.log('   - Booking ID:', bookingID);
-    console.log('   - Admin ID:', adminID);
-    console.log('   - Customer ID:', customerID);
-
-    // Safely fetch related data with error handling
+    // Fetch related data
     const [driverData, bookingData, adminData, customerData] = await Promise.all([
-      Driver.findById(driverID).select('driverName phoneNumber email vehicleName vehicleNumber').lean(),
-      HourlyBooking.findById(bookingID).select('hours pickupAdddress dropOffAddress bookingStatus carName charge').lean(), // FIXED: Changed from Booking to HourlyBooking
-      Admin.findById(adminID).select('name email').lean(),
-      Customer.findById(customerID).select('name email phone address').lean()
+      Driver.findById(driverID).select('driverName phoneNumber email isBusy currentBookingId'),
+      Booking.findById(bookingID).select('bookingStatus driverAssignedAt customerID driverID'),
+      Admin.findById(adminID).select('name email'),
+      Customer.findById(customerID).select('name email phone address')
     ]);
 
-    console.log('20. Data fetched:');
-    console.log('   - Driver data:', driverData ? 'Yes' : 'No');
-    console.log('   - Booking data:', bookingData ? 'Yes' : 'No');
-    console.log('   - Admin data:', adminData ? 'Yes' : 'No');
-    console.log('   - Customer data:', customerData ? 'Yes' : 'No');
-
-    // SUCCESS RESPONSE
     res.status(201).json({
       success: true,
-      message: 'Driver assigned successfully and booking updated',
+      message: 'Driver assigned successfully',
       data: {
         assignment: {
           id: assignment._id,
-          driver: driverData || { 
-            id: driverID, 
-            name: driver?.driverName || 'Unknown Driver' 
-          },
-          booking: bookingData || { 
-            id: bookingID, 
-            hours: booking.hours,
-            pickupAddress: booking.pickupAdddress,
-            status: booking.bookingStatus 
-          },
-          customer: customerData || { 
-            id: customerID,
-            name: customer?.name 
-          },
-          assignedBy: adminData || { 
-            id: adminID 
-          },
+          driver: driverData,
+          booking: bookingData,
+          customer: customerData,
+          assignedBy: adminData,
           assignedAt: assignment.assignedAt,
           status: assignment.status
         },
+        driverStatus: {
+          isBusy: driver.isBusy,
+          currentBookingId: driver.currentBookingId
+        },
         bookingUpdate: {
-          id: updatedBooking._id,
-          customerID: updatedBooking.customerID,
-          driverID: updatedBooking.driverID,
-          status: updatedBooking.bookingStatus
+          id: booking._id,
+          bookingStatus: booking.bookingStatus,
+          driverAssignedAt: booking.driverAssignedAt
         }
       }
     });
 
   } catch (error) {
     console.error('❌ Assign driver error:', error);
-    console.error('Error details:', {
-      name: error.name,
-      message: error.message,
-      stack: error.stack
-    });
     
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: 'This driver is already assigned to this booking',
+        message: 'This assignment already exists',
         error: 'DUPLICATE_ASSIGNMENT'
-      });
-    }
-    
-    // Handle CastError specifically
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid ID format for ${error.path}: ${error.value}`,
-        error: error.message
       });
     }
     
@@ -557,6 +417,193 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
     });
   }
 });
+
+
+
+
+
+
+// // ============= ASSIGN DRIVER (Hourly Booking) =============
+// router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, async (req, res) => {
+//   try {
+//     console.log('========== ASSIGN DRIVER (HOURLY) DEBUG ==========');
+//     console.log('1. Request body:', req.body);
+    
+//     const { driverID, bookingID, customerID, assignedAt } = req.body;
+
+//     // Validate required fields
+//     if (!driverID) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Driver ID required'
+//       });
+//     }
+    
+//     if (!bookingID) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Booking ID required'
+//       });
+//     }
+
+//     if (!customerID) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Customer ID required'
+//       });
+//     }
+
+//     // Validate assignedAt is provided
+//     if (!assignedAt) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Assigned date and time (assignedAt) is required'
+//       });
+//     }
+
+//     // Validate assignedAt format
+//     const assignedDate = new Date(assignedAt);
+//     if (isNaN(assignedDate.getTime())) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Invalid assignedAt format. Please use valid date format (e.g., "2024-03-23T10:30:00Z")'
+//       });
+//     }
+
+//     // Get admin ID
+//     const adminID = req.user?.adminId || req.user?.id || req.user?._id;
+//     console.log('2. Admin ID:', adminID);
+//     console.log('3. Assigned date:', assignedDate);
+
+//     if (!adminID) {
+//       return res.status(401).json({
+//         success: false,
+//         message: 'Authentication failed - admin not found'
+//       });
+//     }
+
+//     // Check if driver exists
+//     const driver = await Driver.findById(driverID);
+//     if (!driver) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Driver not found'
+//       });
+//     }
+
+//     // Check if hourly booking exists
+//     const booking = await HourlyBooking.findById(bookingID);
+//     if (!booking) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Hourly booking not found'
+//       });
+//     }
+
+//     // Check if customer exists
+//     const customer = await Customer.findById(customerID);
+//     if (!customer) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Customer not found'
+//       });
+//     }
+
+//     // Check for existing assignment
+//     const existingAssignment = await AdminAssignDriver.findOne({
+//       driverID: driverID,
+//       bookingID: bookingID
+//     });
+
+//     if (existingAssignment) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'This driver is already assigned to this booking',
+//         alreadyAssigned: true,
+//         data: {
+//           assignment: existingAssignment
+//         }
+//       });
+//     }
+
+//     // Check if booking already assigned to another driver
+//     if (booking.driverID && booking.driverID.toString() !== driverID) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'This booking is already assigned to another driver'
+//       });
+//     }
+
+//     // Create new assignment with provided assignedAt
+//     const assignment = new AdminAssignDriver({
+//       adminID: adminID.toString(),
+//       driverID,
+//       bookingID,
+//       customerID,
+//       assignedAt: assignedDate, // Using provided date
+//       status: 'active'
+//     });
+
+//     await assignment.save();
+//     console.log('Assignment saved with ID:', assignment._id);
+//     console.log('Assigned at:', assignment.assignedAt);
+
+//     // Update hourly booking
+//     const updatedBooking = await HourlyBooking.findByIdAndUpdate(
+//       bookingID,
+//       {
+//         $set: {
+//           customerID: customerID,
+//           driverID: driverID,
+//           bookingStatus: 'assigned'
+//         }
+//       },
+//       { new: true }
+//     );
+
+//     // Fetch related data
+//     const [driverData, bookingData, adminData, customerData] = await Promise.all([
+//       Driver.findById(driverID).select('driverName phoneNumber email vehicleName vehicleNumber'),
+//       HourlyBooking.findById(bookingID).select('hours pickupAdddress dropOffAddress bookingStatus carName'),
+//       Admin.findById(adminID).select('name email'),
+//       Customer.findById(customerID).select('name email phone address')
+//     ]);
+
+//     res.status(201).json({
+//       success: true,
+//       message: 'Driver assigned successfully',
+//       data: {
+//         assignment: {
+//           id: assignment._id,
+//           driver: driverData,
+//           booking: bookingData,
+//           customer: customerData,
+//           assignedBy: adminData,
+//           assignedAt: assignment.assignedAt,
+//           status: assignment.status
+//         },
+//         bookingUpdate: updatedBooking
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error('❌ Assign driver error:', error);
+    
+//     if (error.code === 11000) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'This assignment already exists',
+//         error: 'DUPLICATE_ASSIGNMENT'
+//       });
+//     }
+    
+//     res.status(500).json({
+//       success: false,
+//       message: 'Error assigning driver',
+//       error: error.message
+//     });
+//   }
+// });
 
 
 

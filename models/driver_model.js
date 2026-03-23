@@ -97,6 +97,25 @@ driverSchema.virtual('fullPhoneNumber').get(function() {
   return `${this.countryCode}${this.phoneNumber}`;
 });
 
+
+
+// Method to set driver busy
+driverSchema.methods.setBusy = async function(bookingId) {
+  this.isBusy = true;
+  this.currentBookingId = bookingId;
+  await this.save();
+  return this;
+};
+
+// Method to set driver free
+driverSchema.methods.setFree = async function() {
+  this.isBusy = false;
+  this.currentBookingId = null;
+  await this.save();
+  return this;
+};
+
+
 // Method to return public profile
 driverSchema.methods.getPublicProfile = function() {
   const driver = this.toObject();

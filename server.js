@@ -67,6 +67,9 @@ const terminalRoutes = require('./routes/terminalRoutes');
 const routeRoutes = require('./routes/routeRoutes');
 
 
+const hourlyBookingRoutes = require('./routes/hourlyBookingRoutes');
+
+
 const hourlyRoutes = require('./routes/hourlyRoutes');
 
 
@@ -194,7 +197,9 @@ app.use('/api/terminals', terminalRoutes);
 app.use('/api/models', modelRoutes);
 
 
-app.use('/api/hourly-bookings', hourlyRoutes);
+app.use('/api/hourly-bookings', hourlyBookingRoutes);
+
+app.use('/api/hourly-routes', hourlyRoutes);
 
 
 const brandRoutes = require('./routes/brandRoutes');

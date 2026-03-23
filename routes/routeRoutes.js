@@ -9,7 +9,105 @@ const Cars = require('../models/car_model');
 
 
 
+// get price and details 
 
+
+// ============= GET ALL ROUTES =============
+// GET /api/routes
+router.get('/FromcityToCity', authenticateToken, authorizeAdmin, async (req, res) => {
+  try {
+    const { 
+      fromCity,
+      toCity,
+      isActive,
+      vehicleID,  // Add vehicleID filter if needed
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    // Build query
+    const query = {};
+
+    if (fromCity) {
+      if (!mongoose.Types.ObjectId.isValid(fromCity)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid from city ID format'
+        });
+      }
+      query.fromCity = fromCity;
+    }
+
+    if (toCity) {
+      if (!mongoose.Types.ObjectId.isValid(toCity)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid to city ID format'
+        });
+      }
+      query.toCity = toCity;
+    }
+
+    if (vehicleID) {
+      if (!mongoose.Types.ObjectId.isValid(vehicleID)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid vehicle ID format'
+        });
+      }
+      query.vehicleID = vehicleID;
+    }
+
+    if (isActive !== undefined) {
+      query.isActive = isActive === 'true';
+    }
+
+    // Pagination
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 10;
+    const skip = (pageNum - 1) * limitNum;
+
+    // Sort
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Get routes with FULL population
+    const routes = await Route.find(query)
+      .populate('vehicleID', 'carName brand model vehicleNumber') // Get full vehicle details
+      .populate('fromCity', 'cityName state pincode isActive') // Get full from city details
+      .populate('toCity', 'cityName state pincode isActive') // Get full to city details
+      .sort(sort)
+      .skip(skip)
+      .limit(limitNum);
+
+    // Get total count
+    const total = await Route.countDocuments(query);
+
+    res.json({
+      success: true,
+      message: 'Routes fetched successfully',
+      data: routes,
+      pagination: {
+        currentPage: pageNum,
+        totalPages: Math.ceil(total / limitNum),
+        totalItems: total,
+        itemsPerPage: limitNum,
+        hasNextPage: pageNum < Math.ceil(total / limitNum),
+        hasPrevPage: pageNum > 1
+      }
+    });
+
+  } catch (error) {
+    console.error('Get routes error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching routes',
+      error: error.message
+    });
+  }
+});
 
 
 // ============= CREATE ROUTE =============

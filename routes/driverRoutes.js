@@ -282,6 +282,354 @@ router.post('/verify-otp', async (req, res) => {
 
 
 
+// drivers list specific dates api needed
+/**
+ * @route   GET /api/drivers/availability/date-wise
+ * @desc    Get drivers with their availability status for specific dates
+ * @access  Public/Admin (can be used by both)
+ */
+router.get('/availability/date-wise', async (req, res) => {
+  try {
+    const { 
+      date, 
+      startDate, 
+      endDate, 
+      driverId,
+      includeDetails = 'true',
+      status // 'busy', 'available', 'all'
+    } = req.query;
+
+    // Validate at least one date parameter
+    if (!date && !startDate && !endDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide either date or startDate/endDate parameters',
+        example: '/api/drivers/availability/date-wise?date=2024-03-24'
+      });
+    }
+
+    // Build date filter
+    let dateFilter = {};
+    let dateRange = {};
+
+    if (date) {
+      // Single date filter
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      
+      dateFilter = {
+        $or: [
+          { createdAt: { $gte: startOfDay, $lte: endOfDay } },
+          { updatedAt: { $gte: startOfDay, $lte: endOfDay } }
+        ]
+      };
+      
+      dateRange = {
+        start: startOfDay,
+        end: endOfDay,
+        type: 'single'
+      };
+    } else if (startDate || endDate) {
+      // Date range filter
+      const start = startDate ? new Date(startDate) : new Date(0);
+      const end = endDate ? new Date(endDate) : new Date();
+      end.setHours(23, 59, 59, 999);
+      
+      dateFilter = {
+        $or: [
+          { createdAt: { $gte: start, $lte: end } },
+          { updatedAt: { $gte: start, $lte: end } }
+        ]
+      };
+      
+      dateRange = {
+        start: start,
+        end: end,
+        type: 'range'
+      };
+    }
+
+    // Get all drivers (active and verified)
+    const driverQuery = { isActive: true };
+    if (driverId) driverQuery._id = driverId;
+    
+    const drivers = await Driver.find(driverQuery)
+      .select('-refreshToken -__v')
+      .sort({ driverName: 1 });
+
+    // Get all bookings for the date range
+    const hourlyBookings = await HourlyBooking.find({
+      ...dateFilter,
+      driverID: { $ne: null, $ne: '' }
+    });
+
+    const normalBookings = await Booking.find({
+      ...dateFilter,
+      driverID: { $ne: null }
+    });
+
+    // Map driver availability
+    const driverAvailability = await Promise.all(drivers.map(async (driver) => {
+      const driverIdStr = driver._id.toString();
+      
+      // Find bookings for this driver
+      const driverHourlyBookings = hourlyBookings.filter(b => 
+        b.driverID === driverIdStr || b.driverID === driver._id
+      );
+      
+      const driverNormalBookings = normalBookings.filter(b => 
+        b.driverID && b.driverID.toString() === driverIdStr
+      );
+      
+      const allDriverBookings = [...driverHourlyBookings, ...driverNormalBookings];
+      
+      // Calculate availability status
+      const isBusyFromBookings = allDriverBookings.some(booking => 
+        booking.bookingStatus === 'confirmed' || 
+        booking.bookingStatus === 'in-progress' ||
+        booking.bookingStatus === 'assigned' ||
+        booking.bookingStatus === 'starttracking'
+      );
+      
+      const isBusy = driver.isBusy || isBusyFromBookings;
+      
+      // Get active booking details
+      const activeBooking = allDriverBookings.find(booking => 
+        booking.bookingStatus === 'confirmed' || 
+        booking.bookingStatus === 'in-progress' ||
+        booking.bookingStatus === 'assigned' ||
+        booking.bookingStatus === 'starttracking'
+      );
+      
+      // Calculate total bookings count
+      const totalBookings = allDriverBookings.length;
+      const completedBookings = allDriverBookings.filter(b => 
+        b.bookingStatus === 'completed'
+      ).length;
+      
+      // Calculate total earnings
+      const totalEarnings = allDriverBookings.reduce((sum, b) => 
+        sum + (b.charge || 0), 0
+      );
+      
+      // Calculate busy hours (for hourly bookings only)
+      const busyHours = driverHourlyBookings.reduce((sum, b) => 
+        sum + (b.hours || 0), 0
+      );
+      
+      const availability = {
+        status: isBusy ? 'busy' : 'available',
+        isBusy: isBusy,
+        isActive: driver.isActive,
+        isVerified: driver.isVerified,
+        currentBusyStatus: driver.isBusy,
+        hasActiveBooking: !!activeBooking
+      };
+      
+      // Build response based on includeDetails flag
+      const driverInfo = {
+        _id: driver._id,
+        driverName: driver.driverName,
+        phoneNumber: driver.phoneNumber,
+        countryCode: driver.countryCode,
+        licenseNumber: driver.licenseNumber,
+        rating: driver.rating,
+        totalTrips: driver.totalTrips,
+        earnings: driver.earnings,
+        profileImage: driver.profileImage
+      };
+      
+      const response = {
+        driver: includeDetails === 'true' ? driverInfo : { 
+          _id: driver._id, 
+          driverName: driver.driverName,
+          phoneNumber: driver.phoneNumber
+        },
+        availability,
+        stats: {
+          totalBookings,
+          completedBookings,
+          cancelledBookings: allDriverBookings.filter(b => 
+            b.bookingStatus === 'cancelled'
+          ).length,
+          pendingBookings: allDriverBookings.filter(b => 
+            b.bookingStatus === 'pending'
+          ).length,
+          totalEarnings,
+          busyHours: busyHours
+        }
+      };
+      
+      // Add active booking details if exists and includeDetails is true
+      if (activeBooking && includeDetails === 'true') {
+        response.activeBooking = {
+          id: activeBooking._id,
+          type: activeBooking.hours ? 'hourly' : 'normal',
+          status: activeBooking.bookingStatus,
+          charge: activeBooking.charge,
+          ...(activeBooking.hours && { hours: activeBooking.hours }),
+          ...(activeBooking.pickupAdddress && { pickupAddress: activeBooking.pickupAdddress }),
+          ...(activeBooking.pickupAddress && { pickupAddress: activeBooking.pickupAddress }),
+          ...(activeBooking.dropOffAddress && { dropOffAddress: activeBooking.dropOffAddress }),
+          customerID: activeBooking.customerID,
+          createdAt: activeBooking.createdAt
+        };
+      }
+      
+      return response;
+    }));
+    
+    // Filter by status if requested
+    let filteredDrivers = driverAvailability;
+    if (status && status !== 'all') {
+      filteredDrivers = driverAvailability.filter(d => 
+        d.availability.status === status
+      );
+    }
+    
+    // Calculate summary statistics
+    const summary = {
+      totalDrivers: drivers.length,
+      totalBusyDrivers: driverAvailability.filter(d => d.availability.isBusy).length,
+      totalAvailableDrivers: driverAvailability.filter(d => !d.availability.isBusy).length,
+      totalActiveDrivers: driverAvailability.filter(d => d.availability.isActive).length,
+      totalVerifiedDrivers: driverAvailability.filter(d => d.availability.isVerified).length,
+      totalBookings: driverAvailability.reduce((sum, d) => sum + d.stats.totalBookings, 0),
+      totalEarnings: driverAvailability.reduce((sum, d) => sum + d.stats.totalEarnings, 0),
+      totalBusyHours: driverAvailability.reduce((sum, d) => sum + d.stats.busyHours, 0)
+    };
+    
+    // Group by availability status
+    const groupedByStatus = {
+      busy: driverAvailability.filter(d => d.availability.status === 'busy'),
+      available: driverAvailability.filter(d => d.availability.status === 'available')
+    };
+    
+    res.status(200).json({
+      success: true,
+      dateRange,
+      filters: { date, startDate, endDate, driverId, includeDetails, status },
+      summary,
+      groupedByStatus,
+      data: filteredDrivers
+    });
+    
+  } catch (error) {
+    console.error('Error getting driver availability:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching driver availability',
+      error: error.message
+    });
+  }
+});
+
+
+
+// GET - Get drivers with their hourly bookings for a specific date
+router.get('/drivers/hourly-bookings', async (req, res) => {
+  try {
+    const { date, driverId, status, startDate, endDate } = req.query;
+    
+    let dateFilter = {};
+    
+    if (date) {
+      // Single date filter
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      
+      dateFilter.createdAt = {
+        $gte: startOfDay,
+        $lte: endOfDay
+      };
+    } else if (startDate || endDate) {
+      // Date range filter
+      dateFilter.createdAt = {};
+      if (startDate) dateFilter.createdAt.$gte = new Date(startDate);
+      if (endDate) dateFilter.createdAt.$lte = new Date(endDate);
+    }
+    
+    // Build hourly booking filter
+    const hourlyFilter = { ...dateFilter };
+    if (driverId) hourlyFilter.driverID = driverId;
+    if (status) hourlyFilter.bookingStatus = status;
+    
+    // Get hourly bookings
+    const hourlyBookings = await HourlyBooking.find(hourlyFilter)
+      .sort({ createdAt: -1 });
+    
+    // Group by driver
+    const bookingsByDriver = {};
+    
+    for (const booking of hourlyBookings) {
+      const driverIdStr = booking.driverID;
+      if (!driverIdStr || driverIdStr === 'null') continue;
+      
+      if (!bookingsByDriver[driverIdStr]) {
+        // Get driver details
+        const driver = await Driver.findById(driverIdStr);
+        if (driver) {
+          bookingsByDriver[driverIdStr] = {
+            driver: driver.getPublicProfile(),
+            bookings: [],
+            stats: {
+              totalBookings: 0,
+              totalEarnings: 0,
+              totalHours: 0,
+              byStatus: {}
+            }
+          };
+        }
+      }
+      
+      if (bookingsByDriver[driverIdStr]) {
+        bookingsByDriver[driverIdStr].bookings.push(booking);
+        bookingsByDriver[driverIdStr].stats.totalBookings++;
+        bookingsByDriver[driverIdStr].stats.totalEarnings += booking.charge || 0;
+        bookingsByDriver[driverIdStr].stats.totalHours += booking.hours || 0;
+        
+        // Status breakdown
+        const statusKey = booking.bookingStatus;
+        if (!bookingsByDriver[driverIdStr].stats.byStatus[statusKey]) {
+          bookingsByDriver[driverIdStr].stats.byStatus[statusKey] = 0;
+        }
+        bookingsByDriver[driverIdStr].stats.byStatus[statusKey]++;
+      }
+    }
+    
+    const result = Object.values(bookingsByDriver);
+    
+    // Calculate totals
+    const totals = {
+      totalDrivers: result.length,
+      totalBookings: hourlyBookings.length,
+      totalEarnings: result.reduce((sum, d) => sum + d.stats.totalEarnings, 0),
+      totalHours: result.reduce((sum, d) => sum + d.stats.totalHours, 0)
+    };
+    
+    res.status(200).json({
+      success: true,
+      filters: { date, startDate, endDate, driverId, status },
+      totals,
+      data: result
+    });
+    
+  } catch (error) {
+    console.error('Error getting drivers hourly bookings:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+})
+
+
+
+
 
 // Mark booking as completed by driver
 router.post('/complete-booking/tracking', authenticateDriver, async (req, res) => {
@@ -953,299 +1301,166 @@ router.get('/profile/me', verifyDriverToken, async (req, res) => {
 });
 
 
-
-
-router.put('/:id', authenticateToken, authorizeAdmin, upload.fields([
-  { name: 'profileImage', maxCount: 1 },
-  { name: 'licenseImage', maxCount: 1 }
-]), async (req, res) => {
-  console.log('🔍 Updating driver with ID:', req.params.id);
-  console.log('Request body:', req.body);
-  console.log('Request files:', req.files);
-  
-  try {
-    const { id } = req.params;
-    
-    // Check if ID is valid MongoDB ObjectId
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      // Delete uploaded files if ID is invalid
-      if (req.files) {
-        if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key);
-        if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key);
-      }
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid driver ID format' 
-      });
-    }
-
-    // Find existing driver
-    const existingDriver = await Driver.findById(id);
-    
-    if (!existingDriver) {
-      // Delete uploaded files if driver not found
-      if (req.files) {
-        if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key);
-        if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key);
-      }
-      return res.status(404).json({
-        success: false,
-        message: 'Driver not found'
-      });
-    }
-
-    // Extract fields from request body
-    const { 
-      driverName, 
-      phoneNumber,
-      countryCode,
-      licenseNumber,
-      isActive,
-      isVerified,
-      rating
-    } = req.body;
-
-    // Check phone number uniqueness if being updated
-    if (phoneNumber && (phoneNumber !== existingDriver.phoneNumber || 
-        (countryCode && countryCode !== existingDriver.countryCode))) {
-      
-      const phoneQuery = countryCode 
-        ? { phoneNumber, countryCode }
-        : { phoneNumber, countryCode: existingDriver.countryCode };
-      
-      const existingPhoneDriver = await Driver.findOne({
-        ...phoneQuery,
-        _id: { $ne: id }
-      });
-      
-      if (existingPhoneDriver) {
-        // Delete uploaded files
-        if (req.files) {
-          if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key);
-          if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Phone number already in use by another driver'
-        });
-      }
-    }
-
-    // Check license number uniqueness if being updated
-    if (licenseNumber && licenseNumber !== existingDriver.licenseNumber) {
-      const existingLicenseDriver = await Driver.findOne({
-        licenseNumber,
-        _id: { $ne: id }
-      });
-      
-      if (existingLicenseDriver) {
-        // Delete uploaded files
-        if (req.files) {
-          if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key);
-          if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'License number already in use by another driver'
-        });
-      }
-    }
-
-    // Update basic fields
-    const updateData = {};
-    
-    if (driverName) updateData.driverName = driverName;
-    if (phoneNumber) updateData.phoneNumber = phoneNumber;
-    if (countryCode) updateData.countryCode = countryCode;
-    if (licenseNumber) updateData.licenseNumber = licenseNumber;
-    if (isActive !== undefined) updateData.isActive = isActive === 'true' || isActive === true;
-    if (isVerified !== undefined) updateData.isVerified = isVerified === 'true' || isVerified === true;
-    if (rating !== undefined && !isNaN(parseFloat(rating))) {
-      updateData.rating = parseFloat(rating);
-    }
-
-    // Handle profile image update
-    if (req.files && req.files.profileImage && req.files.profileImage[0]) {
-      try {
-        // Delete old profile image from S3 if it exists
-        if (existingDriver.profileImage?.key) {
-          await deleteFromS3(existingDriver.profileImage.key).catch(err => 
-            console.error('Error deleting old profile image:', err)
-          );
-        }
-        
-        // Set new profile image
-        updateData.profileImage = {
-          key: req.files.profileImage[0].key,
-          url: getS3Url(req.files.profileImage[0].key),
-          originalName: req.files.profileImage[0].originalname,
-          mimeType: req.files.profileImage[0].mimetype,
-          size: req.files.profileImage[0].size
-        };
-      } catch (imageError) {
-        console.error('Error processing profile image:', imageError);
-      }
-    }
-
-    // Handle license image update
-    if (req.files && req.files.licenseImage && req.files.licenseImage[0]) {
-      try {
-        // Delete old license image from S3 if it exists
-        if (existingDriver.licenseImage?.key) {
-          await deleteFromS3(existingDriver.licenseImage.key).catch(err => 
-            console.error('Error deleting old license image:', err)
-          );
-        }
-        
-        // Set new license image
-        updateData.licenseImage = {
-          key: req.files.licenseImage[0].key,
-          url: getS3Url(req.files.licenseImage[0].key),
-          originalName: req.files.licenseImage[0].originalname,
-          mimeType: req.files.licenseImage[0].mimetype,
-          size: req.files.licenseImage[0].size
-        };
-      } catch (imageError) {
-        console.error('Error processing license image:', imageError);
-      }
-    }
-
-    // Update the driver
-    const updatedDriver = await Driver.findByIdAndUpdate(
-      id,
-      { $set: updateData },
-      { new: true, runValidators: true }
-    ).select('-refreshToken -__v');
-
-    console.log('Driver updated successfully:', updatedDriver._id);
-
-    res.status(200).json({
-      success: true,
-      message: 'Driver updated successfully',
-      data: updatedDriver
-    });
-
-  } catch (error) {
-    console.error('Update driver error:', error);
-    
-    // Clean up uploaded files if error occurs
-    if (req.files) {
-      if (req.files.profileImage) {
-        await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
-      }
-      if (req.files.licenseImage) {
-        await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
-      }
-    }
-
-    // Handle validation errors
-    if (error.name === 'ValidationError') {
-      const errors = {};
-      for (let field in error.errors) {
-        errors[field] = error.errors[field].message;
-      }
-      return res.status(400).json({
-        success: false,
-        message: 'Validation error',
-        errors: errors
-      });
-    }
-
-    // Handle duplicate key error
-    if (error.code === 11000) {
-      const field = Object.keys(error.keyPattern)[0];
-      return res.status(400).json({
-        success: false,
-        message: `Driver with this ${field} already exists`,
-        field: field
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Error updating driver',
-      error: error.message
-    });
-  }
-});
-
-
-
-
-/**
- * @route   POST /api/drivers/register
- * @desc    Register a new driver with profile and license images
- * @access  Public (requires OTP verification via phone)
- */
-router.post('/register', authenticateToken,authorizeAdmin,
+router.post('/register',
+  authenticateToken,
+  authorizeAdmin,
   upload.fields([
     { name: 'profileImage', maxCount: 1 },
     { name: 'licenseImage', maxCount: 1 }
-  ]), 
+  ]),
   async (req, res) => {
     try {
-      const { 
-        driverName, 
+      console.log('📝 Create driver request received');
+      console.log('Body:', req.body);
+      console.log('Files:', req.files ? Object.keys(req.files) : 'No files');
+
+      const {
+        driverName,
         phoneNumber,
         countryCode = '+966',
         licenseNumber,
-        isVerified = false
+        isVerified = false,
+        isActive = true,
+        rating = 0,
+        totalTrips = 0,
+        earnings = 0
       } = req.body;
 
       // Validate required fields
-      if (!driverName || !phoneNumber || !licenseNumber) {
+      const missingFields = [];
+      if (!driverName) missingFields.push('driverName');
+      if (!phoneNumber) missingFields.push('phoneNumber');
+      if (!licenseNumber) missingFields.push('licenseNumber');
+
+      if (missingFields.length > 0) {
         if (req.files) {
-          if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key);
-          if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key);
+          if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+          if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
         }
+
         return res.status(400).json({
           success: false,
-          message: 'Please provide driverName, phoneNumber, and licenseNumber'
+          message: `Missing required fields: ${missingFields.join(', ')}`
         });
       }
 
-      // Check if driver already exists
-      const existingDriver = await Driver.findOne({ 
+      // Clean inputs
+      const cleanPhoneNumber = phoneNumber.toString().trim();
+      const cleanLicenseNumber = licenseNumber.toString().trim();
+      const cleanDriverName = driverName.toString().trim();
+
+      // Validate phone number format
+      const phoneRegex = /^[0-9]{9,15}$/;
+      if (!phoneRegex.test(cleanPhoneNumber)) {
+        if (req.files) {
+          if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+          if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+        }
+
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid phone number format. Must be 9-15 digits.',
+          field: 'phoneNumber'
+        });
+      }
+
+      // Validate license number
+      if (cleanLicenseNumber.length < 3) {
+        if (req.files) {
+          if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+          if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+        }
+
+        return res.status(400).json({
+          success: false,
+          message: 'License number must be at least 3 characters long',
+          field: 'licenseNumber'
+        });
+      }
+
+      // ========== CRITICAL: First, delete all null license records ==========
+      const nullLicenseResult = await Driver.deleteMany({
         $or: [
-          { phoneNumber, countryCode },
-          { licenseNumber }
+          { licenseNumber: null },
+          { licenseNumber: { $exists: false } },
+          { licenseNumber: "" },
+          { licenseNumber: "null" },
+          { licenseNumber: "undefined" },
+          { licenseNumber: /^\s*$/ }
         ]
       });
       
-      if (existingDriver) {
+      if (nullLicenseResult.deletedCount > 0) {
+        console.log(`🗑️ Deleted ${nullLicenseResult.deletedCount} drivers with null/empty licenses`);
+      }
+      // ========== END CLEANUP ==========
+
+      // Check for existing driver with same license number
+      const existingDriverByLicense = await Driver.findOne({
+        licenseNumber: cleanLicenseNumber
+      });
+
+      if (existingDriverByLicense) {
         if (req.files) {
-          if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key);
-          if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key);
+          if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+          if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
         }
-        
-        let duplicateField = 'phone number';
-        if (existingDriver.licenseNumber === licenseNumber) {
-          duplicateField = 'license number';
-        }
-        
+
         return res.status(400).json({
           success: false,
-          message: `Driver with this ${duplicateField} already exists`
+          message: `Driver with license number "${cleanLicenseNumber}" already exists`,
+          field: 'licenseNumber',
+          existingDriver: {
+            id: existingDriverByLicense._id,
+            name: existingDriverByLicense.driverName,
+            phone: existingDriverByLicense.phoneNumber
+          }
         });
       }
 
-      // Check if license image is uploaded (required)
-      if (!req.files || !req.files.licenseImage) {
-        if (req.files && req.files.profileImage) {
-          await deleteFromS3(req.files.profileImage[0].key);
+      // Check for existing driver with same phone number
+      const existingDriverByPhone = await Driver.findOne({
+        phoneNumber: cleanPhoneNumber,
+        countryCode
+      });
+
+      if (existingDriverByPhone) {
+        if (req.files) {
+          if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+          if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
         }
+
         return res.status(400).json({
           success: false,
-          message: 'License image is required'
+          message: `Driver with phone number ${countryCode}${cleanPhoneNumber} already exists`,
+          field: 'phoneNumber',
+          existingDriver: {
+            id: existingDriverByPhone._id,
+            name: existingDriverByPhone.driverName,
+            license: existingDriverByPhone.licenseNumber
+          }
+        });
+      }
+
+      // Check if license image is uploaded
+      if (!req.files || !req.files.licenseImage || req.files.licenseImage.length === 0) {
+        if (req.files && req.files.profileImage && req.files.profileImage[0]) {
+          await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+        }
+
+        return res.status(400).json({
+          success: false,
+          message: 'License image is required',
+          field: 'licenseImage'
         });
       }
 
       // Prepare driver data
       const driverData = {
-        driverName,
-        countryCode,
-        phoneNumber,
-        licenseNumber,
+        driverName: cleanDriverName,
+        countryCode: countryCode.trim(),
+        phoneNumber: cleanPhoneNumber,
+        licenseNumber: cleanLicenseNumber, // Make sure this is never null
         licenseImage: {
           key: req.files.licenseImage[0].key,
           url: getS3Url(req.files.licenseImage[0].key),
@@ -1253,8 +1468,11 @@ router.post('/register', authenticateToken,authorizeAdmin,
           mimeType: req.files.licenseImage[0].mimetype,
           size: req.files.licenseImage[0].size
         },
-        profileImage: null,
-        isVerified: isVerified === 'true' || isVerified === true
+        isVerified: isVerified === 'true' || isVerified === true,
+        isActive: isActive === 'true' || isActive === true,
+        rating: parseFloat(rating) || 0,
+        totalTrips: parseInt(totalTrips) || 0,
+        earnings: parseFloat(earnings) || 0
       };
 
       // Add profile image if uploaded
@@ -1268,11 +1486,21 @@ router.post('/register', authenticateToken,authorizeAdmin,
         };
       }
 
+      console.log('Creating new driver with data:', {
+        driverName: driverData.driverName,
+        phoneNumber: driverData.phoneNumber,
+        licenseNumber: driverData.licenseNumber,
+        hasProfileImage: !!driverData.profileImage,
+        hasLicenseImage: true
+      });
+
       // Create new driver
       const newDriver = new Driver(driverData);
       const savedDriver = await newDriver.save();
 
-      // Generate tokens
+      console.log('✅ Driver created successfully:', savedDriver._id);
+
+      // Generate tokens for the new driver
       const accessToken = generateAccessToken(savedDriver);
       const refreshToken = generateRefreshToken(savedDriver);
 
@@ -1283,7 +1511,7 @@ router.post('/register', authenticateToken,authorizeAdmin,
 
       res.status(201).json({
         success: true,
-        message: 'Driver registered successfully',
+        message: 'Driver created successfully',
         data: {
           driver: driverProfile,
           tokens: {
@@ -1294,36 +1522,897 @@ router.post('/register', authenticateToken,authorizeAdmin,
           }
         }
       });
+
     } catch (error) {
+      console.error('❌ Create driver error:', error);
+
       // Delete uploaded files if error occurs
       if (req.files) {
-        if (req.files.profileImage) {
+        if (req.files.profileImage && req.files.profileImage[0]) {
           await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
         }
-        if (req.files.licenseImage) {
+        if (req.files.licenseImage && req.files.licenseImage[0]) {
           await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
         }
       }
 
-      console.error('Register driver error:', error);
-      
+      // Handle duplicate key error
       if (error.code === 11000) {
         const field = Object.keys(error.keyPattern)[0];
+        
+        // Special message for license field
+        if (field === 'licenseNumber') {
+          return res.status(400).json({
+            success: false,
+            message: 'License number already exists. Please use a different license number.',
+            field: 'licenseNumber',
+            errorCode: 'DUPLICATE_LICENSE',
+            suggestion: 'Use a unique license number or contact admin to clean up old records'
+          });
+        }
+        
+        if (field === 'phoneNumber') {
+          return res.status(400).json({
+            success: false,
+            message: 'Phone number already exists. Please use a different phone number.',
+            field: 'phoneNumber',
+            errorCode: 'DUPLICATE_PHONE'
+          });
+        }
+
         return res.status(400).json({
           success: false,
           message: `Driver with this ${field} already exists`,
-          field: field
+          field: field,
+          errorCode: 'DUPLICATE_KEY'
+        });
+      }
+
+      // Handle validation errors
+      if (error.name === 'ValidationError') {
+        const errors = {};
+        for (let field in error.errors) {
+          errors[field] = error.errors[field].message;
+        }
+
+        return res.status(400).json({
+          success: false,
+          message: 'Validation error',
+          errors: errors,
+          errorCode: 'VALIDATION_ERROR'
         });
       }
 
       res.status(500).json({
         success: false,
-        message: 'Error registering driver',
-        error: error.message
+        message: 'Error creating driver',
+        error: error.message,
+        errorCode: 'SERVER_ERROR'
       });
     }
   }
 );
+
+// ============= UPDATE DRIVER (PUT) =============
+
+router.put('/:id',
+  authenticateToken,
+  authorizeAdmin,
+  upload.fields([
+    { name: 'profileImage', maxCount: 1 },
+    { name: 'licenseImage', maxCount: 1 }
+  ]),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log(`📝 Update driver request for ID: ${id}`);
+      console.log('Body:', req.body);
+      console.log('Files:', req.files ? Object.keys(req.files) : 'No files');
+
+      // Validate ID format
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        if (req.files) {
+          if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+          if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+        }
+
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid driver ID format'
+        });
+      }
+
+      // Find existing driver
+      const existingDriver = await Driver.findById(id);
+      if (!existingDriver) {
+        if (req.files) {
+          if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+          if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+        }
+
+        return res.status(404).json({
+          success: false,
+          message: 'Driver not found'
+        });
+      }
+
+      // Extract fields from request body
+      const {
+        driverName,
+        phoneNumber,
+        countryCode,
+        licenseNumber,
+        isVerified,
+        isActive,
+        isBusy,
+        rating,
+        totalTrips,
+        earnings
+      } = req.body;
+
+      // Prepare update data
+      const updateData = {};
+
+      // Update driver name if provided
+      if (driverName && driverName !== existingDriver.driverName) {
+        updateData.driverName = driverName.toString().trim();
+      }
+
+      // Update country code if provided
+      if (countryCode && countryCode !== existingDriver.countryCode) {
+        updateData.countryCode = countryCode.trim();
+      }
+
+      // Update phone number if provided
+      if (phoneNumber && phoneNumber !== existingDriver.phoneNumber) {
+        const cleanPhoneNumber = phoneNumber.toString().trim();
+        
+        // Validate phone number format
+        const phoneRegex = /^[0-9]{9,15}$/;
+        if (!phoneRegex.test(cleanPhoneNumber)) {
+          if (req.files) {
+            if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+            if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+          }
+
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid phone number format. Must be 9-15 digits.',
+            field: 'phoneNumber'
+          });
+        }
+
+        // Check if new phone number already exists
+        const phoneExists = await Driver.findOne({
+          phoneNumber: cleanPhoneNumber,
+          countryCode: updateData.countryCode || existingDriver.countryCode,
+          _id: { $ne: id }
+        });
+
+        if (phoneExists) {
+          if (req.files) {
+            if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+            if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+          }
+
+          return res.status(400).json({
+            success: false,
+            message: `Phone number ${updateData.countryCode || existingDriver.countryCode}${cleanPhoneNumber} is already in use by driver: ${phoneExists.driverName}`,
+            field: 'phoneNumber'
+          });
+        }
+
+        updateData.phoneNumber = cleanPhoneNumber;
+      }
+
+      // Update license number if provided
+      if (licenseNumber && licenseNumber !== existingDriver.licenseNumber) {
+        const cleanLicenseNumber = licenseNumber.toString().trim();
+
+        if (cleanLicenseNumber.length < 3) {
+          if (req.files) {
+            if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+            if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+          }
+
+          return res.status(400).json({
+            success: false,
+            message: 'License number must be at least 3 characters long',
+            field: 'licenseNumber'
+          });
+        }
+
+        // Check if new license number already exists
+        const licenseExists = await Driver.findOne({
+          licenseNumber: cleanLicenseNumber,
+          _id: { $ne: id }
+        });
+
+        if (licenseExists) {
+          if (req.files) {
+            if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+            if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+          }
+
+          return res.status(400).json({
+            success: false,
+            message: `License number "${cleanLicenseNumber}" is already in use by driver: ${licenseExists.driverName}`,
+            field: 'licenseNumber'
+          });
+        }
+
+        updateData.licenseNumber = cleanLicenseNumber;
+      }
+
+      // Update boolean fields
+      if (isVerified !== undefined) {
+        updateData.isVerified = isVerified === 'true' || isVerified === true;
+      }
+
+      if (isActive !== undefined) {
+        updateData.isActive = isActive === 'true' || isActive === true;
+      }
+
+      if (isBusy !== undefined) {
+        updateData.isBusy = isBusy === 'true' || isBusy === true;
+      }
+
+      // Update numeric fields
+      if (rating !== undefined && !isNaN(parseFloat(rating))) {
+        const newRating = parseFloat(rating);
+        if (newRating >= 0 && newRating <= 5) {
+          updateData.rating = newRating;
+        }
+      }
+
+      if (totalTrips !== undefined && !isNaN(parseInt(totalTrips))) {
+        updateData.totalTrips = parseInt(totalTrips);
+      }
+
+      if (earnings !== undefined && !isNaN(parseFloat(earnings))) {
+        updateData.earnings = parseFloat(earnings);
+      }
+
+      // Handle profile image update
+      if (req.files && req.files.profileImage && req.files.profileImage[0]) {
+        try {
+          // Delete old profile image from S3 if exists
+          if (existingDriver.profileImage?.key) {
+            await deleteFromS3(existingDriver.profileImage.key).catch(err =>
+              console.error('Error deleting old profile image:', err)
+            );
+          }
+
+          // Set new profile image
+          updateData.profileImage = {
+            key: req.files.profileImage[0].key,
+            url: getS3Url(req.files.profileImage[0].key),
+            originalName: req.files.profileImage[0].originalname,
+            mimeType: req.files.profileImage[0].mimetype,
+            size: req.files.profileImage[0].size
+          };
+          console.log('🖼️ Profile image updated');
+        } catch (imageError) {
+          console.error('Error processing profile image:', imageError);
+        }
+      }
+
+      // Handle license image update
+      if (req.files && req.files.licenseImage && req.files.licenseImage[0]) {
+        try {
+          // Delete old license image from S3 if exists
+          if (existingDriver.licenseImage?.key) {
+            await deleteFromS3(existingDriver.licenseImage.key).catch(err =>
+              console.error('Error deleting old license image:', err)
+            );
+          }
+
+          // Set new license image
+          updateData.licenseImage = {
+            key: req.files.licenseImage[0].key,
+            url: getS3Url(req.files.licenseImage[0].key),
+            originalName: req.files.licenseImage[0].originalname,
+            mimeType: req.files.licenseImage[0].mimetype,
+            size: req.files.licenseImage[0].size
+          };
+          console.log('📄 License image updated');
+        } catch (imageError) {
+          console.error('Error processing license image:', imageError);
+        }
+      }
+
+      // Check if there's anything to update
+      if (Object.keys(updateData).length === 0) {
+        if (req.files) {
+          if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+          if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+        }
+
+        return res.status(400).json({
+          success: false,
+          message: 'No valid fields to update'
+        });
+      }
+
+      console.log('Updating driver with data:', updateData);
+
+      // Update the driver
+      const updatedDriver = await Driver.findByIdAndUpdate(
+        id,
+        { $set: updateData },
+        { new: true, runValidators: true }
+      ).select('-refreshToken -__v');
+
+      if (!updatedDriver) {
+        return res.status(404).json({
+          success: false,
+          message: 'Driver not found after update'
+        });
+      }
+
+      console.log('✅ Driver updated successfully:', updatedDriver._id);
+
+      res.status(200).json({
+        success: true,
+        message: 'Driver updated successfully',
+        data: updatedDriver
+      });
+
+    } catch (error) {
+      console.error('❌ Update driver error:', error);
+
+      // Delete uploaded files if error occurs
+      if (req.files) {
+        if (req.files.profileImage && req.files.profileImage[0]) {
+          await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+        }
+        if (req.files.licenseImage && req.files.licenseImage[0]) {
+          await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+        }
+      }
+
+      // Handle duplicate key error
+      if (error.code === 11000) {
+        const field = Object.keys(error.keyPattern)[0];
+        let fieldName = field === 'phoneNumber' ? 'phone number' : field;
+
+        return res.status(400).json({
+          success: false,
+          message: `Driver with this ${fieldName} already exists`,
+          field: field,
+          errorCode: 'DUPLICATE_KEY'
+        });
+      }
+
+      // Handle validation errors
+      if (error.name === 'ValidationError') {
+        const errors = {};
+        for (let field in error.errors) {
+          errors[field] = error.errors[field].message;
+        }
+
+        return res.status(400).json({
+          success: false,
+          message: 'Validation error',
+          errors: errors,
+          errorCode: 'VALIDATION_ERROR'
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        message: 'Error updating driver',
+        error: error.message,
+        errorCode: 'SERVER_ERROR'
+      });
+    }
+  }
+);
+
+
+
+
+
+router.get('/debug/all-licenses', async (req, res) => {
+  try {
+    const drivers = await Driver.find({}, 'driverName phoneNumber licenseNumber isActive');
+    
+    console.log('All drivers in database:');
+    drivers.forEach(driver => {
+      console.log(`- ${driver.driverName}: ${driver.licenseNumber}`);
+    });
+    
+    res.status(200).json({
+      success: true,
+      totalDrivers: drivers.length,
+      drivers: drivers.map(d => ({
+        id: d._id,
+        name: d.driverName,
+        phone: d.phoneNumber,
+        licenseNumber: d.licenseNumber,
+        isActive: d.isActive
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+
+
+// router.put('/:id', authenticateToken, authorizeAdmin, upload.fields([
+//   { name: 'profileImage', maxCount: 1 },
+//   { name: 'licenseImage', maxCount: 1 }
+// ]), async (req, res) => {
+//   console.log('🔍 Updating driver with ID:', req.params.id);
+//   console.log('Request body:', req.body);
+//   console.log('Request files:', req.files);
+  
+//   try {
+//     const { id } = req.params;
+    
+//     // Check if ID is valid MongoDB ObjectId
+//     if (!mongoose.Types.ObjectId.isValid(id)) {
+//       // Delete uploaded files if ID is invalid
+//       if (req.files) {
+//         if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key);
+//         if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key);
+//       }
+//       return res.status(400).json({ 
+//         success: false, 
+//         message: 'Invalid driver ID format' 
+//       });
+//     }
+
+//     // Find existing driver
+//     const existingDriver = await Driver.findById(id);
+    
+//     if (!existingDriver) {
+//       // Delete uploaded files if driver not found
+//       if (req.files) {
+//         if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key);
+//         if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key);
+//       }
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Driver not found'
+//       });
+//     }
+
+//     // Extract fields from request body
+//     const { 
+//       driverName, 
+//       phoneNumber,
+//       countryCode,
+//       licenseNumber,
+//       isActive,
+//       isVerified,
+//       rating
+//     } = req.body;
+
+//     // Check phone number uniqueness if being updated
+//     if (phoneNumber && (phoneNumber !== existingDriver.phoneNumber || 
+//         (countryCode && countryCode !== existingDriver.countryCode))) {
+      
+//       const phoneQuery = countryCode 
+//         ? { phoneNumber, countryCode }
+//         : { phoneNumber, countryCode: existingDriver.countryCode };
+      
+//       const existingPhoneDriver = await Driver.findOne({
+//         ...phoneQuery,
+//         _id: { $ne: id }
+//       });
+      
+//       if (existingPhoneDriver) {
+//         // Delete uploaded files
+//         if (req.files) {
+//           if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key);
+//           if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key);
+//         }
+//         return res.status(400).json({
+//           success: false,
+//           message: 'Phone number already in use by another driver'
+//         });
+//       }
+//     }
+
+//     // Check license number uniqueness if being updated
+//     if (licenseNumber && licenseNumber !== existingDriver.licenseNumber) {
+//       const existingLicenseDriver = await Driver.findOne({
+//         licenseNumber,
+//         _id: { $ne: id }
+//       });
+      
+//       if (existingLicenseDriver) {
+//         // Delete uploaded files
+//         if (req.files) {
+//           if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key);
+//           if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key);
+//         }
+//         return res.status(400).json({
+//           success: false,
+//           message: 'License number already in use by another driver'
+//         });
+//       }
+//     }
+
+//     // Update basic fields
+//     const updateData = {};
+    
+//     if (driverName) updateData.driverName = driverName;
+//     if (phoneNumber) updateData.phoneNumber = phoneNumber;
+//     if (countryCode) updateData.countryCode = countryCode;
+//     if (licenseNumber) updateData.licenseNumber = licenseNumber;
+//     if (isActive !== undefined) updateData.isActive = isActive === 'true' || isActive === true;
+//     if (isVerified !== undefined) updateData.isVerified = isVerified === 'true' || isVerified === true;
+//     if (rating !== undefined && !isNaN(parseFloat(rating))) {
+//       updateData.rating = parseFloat(rating);
+//     }
+
+//     // Handle profile image update
+//     if (req.files && req.files.profileImage && req.files.profileImage[0]) {
+//       try {
+//         // Delete old profile image from S3 if it exists
+//         if (existingDriver.profileImage?.key) {
+//           await deleteFromS3(existingDriver.profileImage.key).catch(err => 
+//             console.error('Error deleting old profile image:', err)
+//           );
+//         }
+        
+//         // Set new profile image
+//         updateData.profileImage = {
+//           key: req.files.profileImage[0].key,
+//           url: getS3Url(req.files.profileImage[0].key),
+//           originalName: req.files.profileImage[0].originalname,
+//           mimeType: req.files.profileImage[0].mimetype,
+//           size: req.files.profileImage[0].size
+//         };
+//       } catch (imageError) {
+//         console.error('Error processing profile image:', imageError);
+//       }
+//     }
+
+//     // Handle license image update
+//     if (req.files && req.files.licenseImage && req.files.licenseImage[0]) {
+//       try {
+//         // Delete old license image from S3 if it exists
+//         if (existingDriver.licenseImage?.key) {
+//           await deleteFromS3(existingDriver.licenseImage.key).catch(err => 
+//             console.error('Error deleting old license image:', err)
+//           );
+//         }
+        
+//         // Set new license image
+//         updateData.licenseImage = {
+//           key: req.files.licenseImage[0].key,
+//           url: getS3Url(req.files.licenseImage[0].key),
+//           originalName: req.files.licenseImage[0].originalname,
+//           mimeType: req.files.licenseImage[0].mimetype,
+//           size: req.files.licenseImage[0].size
+//         };
+//       } catch (imageError) {
+//         console.error('Error processing license image:', imageError);
+//       }
+//     }
+
+//     // Update the driver
+//     const updatedDriver = await Driver.findByIdAndUpdate(
+//       id,
+//       { $set: updateData },
+//       { new: true, runValidators: true }
+//     ).select('-refreshToken -__v');
+
+//     console.log('Driver updated successfully:', updatedDriver._id);
+
+//     res.status(200).json({
+//       success: true,
+//       message: 'Driver updated successfully',
+//       data: updatedDriver
+//     });
+
+//   } catch (error) {
+//     console.error('Update driver error:', error);
+    
+//     // Clean up uploaded files if error occurs
+//     if (req.files) {
+//       if (req.files.profileImage) {
+//         await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+//       }
+//       if (req.files.licenseImage) {
+//         await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+//       }
+//     }
+
+//     // Handle validation errors
+//     if (error.name === 'ValidationError') {
+//       const errors = {};
+//       for (let field in error.errors) {
+//         errors[field] = error.errors[field].message;
+//       }
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Validation error',
+//         errors: errors
+//       });
+//     }
+
+//     // Handle duplicate key error
+//     if (error.code === 11000) {
+//       const field = Object.keys(error.keyPattern)[0];
+//       return res.status(400).json({
+//         success: false,
+//         message: `Driver with this ${field} already exists`,
+//         field: field
+//       });
+//     }
+
+//     res.status(500).json({
+//       success: false,
+//       message: 'Error updating driver',
+//       error: error.message
+//     });
+//   }
+// });
+
+
+// router.post('/register',
+//   upload.fields([
+//     { name: 'profileImage', maxCount: 1 },
+//     { name: 'licenseImage', maxCount: 1 }
+//   ]), 
+//   async (req, res) => {
+//     try {
+//       console.log('📝 Driver registration request received');
+//       console.log('Body:', req.body);
+//       console.log('Files:', req.files ? Object.keys(req.files) : 'No files');
+
+//       const { 
+//         driverName, 
+//         phoneNumber,
+//         countryCode = '+966',
+//         licenseNumber,
+//         isVerified = false
+//       } = req.body;
+
+//       // Validate required fields
+//       const missingFields = [];
+//       if (!driverName) missingFields.push('driverName');
+//       if (!phoneNumber) missingFields.push('phoneNumber');
+//       if (!licenseNumber) missingFields.push('licenseNumber');
+      
+//       if (missingFields.length > 0) {
+//         if (req.files) {
+//           if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+//           if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+//         }
+        
+//         return res.status(400).json({
+//           success: false,
+//           message: `Missing required fields: ${missingFields.join(', ')}`
+//         });
+//       }
+
+//       // Clean inputs
+//       const cleanPhoneNumber = phoneNumber.toString().trim();
+//       const cleanLicenseNumber = licenseNumber.toString().trim();
+      
+//       // Check if license number is valid
+//       if (cleanLicenseNumber === '' || cleanLicenseNumber === 'null' || cleanLicenseNumber === 'undefined') {
+//         if (req.files) {
+//           if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+//           if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+//         }
+        
+//         return res.status(400).json({
+//           success: false,
+//           message: 'Invalid license number provided'
+//         });
+//       }
+      
+//       // CRITICAL: First, check if there are any documents with null license numbers
+//       // and fix them before proceeding
+//       const nullLicenseCount = await Driver.countDocuments({
+//         $or: [
+//           { licenseNumber: null },
+//           { licenseNumber: { $exists: false } },
+//           { licenseNumber: "" },
+//           { licenseNumber: "null" }
+//         ]
+//       });
+      
+//       if (nullLicenseCount > 0) {
+//         console.log(`⚠️ Found ${nullLicenseCount} drivers with null/empty licenses. Fixing them...`);
+        
+//         // Auto-fix null licenses
+//         const nullLicenseDrivers = await Driver.find({
+//           $or: [
+//             { licenseNumber: null },
+//             { licenseNumber: { $exists: false } },
+//             { licenseNumber: "" },
+//             { licenseNumber: "null" }
+//           ]
+//         });
+        
+//         for (const driver of nullLicenseDrivers) {
+//           const tempLicense = `FIXED_${driver._id.toString().slice(-8)}_${Date.now()}`;
+//           driver.licenseNumber = tempLicense;
+//           await driver.save();
+//           console.log(`Fixed driver ${driver._id} with license: ${tempLicense}`);
+//         }
+        
+//         console.log(`✅ Fixed ${nullLicenseCount} drivers with null/empty licenses`);
+//       }
+      
+//       // Now check for existing driver with the same license number
+//       const existingDriverByLicense = await Driver.findOne({ 
+//         licenseNumber: cleanLicenseNumber 
+//       });
+      
+//       if (existingDriverByLicense) {
+//         if (req.files) {
+//           if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+//           if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+//         }
+        
+//         return res.status(400).json({
+//           success: false,
+//           message: `Driver with license number "${cleanLicenseNumber}" already exists`,
+//           field: "licenseNumber",
+//           existingDriver: {
+//             id: existingDriverByLicense._id,
+//             name: existingDriverByLicense.driverName,
+//             phone: existingDriverByLicense.phoneNumber
+//           }
+//         });
+//       }
+      
+//       // Check for existing phone number
+//       const existingDriverByPhone = await Driver.findOne({ 
+//         phoneNumber: cleanPhoneNumber, 
+//         countryCode 
+//       });
+      
+//       if (existingDriverByPhone) {
+//         if (req.files) {
+//           if (req.files.profileImage) await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+//           if (req.files.licenseImage) await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+//         }
+        
+//         return res.status(400).json({
+//           success: false,
+//           message: `Driver with phone number ${countryCode}${cleanPhoneNumber} already exists`,
+//           field: "phoneNumber"
+//         });
+//       }
+
+//       // Check if license image is uploaded
+//       if (!req.files || !req.files.licenseImage || req.files.licenseImage.length === 0) {
+//         if (req.files && req.files.profileImage && req.files.profileImage[0]) {
+//           await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+//         }
+//         return res.status(400).json({
+//           success: false,
+//           message: 'License image is required'
+//         });
+//       }
+
+//       // Prepare driver data
+//       const driverData = {
+//         driverName: driverName.trim(),
+//         countryCode: countryCode.trim(),
+//         phoneNumber: cleanPhoneNumber,
+//         licenseNumber: cleanLicenseNumber,
+//         licenseImage: {
+//           key: req.files.licenseImage[0].key,
+//           url: getS3Url(req.files.licenseImage[0].key),
+//           originalName: req.files.licenseImage[0].originalname,
+//           mimeType: req.files.licenseImage[0].mimetype,
+//           size: req.files.licenseImage[0].size
+//         },
+//         profileImage: null,
+//         isVerified: isVerified === 'true' || isVerified === true,
+//         isActive: true,
+//         rating: 0,
+//         totalTrips: 0,
+//         earnings: 0
+//       };
+
+//       // Add profile image if uploaded
+//       if (req.files.profileImage && req.files.profileImage[0]) {
+//         driverData.profileImage = {
+//           key: req.files.profileImage[0].key,
+//           url: getS3Url(req.files.profileImage[0].key),
+//           originalName: req.files.profileImage[0].originalname,
+//           mimeType: req.files.profileImage[0].mimetype,
+//           size: req.files.profileImage[0].size
+//         };
+//       }
+
+//       console.log('Creating new driver with data:', {
+//         driverName: driverData.driverName,
+//         phoneNumber: driverData.phoneNumber,
+//         licenseNumber: driverData.licenseNumber,
+//         hasProfileImage: !!driverData.profileImage,
+//         hasLicenseImage: true
+//       });
+
+//       // Create new driver
+//       const newDriver = new Driver(driverData);
+//       const savedDriver = await newDriver.save();
+
+//       console.log('✅ Driver created successfully:', savedDriver._id);
+
+//       // Generate tokens
+//       const accessToken = generateAccessToken(savedDriver);
+//       const refreshToken = generateRefreshToken(savedDriver);
+
+//       savedDriver.refreshToken = refreshToken;
+//       await savedDriver.save();
+
+//       const driverProfile = savedDriver.getPublicProfile();
+
+//       res.status(201).json({
+//         success: true,
+//         message: 'Driver registered successfully',
+//         data: {
+//           driver: driverProfile,
+//           tokens: {
+//             accessToken,
+//             refreshToken,
+//             tokenType: 'Bearer',
+//             expiresIn: process.env.JWT_ACCESS_EXPIRY || '15m'
+//           }
+//         }
+//       });
+      
+//     } catch (error) {
+//       console.error('❌ Register driver error:', error);
+      
+//       // Delete uploaded files if error occurs
+//       if (req.files) {
+//         if (req.files.profileImage && req.files.profileImage[0]) {
+//           await deleteFromS3(req.files.profileImage[0].key).catch(() => {});
+//         }
+//         if (req.files.licenseImage && req.files.licenseImage[0]) {
+//           await deleteFromS3(req.files.licenseImage[0].key).catch(() => {});
+//         }
+//       }
+
+//       // Handle duplicate key error
+//       if (error.code === 11000) {
+//         const field = Object.keys(error.keyPattern)[0];
+        
+//         // Special handling for license field with null value
+//         if (field === 'licenseNumber' && (error.keyValue?.licenseNumber === null || error.keyValue?.licenseNumber === undefined)) {
+//           return res.status(400).json({
+//             success: false,
+//             message: 'Database has invalid driver records with missing license numbers',
+//             errorCode: 'NULL_LICENSE_EXISTS',
+//             suggestion: 'Please contact administrator to clean up invalid driver records',
+//             fix: 'Run GET /api/drivers/debug/fix-null-licenses to automatically fix this issue'
+//           });
+//         }
+        
+//         return res.status(400).json({
+//           success: false,
+//           message: `Driver with this ${field} already exists`,
+//           field: field,
+//           errorCode: 'DUPLICATE_KEY'
+//         });
+//       }
+
+//       res.status(500).json({
+//         success: false,
+//         message: 'Error registering driver',
+//         error: error.message
+//       });
+//     }
+//   }
+// );
+
 
 /**
  * @route   POST /api/drivers/refresh-token

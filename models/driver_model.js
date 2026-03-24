@@ -17,11 +17,13 @@ const driverSchema = new mongoose.Schema({
     unique: true,
     trim: true
   },
-    licenseNumber: {
+ licenseNumber: {
     type: String,
     required: [true, 'License number is required'],
     unique: true,
-    trim: true
+    trim: true,
+    // Add this to prevent null values
+   
   },
     profileImage: {
     key: {
@@ -88,7 +90,7 @@ const driverSchema = new mongoose.Schema({
 });
 
 // Index for faster queries
-// driverSchema.index({ phoneNumber: 1 });
+
 driverSchema.index({ isActive: 1, isVerified: 1 });
 driverSchema.index({ location: '2dsphere' });
 

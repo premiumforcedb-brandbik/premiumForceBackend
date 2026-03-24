@@ -7,6 +7,68 @@ const Cars = require('../models/car_model');
 
 const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddleware');
 
+
+
+
+
+
+
+
+// fromCity to tocity and vehicleid
+
+router.get('/city-to-city/filter', async (req, res) => {
+  try {
+    const { 
+      fromCity, 
+      toCity, 
+      vehicleId, 
+      status,
+      startDate,
+      endDate,
+      customerId,
+      driverId
+    } = req.query;
+    
+    // Build filter object
+    const filter = {
+      fromCity: { $exists: true, $ne: null },
+      toCity: { $exists: true, $ne: null }
+    };
+    
+    if (fromCity) filter.fromCity = { $regex: new RegExp(fromCity, 'i') };
+    if (toCity) filter.toCity = { $regex: new RegExp(toCity, 'i') };
+    if (vehicleId) filter.vehicleId = vehicleId;
+    if (status) filter.bookingStatus = status;
+    if (customerId) filter.customerID = customerId;
+    if (driverId) filter.driverID = driverId;
+    
+    // Date range filter
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) filter.createdAt.$lte = new Date(endDate);
+    }
+    
+    const bookings = await HourlyRoute.find(filter)
+      .sort({ createdAt: -1 });
+    
+    res.status(200).json({
+      success: true,
+      count: bookings.length,
+      filters: req.query,
+      data: bookings
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+
+
+
 // ============= CREATE HOURLY ROUTE =============
 // POST /api/hourly-routes
 router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {

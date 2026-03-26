@@ -4,8 +4,6 @@ const mongoose = require('mongoose');
 
 
 
-
-
 const specialIDSchema = new mongoose.Schema({
     code: {
         type: String,
@@ -40,7 +38,6 @@ const specialIDSchema = new mongoose.Schema({
 });
 
 // Indexes for faster queries
-specialIDSchema.index({ code: 1 }, { unique: true });
 specialIDSchema.index({ isActive: 1 });
 specialIDSchema.index({ discountPercentage: 1 });
 

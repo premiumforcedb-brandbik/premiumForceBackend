@@ -2,11 +2,11 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 const HourlyRoute = require('../models/hourlyRoutesModel');
-const City = require('../models/city_model');
 const Cars = require('../models/car_model');
+// const Cars = require('../models/car_model');
+const Category = require('../models/categoryModel');
 
 const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddleware');
-
 
 
 
@@ -19,8 +19,7 @@ const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddle
 router.get('/city-to-city/filter', async (req, res) => {
   try {
     const { 
-      fromCity, 
-      toCity, 
+     
       vehicleId, 
       status,
       startDate,
@@ -35,8 +34,8 @@ router.get('/city-to-city/filter', async (req, res) => {
       toCity: { $exists: true, $ne: null }
     };
     
-    if (fromCity) filter.fromCity = { $regex: new RegExp(fromCity, 'i') };
-    if (toCity) filter.toCity = { $regex: new RegExp(toCity, 'i') };
+    // if (fromCity) filter.fromCity = { $regex: new RegExp(fromCity, 'i') };
+    // if (toCity) filter.toCity = { $regex: new RegExp(toCity, 'i') };
     if (vehicleId) filter.vehicleId = vehicleId;
     if (status) filter.bookingStatus = status;
     if (customerId) filter.customerID = customerId;
@@ -73,50 +72,35 @@ router.get('/city-to-city/filter', async (req, res) => {
 // POST /api/hourly-routes
 router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
-    const { vehicleID, fromCity, toCity, charge, hour, isActive } = req.body;
+    const { vehicleID, categoryID, charge, hour, isActive } = req.body;
 
     console.log('Received data:', req.body);
 
     // Basic validation
-    if (!vehicleID || !fromCity || !toCity || charge === undefined) {
+    if (!vehicleID || charge === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'Vehicle ID, from city, to city, and charge are required'
+        message: 'Vehicle ID and charge are required'
       });
     }
 
-    // Validate all IDs
-    if (!mongoose.Types.ObjectId.isValid(vehicleID) || 
-        !mongoose.Types.ObjectId.isValid(fromCity) || 
-        !mongoose.Types.ObjectId.isValid(toCity)) {
+    // Validate IDs
+    if (!mongoose.Types.ObjectId.isValid(vehicleID)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid ID format'
+        message: 'Invalid vehicle ID format'
       });
     }
 
-    // Check if fromCity and toCity are the same
-    if (fromCity === toCity) {
+    if (categoryID && !mongoose.Types.ObjectId.isValid(categoryID)) {
       return res.status(400).json({
         success: false,
-        message: 'From city and To city cannot be the same'
-      });
-    }
-
-    // Check if cities exist
-    const fromCityExists = await City.findById(fromCity);
-    const toCityExists = await City.findById(toCity);
-
-    if (!fromCityExists || !toCityExists) {
-      return res.status(404).json({
-        success: false,
-        message: 'One or both cities not found'
+        message: 'Invalid category ID format'
       });
     }
 
     // Check if vehicle exists
     const existingCar = await Cars.findById(vehicleID);
-    
     if (!existingCar) {
       return res.status(404).json({
         success: false,
@@ -124,26 +108,34 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
       });
     }
 
-    // Check if hourly route already exists for this vehicle and cities
+    // Check if category exists (if provided)
+    if (categoryID) {
+      const category = await Category.findById(categoryID);
+      if (!category) {
+        return res.status(404).json({
+          success: false,
+          message: 'Category not found'
+        });
+      }
+    }
+
+    // Check if hourly route already exists for this vehicle and hour
     const existingRoute = await HourlyRoute.findOne({
       vehicleID: vehicleID,
-      fromCity: fromCity,
-      toCity: toCity,
       hour: hour || 1
     });
 
     if (existingRoute) {
       return res.status(400).json({
         success: false,
-        message: 'Hourly route already exists for this vehicle between these cities'
+        message: 'Hourly route already exists for this vehicle with the same hour'
       });
     }
 
     // Create hourly route
     const hourlyRoute = new HourlyRoute({
       vehicleID: vehicleID,
-      fromCity,
-      toCity,
+      categoryID: categoryID || null,
       charge: Number(charge),
       hour: hour ? Number(hour) : 1,
       isActive: isActive === 'true' || isActive === true || isActive === undefined
@@ -151,11 +143,10 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
 
     await hourlyRoute.save();
     
-    // Populate all references
+    // Populate references
     await hourlyRoute.populate([
       { path: 'vehicleID', select: 'vehicleNumber model capacity' },
-      { path: 'fromCity', select: 'name state isActive' },
-      { path: 'toCity', select: 'name state isActive' }
+      { path: 'categoryID', select: 'name' }
     ]);
 
     res.status(201).json({
@@ -170,7 +161,7 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: 'Hourly route already exists for this vehicle between these cities'
+        message: 'Hourly route already exists for this vehicle with the same hour'
       });
     }
 
@@ -200,8 +191,7 @@ router.get('/', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const { 
       vehicleID,
-      fromCity,
-      toCity,
+      categoryID,
       isActive,
       minHour,
       maxHour,
@@ -224,24 +214,14 @@ router.get('/', authenticateToken, authorizeAdmin, async (req, res) => {
       query.vehicleID = vehicleID;
     }
 
-    if (fromCity) {
-      if (!mongoose.Types.ObjectId.isValid(fromCity)) {
+    if (categoryID) {
+      if (!mongoose.Types.ObjectId.isValid(categoryID)) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid from city ID format'
+          message: 'Invalid category ID format'
         });
       }
-      query.fromCity = fromCity;
-    }
-
-    if (toCity) {
-      if (!mongoose.Types.ObjectId.isValid(toCity)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid to city ID format'
-        });
-      }
-      query.toCity = toCity;
+      query.categoryID = categoryID;
     }
 
     if (isActive !== undefined) {
@@ -266,7 +246,7 @@ router.get('/', authenticateToken, authorizeAdmin, async (req, res) => {
     // Get hourly routes
     const hourlyRoutes = await HourlyRoute.find(query)
       .populate('vehicleID', 'vehicleNumber model capacity')
-      .populate('fromCity toCity', 'name state isActive')
+      .populate('categoryID', 'name')
       .sort(sort)
       .skip(skip)
       .limit(limitNum);
@@ -313,7 +293,7 @@ router.get('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
 
     const hourlyRoute = await HourlyRoute.findById(id)
       .populate('vehicleID', 'vehicleNumber model capacity')
-      .populate('fromCity toCity', 'name state isActive');
+      .populate('categoryID', 'name');
 
     if (!hourlyRoute) {
       return res.status(404).json({
@@ -343,7 +323,6 @@ router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     
-    // Add this check to see if body exists
     if (!req.body || Object.keys(req.body).length === 0) {
       return res.status(400).json({
         success: false,
@@ -351,11 +330,9 @@ router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
       });
     }
     
-    const { vehicleID, fromCity, toCity, charge, hour, isActive } = req.body;
+    const { vehicleID, categoryID, charge, hour, isActive } = req.body;
 
-    // Log the received data for debugging
     console.log('Update request body:', req.body);
-    console.log('Update request params:', req.params);
 
     // Validate ID
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -374,21 +351,15 @@ router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
       });
     }
 
-    // Validate city IDs if provided
-    if (fromCity && !mongoose.Types.ObjectId.isValid(fromCity)) {
+    // Validate category ID if provided
+    if (categoryID && !mongoose.Types.ObjectId.isValid(categoryID)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid from city ID format'
+        message: 'Invalid category ID format'
       });
     }
 
-    if (toCity && !mongoose.Types.ObjectId.isValid(toCity)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid to city ID format'
-      });
-    }
-
+    // Validate vehicle ID if provided
     if (vehicleID && !mongoose.Types.ObjectId.isValid(vehicleID)) {
       return res.status(400).json({
         success: false,
@@ -396,23 +367,13 @@ router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
       });
     }
 
-    // Check if cities exist if provided
-    if (fromCity) {
-      const cityExists = await City.findById(fromCity);
-      if (!cityExists) {
+    // Check if category exists if provided
+    if (categoryID) {
+      const categoryExists = await Category.findById(categoryID);
+      if (!categoryExists) {
         return res.status(404).json({
           success: false,
-          message: 'From city not found'
-        });
-      }
-    }
-
-    if (toCity) {
-      const cityExists = await City.findById(toCity);
-      if (!cityExists) {
-        return res.status(404).json({
-          success: false,
-          message: 'To city not found'
+          message: 'Category not found'
         });
       }
     }
@@ -428,25 +389,13 @@ router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
       }
     }
 
-    // Check if from and to cities are the same
-    const newFromCity = fromCity || existingRoute.fromCity;
-    const newToCity = toCity || existingRoute.toCity;
+    // Check if updated route already exists (excluding current route)
     const newVehicleID = vehicleID || existingRoute.vehicleID;
     const newHour = hour !== undefined ? hour : existingRoute.hour;
     
-    if (newFromCity.toString() === newToCity.toString()) {
-      return res.status(400).json({
-        success: false,
-        message: 'From city and To city cannot be the same'
-      });
-    }
-
-    // Check if updated route already exists (excluding current route)
-    if (fromCity || toCity || vehicleID || hour !== undefined) {
+    if (vehicleID || hour !== undefined) {
       const duplicateRoute = await HourlyRoute.findOne({
         _id: { $ne: id },
-        fromCity: newFromCity,
-        toCity: newToCity,
         vehicleID: newVehicleID,
         hour: newHour
       });
@@ -454,20 +403,23 @@ router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
       if (duplicateRoute) {
         return res.status(400).json({
           success: false,
-          message: 'Hourly route already exists for this vehicle between these cities'
+          message: 'Hourly route already exists for this vehicle with the same hour'
         });
       }
     }
 
     // Prepare update data
     const updateData = {
-      fromCity: newFromCity,
-      toCity: newToCity,
       vehicleID: newVehicleID,
       hour: newHour,
       charge: charge !== undefined ? Number(charge) : existingRoute.charge,
       isActive: isActive !== undefined ? (isActive === 'true' || isActive === true) : existingRoute.isActive
     };
+
+    // Only update categoryID if provided
+    if (categoryID !== undefined) {
+      updateData.categoryID = categoryID;
+    }
 
     // Update hourly route
     const updatedRoute = await HourlyRoute.findByIdAndUpdate(
@@ -475,7 +427,7 @@ router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
       updateData,
       { new: true, runValidators: true }
     ).populate('vehicleID', 'vehicleNumber model capacity')
-      .populate('fromCity toCity', 'name state isActive');
+      .populate('categoryID', 'name');
 
     res.json({
       success: true,
@@ -489,7 +441,7 @@ router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: 'Hourly route already exists for this vehicle between these cities'
+        message: 'Hourly route already exists for this vehicle with the same hour'
       });
     }
 
@@ -548,7 +500,7 @@ router.patch('/:id/status', authenticateToken, authorizeAdmin, async (req, res) 
       { isActive: isActive === 'true' || isActive === true },
       { new: true }
     ).populate('vehicleID', 'vehicleNumber model capacity')
-      .populate('fromCity toCity', 'name state isActive');
+      .populate('categoryID', 'name');
 
     res.json({
       success: true,
@@ -604,234 +556,27 @@ router.delete('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
   }
 });
 
-// ============= GET ROUTES BY VEHICLE =============
-// GET /api/hourly-routes/vehicle/:vehicleId
-router.get('/vehicle/:vehicleId', authenticateToken, authorizeAdmin, async (req, res) => {
+// ============= CALCULATE HOURLY TRIP COST =============
+// POST /api/hourly-routes/calculate-cost
+router.post('/calculate-cost', authenticateToken, async (req, res) => {
   try {
-    const { vehicleId } = req.params;
-    const { isActive, page = 1, limit = 10 } = req.query;
+    const { vehicleID, hours } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(vehicleId)) {
+    if (!vehicleID || !hours) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vehicle ID and hours are required'
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(vehicleID)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid vehicle ID format'
       });
     }
 
-    // Check if vehicle exists
-    const vehicleExists = await Cars.findById(vehicleId);
-    if (!vehicleExists) {
-      return res.status(404).json({
-        success: false,
-        message: 'Vehicle not found'
-      });
-    }
-
-    // Build query
-    const query = { vehicleID: vehicleId };
-
-    if (isActive !== undefined) {
-      query.isActive = isActive === 'true';
-    }
-
-    // Pagination
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 10;
-    const skip = (pageNum - 1) * limitNum;
-
-    // Get hourly routes
-    const hourlyRoutes = await HourlyRoute.find(query)
-      .populate('vehicleID', 'vehicleNumber model capacity')
-      .populate('fromCity toCity', 'name state isActive')
-      .sort({ hour: 1 })
-      .skip(skip)
-      .limit(limitNum);
-
-    const total = await HourlyRoute.countDocuments(query);
-
-    res.json({
-      success: true,
-      message: 'Hourly routes fetched successfully',
-      data: hourlyRoutes,
-      pagination: {
-        currentPage: pageNum,
-        totalPages: Math.ceil(total / limitNum),
-        totalItems: total,
-        itemsPerPage: limitNum,
-        hasNextPage: pageNum < Math.ceil(total / limitNum),
-        hasPrevPage: pageNum > 1
-      }
-    });
-
-  } catch (error) {
-    console.error('Get routes by vehicle error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching routes',
-      error: error.message
-    });
-  }
-});
-
-// ============= GET ROUTES BY CITY =============
-// GET /api/hourly-routes/city/:cityId
-router.get('/city/:cityId', authenticateToken, authorizeAdmin, async (req, res) => {
-  try {
-    const { cityId } = req.params;
-    const { isActive, page = 1, limit = 10 } = req.query;
-
-    if (!mongoose.Types.ObjectId.isValid(cityId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid city ID format'
-      });
-    }
-
-    // Check if city exists
-    const cityExists = await City.findById(cityId);
-    if (!cityExists) {
-      return res.status(404).json({
-        success: false,
-        message: 'City not found'
-      });
-    }
-
-    // Build query
-    const query = {
-      $or: [
-        { fromCity: cityId },
-        { toCity: cityId }
-      ]
-    };
-
-    if (isActive !== undefined) {
-      query.isActive = isActive === 'true';
-    }
-
-    // Pagination
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 10;
-    const skip = (pageNum - 1) * limitNum;
-
-    // Get hourly routes
-    const hourlyRoutes = await HourlyRoute.find(query)
-      .populate('vehicleID', 'vehicleNumber model capacity')
-      .populate('fromCity toCity', 'name state isActive')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNum);
-
-    const total = await HourlyRoute.countDocuments(query);
-
-    res.json({
-      success: true,
-      message: 'Hourly routes fetched successfully',
-      data: hourlyRoutes,
-      pagination: {
-        currentPage: pageNum,
-        totalPages: Math.ceil(total / limitNum),
-        totalItems: total,
-        itemsPerPage: limitNum,
-        hasNextPage: pageNum < Math.ceil(total / limitNum),
-        hasPrevPage: pageNum > 1
-      }
-    });
-
-  } catch (error) {
-    console.error('Get routes by city error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching routes',
-      error: error.message
-    });
-  }
-});
-
-// ============= GET HOURLY ROUTE BETWEEN TWO CITIES =============
-// GET /api/hourly-routes/between/:fromCityId/:toCityId
-router.get('/between/:fromCityId/:toCityId', authenticateToken, authorizeAdmin, async (req, res) => {
-  try {
-    const { fromCityId, toCityId } = req.params;
-    const { vehicleID } = req.query;
-
-    // Validate IDs
-    if (!mongoose.Types.ObjectId.isValid(fromCityId) || !mongoose.Types.ObjectId.isValid(toCityId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid city ID format'
-      });
-    }
-
-    // Build query
-    const query = {
-      fromCity: fromCityId,
-      toCity: toCityId,
-      isActive: true
-    };
-
-    if (vehicleID) {
-      if (!mongoose.Types.ObjectId.isValid(vehicleID)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid vehicle ID format'
-        });
-      }
-      query.vehicleID = vehicleID;
-    }
-
-    const hourlyRoutes = await HourlyRoute.find(query)
-      .populate('vehicleID', 'vehicleNumber model capacity')
-      .populate('fromCity toCity', 'name state isActive')
-      .sort({ hour: 1 });
-
-    if (hourlyRoutes.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'No hourly routes found between these cities'
-      });
-    }
-
-    res.json({
-      success: true,
-      count: hourlyRoutes.length,
-      data: hourlyRoutes
-    });
-
-  } catch (error) {
-    console.error('Get routes between cities error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching routes',
-      error: error.message
-    });
-  }
-});
-
-// ============= CALCULATE TRIP COST =============
-// POST /api/hourly-routes/calculate-cost
-router.post('/calculate-cost', authenticateToken, async (req, res) => {
-  try {
-    const { fromCityId, toCityId, vehicleID, hours } = req.body;
-
-    if (!fromCityId || !toCityId || !vehicleID || !hours) {
-      return res.status(400).json({
-        success: false,
-        message: 'From city, to city, vehicle ID, and hours are required'
-      });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(fromCityId) || 
-        !mongoose.Types.ObjectId.isValid(toCityId) || 
-        !mongoose.Types.ObjectId.isValid(vehicleID)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid ID format'
-      });
-    }
-
     const hourlyRoute = await HourlyRoute.findOne({
-      fromCity: fromCityId,
-      toCity: toCityId,
       vehicleID: vehicleID,
       isActive: true
     });
@@ -839,11 +584,12 @@ router.post('/calculate-cost', authenticateToken, async (req, res) => {
     if (!hourlyRoute) {
       return res.status(404).json({
         success: false,
-        message: 'No active hourly route found for this vehicle between these cities'
+        message: 'No active hourly route found for this vehicle'
       });
     }
 
     const totalCost = hourlyRoute.charge * parseInt(hours);
+    const totalCharge = hourlyRoute.totalCharge; // Using virtual field
 
     res.json({
       success: true,
@@ -851,7 +597,8 @@ router.post('/calculate-cost', authenticateToken, async (req, res) => {
         hourlyRoute: hourlyRoute,
         hours: parseInt(hours),
         chargePerHour: hourlyRoute.charge,
-        totalCost: totalCost
+        totalCost: totalCost,
+        totalCharge: totalCharge
       }
     });
 
@@ -865,4 +612,73 @@ router.post('/calculate-cost', authenticateToken, async (req, res) => {
   }
 });
 
+// ============= GET ACTIVE HOURLY ROUTES =============
+// GET /api/hourly-routes/active/all
+router.get('/active/all', authenticateToken, async (req, res) => {
+  try {
+    const activeRoutes = await HourlyRoute.findActiveRoutes();
+
+    res.json({
+      success: true,
+      count: activeRoutes.length,
+      data: activeRoutes
+    });
+
+  } catch (error) {
+    console.error('Get active routes error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching active routes',
+      error: error.message
+    });
+  }
+});
+
+// ============= TOGGLE HOURLY ROUTE STATUS =============
+// POST /api/hourly-routes/:id/toggle
+router.post('/:id/toggle', authenticateToken, authorizeAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid hourly route ID format'
+      });
+    }
+
+    const hourlyRoute = await HourlyRoute.findById(id);
+    if (!hourlyRoute) {
+      return res.status(404).json({
+        success: false,
+        message: 'Hourly route not found'
+      });
+    }
+
+    const updatedRoute = await hourlyRoute.toggleActive();
+    await updatedRoute.populate('vehicleID', 'vehicleNumber model capacity');
+    await updatedRoute.populate('categoryID', 'name');
+
+    res.json({
+      success: true,
+      message: `Hourly route status toggled to ${updatedRoute.isActive ? 'active' : 'inactive'}`,
+      data: updatedRoute
+    });
+
+  } catch (error) {
+    console.error('Toggle route status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error toggling route status',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;
+
+
+
+
+
+

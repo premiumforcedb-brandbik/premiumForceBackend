@@ -1,21 +1,17 @@
 const mongoose = require('mongoose');
 
 const hourlyRouteSchema = new mongoose.Schema({
+
+  categoryID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Category',
+    },
   vehicleID: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Car',
     required: [true, 'Vehicle is required']
   },
-  fromCity: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'City',
-    required: [true, 'From city is required']
-  },
-  toCity: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'City',
-    required: [true, 'To city is required']
-  },
+  
   charge: {
     type: Number,
     required: [true, 'Charge is required'],
@@ -35,7 +31,7 @@ const hourlyRouteSchema = new mongoose.Schema({
 });
 
 // Compound index to prevent duplicate routes for same vehicle
-hourlyRouteSchema.index({ vehicleID: 1, fromCity: 1, toCity: 1, hour: 1 }, { unique: true });
+hourlyRouteSchema.index({ vehicleID: 1, hour: 1 }, { unique: true });
 
 // Virtual field for total charge (charge * hour)
 hourlyRouteSchema.virtual('totalCharge').get(function() {
@@ -50,7 +46,7 @@ hourlyRouteSchema.methods.toggleActive = function() {
 
 // Static method to find active routes
 hourlyRouteSchema.statics.findActiveRoutes = function() {
-  return this.find({ isActive: true }).populate('vehicleID fromCity toCity');
+  return this.find({ isActive: true }).populate('vehicleID');
 };
 
 module.exports = mongoose.model('HourlyRoute', hourlyRouteSchema);

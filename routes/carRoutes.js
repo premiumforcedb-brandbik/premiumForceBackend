@@ -33,6 +33,7 @@ router.post('/',
       console.log('Request file:', req.file);
       console.log('Content-Type:', req.headers['content-type']);
 
+      
       // Check if car image is uploaded FIRST
       if (!req.file) {
         return res.status(400).json({

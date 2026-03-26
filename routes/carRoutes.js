@@ -69,10 +69,10 @@ router.post('/',
       if (!brandID) missingFields.push('brandID');
       if (!model) missingFields.push('model');
       if (!numberOfPassengers) missingFields.push('numberOfPassengers');
-      if (!minimumChargeDistance) missingFields.push('minimumChargeDistance');
-      if (!minCharge) missingFields.push('minCharge');
+      // if (!minimumChargeDistance) missingFields.push('minimumChargeDistance');
+      // if (!minCharge) missingFields.push('minCharge');
       if (!categoryID) missingFields.push('categoryID');
-      if (!vat) missingFields.push('vat');
+      // if (!vat) missingFields.push('vat');
 
       if (missingFields.length > 0) {
         await deleteFromS3(req.file.key);

@@ -39,20 +39,20 @@ categoryID: {
   // },
   vat: {
     type: Number,
-    required: [true, 'VAT is required'],
+    required: false,
     trim: true,
     minLength: [0, 'VAT cannot be negative'],
     maxlength: [50, 'VAT cannot exceed 50 characters']
   },
   minCharge: {
     type: Number,
-    required: [true, 'Minimum charge is required'],
+    required: false,
     trim: true,
     maxlength: [100, 'Minimum charge cannot exceed 100 characters']
   },
   minimumChargeDistance: {
     type: String,
-    required: [true, 'Minimum charge distance is required'],
+    required:false,
     trim: true,
     maxlength: [50, 'Minimum charge distance cannot exceed 50 characters']
   },

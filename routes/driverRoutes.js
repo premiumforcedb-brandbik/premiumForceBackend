@@ -1301,6 +1301,7 @@ router.get('/profile/me', verifyDriverToken, async (req, res) => {
 });
 
 
+
 router.post('/register',
   authenticateToken,
   authorizeAdmin,

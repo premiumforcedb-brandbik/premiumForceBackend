@@ -37,19 +37,19 @@ categoryID: {
   //   trim: true,
   //   maxlength: [50, 'Brand cannot exceed 50 characters']
   // },
-  vat: {
-    type: Number,
-    required: false,
-    trim: true,
-    minLength: [0, 'VAT cannot be negative'],
-    maxlength: [50, 'VAT cannot exceed 50 characters']
-  },
-  minCharge: {
-    type: Number,
-    required: false,
-    trim: true,
-    maxlength: [100, 'Minimum charge cannot exceed 100 characters']
-  },
+  // vat: {
+  //   type: Number,
+  //   required: false,
+  //   trim: true,
+  //   minLength: [0, 'VAT cannot be negative'],
+  //   maxlength: [50, 'VAT cannot exceed 50 characters']
+  // },
+  // minCharge: {
+  //   type: Number,
+  //   required: false,
+  //   trim: true,
+  //   maxlength: [100, 'Minimum charge cannot exceed 100 characters']
+  // },
   minimumChargeDistance: {
     type: String,
     required:false,

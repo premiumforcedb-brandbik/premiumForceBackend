@@ -57,9 +57,9 @@ router.post('/',
         model, 
         numberOfPassengers,
         minimumChargeDistance, 
-        minCharge, 
+        // minCharge, 
         categoryID,
-        vat
+        // vat
       } = cleanBody;
 
       console.log('Category ID received:', categoryID);
@@ -154,9 +154,9 @@ router.post('/',
             model: existingCar.model,
             categoryID: existingCar.categoryID,
             numberOfPassengers: existingCar.numberOfPassengers,
-            minCharge: existingCar.minCharge,
+            // minCharge: existingCar.minCharge,
             minimumChargeDistance: existingCar.minimumChargeDistance,
-            vat: existingCar.vat
+            // vat: existingCar.vat
           }
         });
       }
@@ -168,9 +168,9 @@ router.post('/',
         model: String(model),
         categoryID: categoryID, // Use as string, MongoDB will handle conversion
         numberOfPassengers: passengers,
-        minCharge: String(minCharge),
+        // minCharge: String(minCharge),
         minimumChargeDistance: String(minimumChargeDistance),
-        vat: String(vat),
+        // vat: String(vat),
         carImage: {
           key: req.file.key,
           url: getS3Url(req.file.key),
@@ -254,8 +254,10 @@ router.put('/:id',
     try {
       const { id } = req.params;
       const {
-        carName, brand, model, category, numberOfPassengers, minCharge, minimumChargeDistance,
-        vat
+        carName, brand, model, category, numberOfPassengers,
+        //  minCharge,
+          minimumChargeDistance,
+        // vat
       } = req.body;
 
       // Find existing car
@@ -311,9 +313,9 @@ router.put('/:id',
               model: existingCar.model,
               category: existingCar.category,
               numberOfPassengers: existingCar.numberOfPassengers,
-              minCharge: existingCar.minCharge,
+              // minCharge: existingCar.minCharge,
               minimumChargeDistance: existingCar.minimumChargeDistance,
-              vat: existingCar.vat
+              // vat: existingCar.vat
             }
           });
         }
@@ -337,9 +339,9 @@ router.put('/:id',
       if (model) car.model = String(model).trim();
       if (category) car.category = String(category).trim();
       if (numberOfPassengers) car.numberOfPassengers = passengers;
-      if (minCharge) car.minCharge = String(minCharge).trim();
+      // if (minCharge) car.minCharge = String(minCharge).trim();
       if (minimumChargeDistance) car.minimumChargeDistance = String(minimumChargeDistance).trim();
-if (vat) car.vat = String(vat).trim();
+// if (vat) car.vat = String(vat).trim();
       // Handle image update if new image is uploaded
       if (req.file) {
         const oldImageKey = car.carImage?.key;

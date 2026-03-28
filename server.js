@@ -217,6 +217,12 @@ app.use('/api/special-content', specialIDRoutes);
 app.use('/api/cities', CityRoutes);
 
 
+const vatRoutes = require('./routes/vatRoutes');
+app.use('/api/vat', vatRoutes);
+
+
+
+
 //google sign in 
 
 // TODO: Replace with your actual Web Client ID from Google Cloud Console

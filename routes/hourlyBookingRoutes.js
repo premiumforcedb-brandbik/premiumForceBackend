@@ -20,9 +20,265 @@ const { notifyUser } = require('../fcm');
 
 
 
+// ============= GET HOURLY BOOKINGS BY CUSTOMER ID =============
+// GET /api/hourly-bookings/customer/:customerId
+// @desc    Get all bookings for a specific customer
+router.get('/customer/:customerId', async (req, res) => {
+    try {
+        const { customerId } = req.params;
+        const { 
+            status, 
+            startDate, 
+            endDate,
+            page = 1,
+            limit = 10,
+            sortBy = 'createdAt',
+            sortOrder = 'desc'
+        } = req.query;
 
+        // Validate customer ID
+        if (!customerId || customerId === 'null' || customerId === 'undefined') {
+            return res.status(400).json({
+                success: false,
+                message: 'Customer ID is required'
+            });
+        }
 
+        // Build query
+        const query = {
+            customerID: String(customerId).trim()
+        };
 
+        // Filter by status if provided
+        if (status) {
+            const validStatuses = ['pending', 'confirmed', 'in-progress', 'completed', 'cancelled'];
+            const cleanStatus = status.toLowerCase().trim();
+            if (validStatuses.includes(cleanStatus)) {
+                query.bookingStatus = cleanStatus;
+            } else {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid status value',
+                    validStatuses: validStatuses
+                });
+            }
+        }
+
+        // Date range filter
+        if (startDate || endDate) {
+            query.createdAt = {};
+            if (startDate) {
+                const start = new Date(startDate);
+                start.setHours(0, 0, 0, 0);
+                query.createdAt.$gte = start;
+            }
+            if (endDate) {
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999);
+                query.createdAt.$lte = end;
+            }
+        }
+
+        // Pagination
+        const pageNum = parseInt(page) || 1;
+        const limitNum = parseInt(limit) || 10;
+        const skip = (pageNum - 1) * limitNum;
+
+        // Sort
+        const sort = {};
+        sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+        // Get bookings
+        const bookings = await HourlyBooking.find(query)
+            .sort(sort)
+            .skip(skip)
+            .limit(limitNum);
+
+        // Get total count
+        const total = await HourlyBooking.countDocuments(query);
+
+        // Calculate summary statistics
+        const summary = {
+            total: total,
+            pending: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'pending' }),
+            confirmed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'confirmed' }),
+            inProgress: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'in-progress' }),
+            completed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'completed' }),
+            cancelled: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'cancelled' }),
+            active: await HourlyBooking.countDocuments({ 
+                ...query, 
+                bookingStatus: { $in: ['pending', 'confirmed', 'in-progress'] },
+                isActive: true 
+            })
+        };
+
+        // Calculate total spending (for completed bookings)
+        const completedBookings = await HourlyBooking.find({ 
+            ...query, 
+            bookingStatus: 'completed' 
+        }).select('charge hours');
+        
+        const totalSpent = completedBookings.reduce((sum, booking) => {
+            return sum + (booking.charge * booking.hours);
+        }, 0);
+
+        res.status(200).json({
+            success: true,
+            message: 'Customer bookings fetched successfully',
+            data: bookings,
+            summary: {
+                ...summary,
+                totalSpent: totalSpent
+            },
+            pagination: {
+                currentPage: pageNum,
+                totalPages: Math.ceil(total / limitNum),
+                totalItems: total,
+                itemsPerPage: limitNum,
+                hasNextPage: pageNum < Math.ceil(total / limitNum),
+                hasPrevPage: pageNum > 1
+            }
+        });
+
+    } catch (error) {
+        console.error('Get customer bookings error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching customer bookings',
+            error: error.message
+        });
+    }
+});
+
+// ============= GET HOURLY BOOKINGS BY DRIVER ID =============
+// GET /api/hourly-bookings/driver/:driverId
+// @desc    Get all bookings for a specific driver
+router.get('/driver/:driverId', async (req, res) => {
+    try {
+        const { driverId } = req.params;
+        const { 
+            status, 
+            startDate, 
+            endDate,
+            page = 1,
+            limit = 10,
+            sortBy = 'createdAt',
+            sortOrder = 'desc'
+        } = req.query;
+
+        // Validate driver ID
+        if (!driverId || driverId === 'null' || driverId === 'undefined') {
+            return res.status(400).json({
+                success: false,
+                message: 'Driver ID is required'
+            });
+        }
+
+        // Build query
+        const query = {
+            driverID: String(driverId).trim()
+        };
+
+        // Filter by status if provided
+        if (status) {
+            const validStatuses = ['pending', 'confirmed', 'in-progress', 'completed', 'cancelled'];
+            const cleanStatus = status.toLowerCase().trim();
+            if (validStatuses.includes(cleanStatus)) {
+                query.bookingStatus = cleanStatus;
+            } else {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid status value',
+                    validStatuses: validStatuses
+                });
+            }
+        }
+
+        // Date range filter
+        if (startDate || endDate) {
+            query.createdAt = {};
+            if (startDate) {
+                const start = new Date(startDate);
+                start.setHours(0, 0, 0, 0);
+                query.createdAt.$gte = start;
+            }
+            if (endDate) {
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999);
+                query.createdAt.$lte = end;
+            }
+        }
+
+        // Pagination
+        const pageNum = parseInt(page) || 1;
+        const limitNum = parseInt(limit) || 10;
+        const skip = (pageNum - 1) * limitNum;
+
+        // Sort
+        const sort = {};
+        sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+        // Get bookings
+        const bookings = await HourlyBooking.find(query)
+            .sort(sort)
+            .skip(skip)
+            .limit(limitNum);
+
+        // Get total count
+        const total = await HourlyBooking.countDocuments(query);
+
+        // Calculate summary statistics
+        const summary = {
+            total: total,
+            pending: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'pending' }),
+            confirmed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'confirmed' }),
+            inProgress: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'in-progress' }),
+            completed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'completed' }),
+            cancelled: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'cancelled' }),
+            active: await HourlyBooking.countDocuments({ 
+                ...query, 
+                bookingStatus: { $in: ['confirmed', 'in-progress'] },
+                isActive: true 
+            })
+        };
+
+        // Calculate total earnings (for completed bookings)
+        const completedBookings = await HourlyBooking.find({ 
+            ...query, 
+            bookingStatus: 'completed' 
+        }).select('charge hours');
+        
+        const totalEarnings = completedBookings.reduce((sum, booking) => {
+            return sum + (booking.charge * booking.hours);
+        }, 0);
+
+        res.status(200).json({
+            success: true,
+            message: 'Driver bookings fetched successfully',
+            data: bookings,
+            summary: {
+                ...summary,
+                totalEarnings: totalEarnings
+            },
+            pagination: {
+                currentPage: pageNum,
+                totalPages: Math.ceil(total / limitNum),
+                totalItems: total,
+                itemsPerPage: limitNum,
+                hasNextPage: pageNum < Math.ceil(total / limitNum),
+                hasPrevPage: pageNum > 1
+            }
+        });
+
+    } catch (error) {
+        console.error('Get driver bookings error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching driver bookings',
+            error: error.message
+        });
+    }
+});
 
 
 

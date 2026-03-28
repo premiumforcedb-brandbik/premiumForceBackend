@@ -14,7 +14,7 @@ const Cars = require('../models/car_model');
 
 // ============= GET ALL ROUTES =============
 // GET /api/routes
-router.get('/FromcityToCity/vehicleRoutePrice', authenticateToken, authorizeAdmin, async (req, res) => {
+router.get('/FromcityToCity/vehicleRoutePrice', async (req, res) => {
   try {
     const { 
       fromCity,

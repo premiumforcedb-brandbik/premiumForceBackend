@@ -3,7 +3,7 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const HourlyRoute = require('../models/hourlyRoutesModel');
 const Cars = require('../models/car_model');
-// const Cars = require('../models/car_model');
+
 const Category = require('../models/categoryModel');
 
 const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddleware');
@@ -11,6 +11,73 @@ const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddle
 
 
 
+// ============= GET VEHICLE DETAILS WITH HOUR AND PRICE =============
+// GET /api/hourly-routes/vehicle/:vehicleId
+// @desc    Get vehicle details with hourly pricing
+router.get('/vehicle/:vehicleId', async (req, res) => {
+  try {
+    const { vehicleId } = req.params;
+
+    // Validate vehicle ID
+    if (!mongoose.Types.ObjectId.isValid(vehicleId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid vehicle ID format'
+      });
+    }
+
+    // Get vehicle details
+    const vehicle = await Cars.findById(vehicleId)
+      .populate('categoryID', 'name description');
+
+    if (!vehicle) {
+      return res.status(404).json({
+        success: false,
+        message: 'Vehicle not found'
+      });
+    }
+
+    // Get all active hourly routes for this vehicle
+    const hourlyRoutes = await HourlyRoute.find({
+      vehicleID: vehicleId,
+      isActive: true
+    }).sort({ hour: 1 });
+
+    if (!hourlyRoutes || hourlyRoutes.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No hourly pricing found for this vehicle'
+      });
+    }
+
+    // Prepare response
+    res.json({
+      success: true,
+      data: {
+        vehicle: {
+          id: vehicle._id,
+          vehicleNumber: vehicle.vehicleNumber,
+          model: vehicle.model,
+          capacity: vehicle.capacity,
+          category: vehicle.categoryID
+        },
+        pricing: hourlyRoutes.map(route => ({
+          hour: route.hour,
+          price: route.charge,
+          isActive: route.isActive
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Get vehicle details error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching vehicle details',
+      error: error.message
+    });
+  }
+});
 
 
 
@@ -65,257 +132,6 @@ router.get('/city-to-city/filter', async (req, res) => {
   }
 });
 
-
-
-
-// ============= CREATE HOURLY ROUTE =============
-// POST /api/hourly-routes
-router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
-  try {
-    const { vehicleID, categoryID, charge, hour, isActive } = req.body;
-
-    console.log('Received data:', req.body);
-
-    // Basic validation
-    if (!vehicleID || charge === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: 'Vehicle ID and charge are required'
-      });
-    }
-
-    // Validate IDs
-    if (!mongoose.Types.ObjectId.isValid(vehicleID)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid vehicle ID format'
-      });
-    }
-
-    if (categoryID && !mongoose.Types.ObjectId.isValid(categoryID)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid category ID format'
-      });
-    }
-
-    // Check if vehicle exists
-    const existingCar = await Cars.findById(vehicleID);
-    if (!existingCar) {
-      return res.status(404).json({
-        success: false,
-        message: 'Vehicle not found'
-      });
-    }
-
-    // Check if category exists (if provided)
-    if (categoryID) {
-      const category = await Category.findById(categoryID);
-      if (!category) {
-        return res.status(404).json({
-          success: false,
-          message: 'Category not found'
-        });
-      }
-    }
-
-    // Check if hourly route already exists for this vehicle and hour
-    const existingRoute = await HourlyRoute.findOne({
-      vehicleID: vehicleID,
-      hour: hour || 1
-    });
-
-    if (existingRoute) {
-      return res.status(400).json({
-        success: false,
-        message: 'Hourly route already exists for this vehicle with the same hour'
-      });
-    }
-
-    // Create hourly route
-    const hourlyRoute = new HourlyRoute({
-      vehicleID: vehicleID,
-      categoryID: categoryID || null,
-      charge: Number(charge),
-      hour: hour ? Number(hour) : 1,
-      isActive: isActive === 'true' || isActive === true || isActive === undefined
-    });
-
-    await hourlyRoute.save();
-    
-    // Populate references
-    await hourlyRoute.populate([
-      { path: 'vehicleID', select: 'vehicleNumber model capacity' },
-      { path: 'categoryID', select: 'name' }
-    ]);
-
-    res.status(201).json({
-      success: true,
-      message: 'Hourly route created successfully',
-      data: hourlyRoute
-    });
-
-  } catch (error) {
-    console.error('Create hourly route error:', error);
-    
-    if (error.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        message: 'Hourly route already exists for this vehicle with the same hour'
-      });
-    }
-
-    if (error.name === 'ValidationError') {
-      const errors = {};
-      for (let field in error.errors) {
-        errors[field] = error.errors[field].message;
-      }
-      return res.status(400).json({
-        success: false,
-        message: 'Validation error',
-        errors: errors
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Error creating hourly route',
-      error: error.message
-    });
-  }
-});
-
-// ============= GET ALL HOURLY ROUTES =============
-// GET /api/hourly-routes
-router.get('/', authenticateToken, authorizeAdmin, async (req, res) => {
-  try {
-    const { 
-      vehicleID,
-      categoryID,
-      isActive,
-      minHour,
-      maxHour,
-      page = 1,
-      limit = 10,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = req.query;
-
-    // Build query
-    const query = {};
-
-    if (vehicleID) {
-      if (!mongoose.Types.ObjectId.isValid(vehicleID)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid vehicle ID format'
-        });
-      }
-      query.vehicleID = vehicleID;
-    }
-
-    if (categoryID) {
-      if (!mongoose.Types.ObjectId.isValid(categoryID)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid category ID format'
-        });
-      }
-      query.categoryID = categoryID;
-    }
-
-    if (isActive !== undefined) {
-      query.isActive = isActive === 'true';
-    }
-
-    if (minHour || maxHour) {
-      query.hour = {};
-      if (minHour) query.hour.$gte = parseInt(minHour);
-      if (maxHour) query.hour.$lte = parseInt(maxHour);
-    }
-
-    // Pagination
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 10;
-    const skip = (pageNum - 1) * limitNum;
-
-    // Sort
-    const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-    // Get hourly routes
-    const hourlyRoutes = await HourlyRoute.find(query)
-      .populate('vehicleID', 'vehicleNumber model capacity')
-      .populate('categoryID', 'name')
-      .sort(sort)
-      .skip(skip)
-      .limit(limitNum);
-
-    // Get total count
-    const total = await HourlyRoute.countDocuments(query);
-
-    res.json({
-      success: true,
-      message: 'Hourly routes fetched successfully',
-      data: hourlyRoutes,
-      pagination: {
-        currentPage: pageNum,
-        totalPages: Math.ceil(total / limitNum),
-        totalItems: total,
-        itemsPerPage: limitNum,
-        hasNextPage: pageNum < Math.ceil(total / limitNum),
-        hasPrevPage: pageNum > 1
-      }
-    });
-
-  } catch (error) {
-    console.error('Get hourly routes error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching hourly routes',
-      error: error.message
-    });
-  }
-});
-
-// ============= GET HOURLY ROUTE BY ID =============
-// GET /api/hourly-routes/:id
-router.get('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid hourly route ID format'
-      });
-    }
-
-    const hourlyRoute = await HourlyRoute.findById(id)
-      .populate('vehicleID', 'vehicleNumber model capacity')
-      .populate('categoryID', 'name');
-
-    if (!hourlyRoute) {
-      return res.status(404).json({
-        success: false,
-        message: 'Hourly route not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      data: hourlyRoute
-    });
-
-  } catch (error) {
-    console.error('Get hourly route error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching hourly route',
-      error: error.message
-    });
-  }
-});
 
 // ============= UPDATE HOURLY ROUTE =============
 // PUT /api/hourly-routes/:id
@@ -464,6 +280,258 @@ router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
     });
   }
 });
+
+
+// ============= CREATE HOURLY ROUTE =============
+// POST /api/hourly-routes
+router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
+  try {
+    const { vehicleID, categoryID, charge, hour, isActive } = req.body;
+
+    console.log('Received data:', req.body);
+
+    // Basic validation
+    if (!vehicleID || charge === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vehicle ID and charge are required'
+      });
+    }
+
+    // Validate IDs
+    if (!mongoose.Types.ObjectId.isValid(vehicleID)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid vehicle ID format'
+      });
+    }
+
+    if (categoryID && !mongoose.Types.ObjectId.isValid(categoryID)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid category ID format'
+      });
+    }
+
+    // Check if vehicle exists
+    const existingCar = await Cars.findById(vehicleID);
+    if (!existingCar) {
+      return res.status(404).json({
+        success: false,
+        message: 'Vehicle not found'
+      });
+    }
+
+    // Check if category exists (if provided)
+    if (categoryID) {
+      const category = await Category.findById(categoryID);
+      if (!category) {
+        return res.status(404).json({
+          success: false,
+          message: 'Category not found'
+        });
+      }
+    }
+
+    // Check if hourly route already exists for this vehicle and hour
+    const existingRoute = await HourlyRoute.findOne({
+      vehicleID: vehicleID,
+      hour: hour || 1
+    });
+
+    if (existingRoute) {
+      return res.status(400).json({
+        success: false,
+        message: 'Hourly route already exists for this vehicle with the same hour'
+      });
+    }
+
+    // Create hourly route
+    const hourlyRoute = new HourlyRoute({
+      vehicleID: vehicleID,
+      categoryID: categoryID || null,
+      charge: Number(charge),
+      hour: hour ? Number(hour) : 1,
+      isActive: isActive === 'true' || isActive === true || isActive === undefined
+    });
+
+    await hourlyRoute.save();
+    
+    // Populate references
+    await hourlyRoute.populate([
+      { path: 'vehicleID', select: 'vehicleNumber model capacity' },
+      { path: 'categoryID', select: 'name' }
+    ]);
+
+    res.status(201).json({
+      success: true,
+      message: 'Hourly route created successfully',
+      data: hourlyRoute
+    });
+
+  } catch (error) {
+    console.error('Create hourly route error:', error);
+    
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Hourly route already exists for this vehicle with the same hour'
+      });
+    }
+
+    if (error.name === 'ValidationError') {
+      const errors = {};
+      for (let field in error.errors) {
+        errors[field] = error.errors[field].message;
+      }
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors: errors
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Error creating hourly route',
+      error: error.message
+    });
+  }
+});
+
+// ============= GET ALL HOURLY ROUTES =============
+// GET /api/hourly-routes
+router.get('/', async (req, res) => {
+  try {
+    const { 
+      vehicleID,
+      categoryID,
+      isActive,
+      minHour,
+      maxHour,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    // Build query
+    const query = {};
+
+    if (vehicleID) {
+      if (!mongoose.Types.ObjectId.isValid(vehicleID)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid vehicle ID format'
+        });
+      }
+      query.vehicleID = vehicleID;
+    }
+
+    if (categoryID) {
+      if (!mongoose.Types.ObjectId.isValid(categoryID)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid category ID format'
+        });
+      }
+      query.categoryID = categoryID;
+    }
+
+    if (isActive !== undefined) {
+      query.isActive = isActive === 'true';
+    }
+
+    if (minHour || maxHour) {
+      query.hour = {};
+      if (minHour) query.hour.$gte = parseInt(minHour);
+      if (maxHour) query.hour.$lte = parseInt(maxHour);
+    }
+
+    // Pagination
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 10;
+    const skip = (pageNum - 1) * limitNum;
+
+    // Sort
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Get hourly routes
+    const hourlyRoutes = await HourlyRoute.find(query)
+      .populate('vehicleID', 'vehicleNumber model capacity')
+      .populate('categoryID', 'name')
+      .sort(sort)
+      .skip(skip)
+      .limit(limitNum);
+
+    // Get total count
+    const total = await HourlyRoute.countDocuments(query);
+
+    res.json({
+      success: true,
+      message: 'Hourly routes fetched successfully',
+      data: hourlyRoutes,
+      pagination: {
+        currentPage: pageNum,
+        totalPages: Math.ceil(total / limitNum),
+        totalItems: total,
+        itemsPerPage: limitNum,
+        hasNextPage: pageNum < Math.ceil(total / limitNum),
+        hasPrevPage: pageNum > 1
+      }
+    });
+
+  } catch (error) {
+    console.error('Get hourly routes error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching hourly routes',
+      error: error.message
+    });
+  }
+});
+
+// ============= GET HOURLY ROUTE BY ID =============
+// GET /api/hourly-routes/:id
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid hourly route ID format'
+      });
+    }
+
+    const hourlyRoute = await HourlyRoute.findById(id)
+      .populate('vehicleID', 'vehicleNumber model capacity')
+      .populate('categoryID', 'name');
+
+    if (!hourlyRoute) {
+      return res.status(404).json({
+        success: false,
+        message: 'Hourly route not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: hourlyRoute
+    });
+
+  } catch (error) {
+    console.error('Get hourly route error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching hourly route',
+      error: error.message
+    });
+  }
+});
+
+
 
 
 // ============= UPDATE HOURLY ROUTE STATUS ONLY =============

@@ -528,8 +528,14 @@ router.get('/availability/date-wise', async (req, res) => {
 
 
 
+
 // GET - Get drivers with their hourly bookings for a specific date
-router.get('/drivers/hourly-bookings', async (req, res) => {
+router.get('/drivers/hourly-bookings',
+  
+  
+  
+  
+  async (req, res) => {
   try {
     const { date, driverId, status, startDate, endDate } = req.query;
     

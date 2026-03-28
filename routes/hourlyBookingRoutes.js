@@ -5,7 +5,7 @@ const HourlyBooking = require('../models/hourlyBookingModel');
 const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
 const NotificationService = require('../services/notificationService');
 
-
+const {authenticateDriver} = require('../middleware/driverware');
 // // Helper function for notifications (implement as needed)
 // const notifyUser = async (userId, title, body, data) => {
 //   console.log(`Notification to ${userId}:`, { title, body, data });

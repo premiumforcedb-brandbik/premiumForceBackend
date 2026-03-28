@@ -13,6 +13,8 @@ const {   authenticateToken,
  } = require('../middleware/adminmiddleware');
 
 
+ const {authenticateCustomer
+ } = require('../middleware/customermiddleware');
  
 
 // Import S3 configuration from your central config file (like in userRoutes)
@@ -299,7 +301,9 @@ router.get('/earnings/monthly', authenticateToken, async (req, res) => {
 
 // ============= GET LAST 6 MONTHS EARNINGS =============
 // GET /api/bookings/earnings/last-6-months - Get last 6 months total earnings (Public)
-router.get('/earnings/last-6-months', async (req, res) => {
+router.get('/earnings/last-6-months',
+  authenticateToken,authorizeAdmin,
+  async (req, res) => {
   try {
     console.log('Fetching last 6 months earnings (Public Access)');
 
@@ -733,31 +737,45 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 // ============= CREATE BOOKING with Images =============
 // POST /api/bookings - Create a new booking with car image and optional audio
 router.post('/', 
-  authMiddleware, 
+  authenticateCustomer,
   upload.fields([
     { name: 'carimage', maxCount: 1 },
     { name: 'specialRequestAudio', maxCount: 1 }
   ]), 
   async (req, res) => {
     try {
+      
       console.log('Request body:', req.body);
       console.log('Request files:', req.files);
+      
+      // FIXED: Check if req.customer exists
+      if (!req.customer) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication failed - Customer data not found'
+        });
+      }
+      
+      console.log('Authenticated customer:', req.customer);
 
       const {
         category, cityID, airportID, terminalID, flightNumber, arrival,
-        pickupLat, pickupLong,pickupAddress, dropOffLat, dropOffLong, dropOffAddress,
-      charge,carID,carmodel,
-       specialRequestText,
+        pickupLat, pickupLong, pickupAddress, dropOffLat, dropOffLong, dropOffAddress,
+        charge, carID, carmodel,
+        specialRequestText,
         passengerCount, passengerNames, passengerMobile, distance,
-        customerID, bookingStatus, driverID
+        bookingStatus, driverID
       } = req.body;
+
+      // Get customer ID from authenticated user
+      const customerID = req.customer.customerId;
 
       // Validation for required fields (driverID is NOT required)
       if (!category || !cityID || !arrival || !pickupLat || !pickupLong || 
           !dropOffLat || !dropOffLong || !dropOffAddress ||
-           !carmodel || !passengerCount || !passengerNames || 
-          !pickupAddress||
-          !passengerMobile || !distance || !customerID || !charge || !carID) {
+          !carmodel || !passengerCount || !passengerNames || 
+          !pickupAddress ||
+          !passengerMobile || !distance || !charge || !carID) {
         
         // Delete uploaded files if validation fails
         if (req.files) {
@@ -771,42 +789,12 @@ router.post('/',
         
         return res.status(400).json({
           success: false,
-          message: 'Please provide all required fields'
+          message: 'Please provide all required fields',
+          required: ['category', 'cityID', 'arrival', 'pickupLat', 'pickupLong', 
+                     'dropOffLat', 'dropOffLong', 'dropOffAddress', 'carmodel', 
+                     'passengerCount', 'passengerNames', 'pickupAddress', 
+                     'passengerMobile', 'distance', 'charge', 'carID']
         });
-      }
-
-      // Validate customerID format
-      if (!mongoose.Types.ObjectId.isValid(customerID)) {
-        if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid customer ID format'
-        });
-      }
-
-      // FIXED: Handle driverID validation properly - allow null, undefined, or valid ObjectId
-      // Check if driverID is provided and not null/undefined/empty string
-      if (driverID !== undefined && driverID !== null && driverID !== '') {
-        // Check if it's the string "null" and treat as null
-        if (driverID === 'null' || driverID === 'undefined') {
-          // Treat as null, don't validate
-          console.log('driverID is string null/undefined, treating as null');
-        } 
-        // Check if it's a valid ObjectId
-        else if (!mongoose.Types.ObjectId.isValid(driverID)) {
-          if (req.files) {
-            if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
-          }
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid driver ID format',
-            receivedValue: driverID // This helps debug what was received
-          });
-        }
       }
 
       // Validate date
@@ -823,11 +811,16 @@ router.post('/',
       }
 
       // CHECK FOR EXISTING BOOKING
+      const startOfDay = new Date(parsedDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(parsedDate);
+      endOfDay.setHours(23, 59, 59, 999);
+
       const existingBooking = await Booking.findOne({
         customerID: customerID,
         arrival: {
-          $gte: new Date(parsedDate).setHours(0, 0, 0, 0),
-          $lte: new Date(parsedDate).setHours(23, 59, 59, 999)
+          $gte: startOfDay,
+          $lte: endOfDay
         },
         bookingStatus: { $nin: ['cancelled', 'completed'] }
       });
@@ -838,23 +831,14 @@ router.post('/',
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
         }
 
-        console.log('Request body:', customerID);
-
-        const userDetails = await User.findById(customerID).select('fcmToken').lean();
-
-        console.log(userDetails.fcmToken);
-        console.log(">>>>>>");
-        console.log(userDetails.fcmToken);
-        
         await notifyUser(
           customerID,
-          '✅ Booking Confirmed',
-          ` You already have a booking scheduled for this date`,
+          '✅ Booking Already Exists',
+          `You already have a booking scheduled for this date`,
           {
-            type: 'booking_created',
+            type: 'booking_exists',
             bookingId: existingBooking._id.toString(),
-            status: 'confirmed',
-            // carName: carName
+            status: existingBooking.bookingStatus,
           }
         );
 
@@ -884,7 +868,15 @@ router.post('/',
         parsedPassengerNames = [String(passengerNames)];
       }
 
-      // Create booking object - handle driverID properly
+      // Handle driverID validation properly
+      let finalDriverID = null;
+      if (driverID !== undefined && driverID !== null && driverID !== '' && driverID !== 'null' && driverID !== 'undefined') {
+        if (mongoose.Types.ObjectId.isValid(driverID)) {
+          finalDriverID = driverID;
+        }
+      }
+
+      // Create booking object
       const bookingData = {
         category: String(category).trim(),
         cityID: String(cityID).trim(),
@@ -898,10 +890,7 @@ router.post('/',
         dropOffLat: parseFloat(dropOffLat),
         dropOffLong: parseFloat(dropOffLong),
         dropOffAddress: String(dropOffAddress).trim(),
-        // carName: String(carName).trim(),
-        // carclass: String(carclass).trim(),
-        // carbrand: String(carbrand).trim(),
-         carID: String(carID).trim(),
+        carID: String(carID).trim(),
         carmodel: String(carmodel).trim(),
         charge: String(charge).trim(),
         carimage: req.files && req.files.carimage && req.files.carimage.length > 0 ? {
@@ -915,21 +904,13 @@ router.post('/',
         passengerNames: parsedPassengerNames,
         passengerMobile: String(passengerMobile).trim(),
         distance: String(distance).trim(),
-        customerID: customerID,
+        customerID: customerID, // Auto-set from authenticated user
         bookingStatus: bookingStatus || 'pending',
         TrackingTimeLine: ['booking_created'],
         paymentStatus: false,
-        rating: {}
+        rating: {},
+        driverID: finalDriverID
       };
-
-      // FIXED: Properly handle driverID - set to null if not provided or invalid
-      if (driverID === undefined || driverID === null || driverID === '' || driverID === 'null' || driverID === 'undefined') {
-        bookingData.driverID = null; // Explicitly set to null
-        console.log('Setting driverID to null');
-      } else if (mongoose.Types.ObjectId.isValid(driverID)) {
-        bookingData.driverID = driverID;
-        console.log('Setting driverID to:', driverID);
-      }
 
       // Add optional fields
       if (specialRequestText && specialRequestText.trim() !== '') {
@@ -951,15 +932,15 @@ router.post('/',
       const booking = new Booking(bookingData);
       await booking.save();
 
-      // Optional: Send notification to the customer that booking was created successfully
+      // Send notification to the customer
       await notifyUser(
         customerID,
         '✅ Booking Confirmed',
-        `Your booking  has been created successfully.`,
+        `Your booking has been created successfully.`,
         {
           type: 'booking_created',
-          status: 'confirmed',
-          // carName: carName
+          bookingId: booking._id.toString(),
+          status: booking.bookingStatus,
         }
       );
 
@@ -1011,12 +992,10 @@ router.post('/',
 
 
 
-
-
-// UPDATE booking by ID
-
+// ============= UPDATE BOOKING by ID =============
+// PUT /api/bookings/:id - Update booking (customer can only update their own bookings)
 router.put('/:id', 
-  authMiddleware, 
+  authenticateCustomer,
   upload.fields([
     { name: 'carimage', maxCount: 1 },
     { name: 'specialRequestAudio', maxCount: 1 }
@@ -1026,8 +1005,19 @@ router.put('/:id',
       console.log('Update booking - ID:', req.params.id);
       console.log('Request body:', req.body);
       console.log('Request files:', req.files);
+      
+      // FIXED: Check if req.customer exists
+      if (!req.customer) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication failed - Customer data not found'
+        });
+      }
+      
+      console.log('Authenticated customer:', req.customer);
 
       const bookingId = req.params.id;
+      const customerId = req.customer.customerId;
 
       // Validate booking ID
       if (!mongoose.Types.ObjectId.isValid(bookingId)) {
@@ -1042,8 +1032,12 @@ router.put('/:id',
         });
       }
 
-      // Check if booking exists
-      const existingBooking = await Booking.findById(bookingId);
+      // Check if booking exists AND belongs to the authenticated customer
+      const existingBooking = await Booking.findOne({
+        _id: bookingId,
+        customerID: customerId // Ensure customer owns this booking
+      });
+      
       if (!existingBooking) {
         // Delete uploaded files if booking not found
         if (req.files) {
@@ -1052,7 +1046,30 @@ router.put('/:id',
         }
         return res.status(404).json({
           success: false,
-          message: 'Booking not found'
+          message: 'Booking not found or you do not have permission to update it'
+        });
+      }
+
+      // Check if booking can be updated (not completed or cancelled)
+      if (existingBooking.bookingStatus === 'completed') {
+        if (req.files) {
+          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
+        }
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot update a completed booking'
+        });
+      }
+
+      if (existingBooking.bookingStatus === 'cancelled') {
+        if (req.files) {
+          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
+        }
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot update a cancelled booking'
         });
       }
 
@@ -1060,82 +1077,15 @@ router.put('/:id',
       const {
         category, cityID, airportID, terminalID, flightNumber, arrival,
         pickupLat, pickupLong, pickupAddress, dropOffLat, dropOffLong, dropOffAddress,
-        carID, charge, driverID,
-        carmodel, specialRequestText,
+        carID, charge, carmodel, specialRequestText,
         passengerCount, passengerNames, passengerMobile, distance,
-        bookingStatus, customerID
+        bookingStatus
       } = req.body;
 
       // Helper function to check if value is null/undefined/empty
       const isValidValue = (value) => {
         return value !== undefined && value !== null && value !== '' && value !== 'null' && value !== 'undefined';
       };
-
-
-      // Validate required fields (only if they are being updated)
-      const requiredFields = [
-        { name: 'category', value: category },
-        { name: 'cityID', value: cityID },
-        { name: 'arrival', value: arrival },
-        { name: 'pickupLat', value: pickupLat },
-        { name: 'pickupLong', value: pickupLong },
-        { name: 'pickupAddress', value: pickupAddress },
-        { name: 'dropOffLat', value: dropOffLat },
-        { name: 'dropOffLong', value: dropOffLong },
-        { name: 'dropOffAddress', value: dropOffAddress },
-        { name: 'carID', value: carID },
-        { name: 'carmodel', value: carmodel },
-        { name: 'passengerCount', value: passengerCount },
-        { name: 'passengerNames', value: passengerNames },
-        { name: 'passengerMobile', value: passengerMobile },
-        { name: 'distance', value: distance },
-        { name: 'charge', value: charge },
-        // { name: 'carName', value: carName }
-      ];
-
-      // Check if any required field is being sent with invalid value
-      for (const field of requiredFields) {
-        if (field.value !== undefined && !isValidValue(field.value)) {
-          // Delete uploaded files if validation fails
-          if (req.files) {
-            if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
-          }
-          
-          return res.status(400).json({
-            success: false,
-            message: `Invalid value for required field: ${field.name}`
-          });
-        }
-      }
-
-      // Validate customerID format if provided and valid
-      if (isValidValue(customerID)) {
-        if (!mongoose.Types.ObjectId.isValid(customerID)) {
-          if (req.files) {
-            if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
-          }
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid customer ID format'
-          });
-        }
-      }
-
-      // Validate driverID format if provided and valid
-      if (isValidValue(driverID)) {
-        if (!mongoose.Types.ObjectId.isValid(driverID)) {
-          if (req.files) {
-            if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
-          }
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid driver ID format'
-          });
-        }
-      }
 
       // Validate date if provided
       let parsedDate = existingBooking.arrival;
@@ -1153,7 +1103,7 @@ router.put('/:id',
         }
       }
 
-      // Parse passengerNames
+      // Parse passengerNames if provided
       let parsedPassengerNames = existingBooking.passengerNames;
       if (isValidValue(passengerNames)) {
         if (typeof passengerNames === 'string') {
@@ -1164,36 +1114,21 @@ router.put('/:id',
           }
         } else if (Array.isArray(passengerNames)) {
           parsedPassengerNames = passengerNames;
-        } else {
-          parsedPassengerNames = [String(passengerNames)];
         }
       }
 
-      // Helper function to clean field values
-      const cleanFieldValue = (value, existingValue) => {
-        if (!isValidValue(value)) {
-          return existingValue;
-        }
-        return value;
-      };
-
-      // Helper function to clean string fields
+      // Helper functions
       const cleanStringField = (value, existingValue) => {
-        if (!isValidValue(value)) {
-          return existingValue;
-        }
+        if (!isValidValue(value)) return existingValue;
         return String(value).trim();
       };
 
-      // Helper function to clean number fields
       const cleanNumberField = (value, existingValue, parseFunc = parseFloat) => {
-        if (!isValidValue(value)) {
-          return existingValue;
-        }
+        if (!isValidValue(value)) return existingValue;
         return parseFunc(value);
       };
 
-      // Prepare update data with proper null handling
+      // Prepare update data
       const updateData = {
         category: cleanStringField(category, existingBooking.category),
         cityID: cleanStringField(cityID, existingBooking.cityID),
@@ -1214,23 +1149,49 @@ router.put('/:id',
         passengerNames: parsedPassengerNames,
         passengerMobile: cleanStringField(passengerMobile, existingBooking.passengerMobile),
         distance: cleanStringField(distance, existingBooking.distance),
-        bookingStatus: isValidValue(bookingStatus) ? String(bookingStatus).trim() : existingBooking.bookingStatus,
-        // Special handling for driverID - can be null to unassign driver
-        driverID: isValidValue(driverID) ? driverID : null, // This allows explicitly setting driverID to null
-        customerID: isValidValue(customerID) ? customerID : existingBooking.customerID,
         updatedAt: new Date()
       };
 
+      // Handle booking status update with validation
+      if (isValidValue(bookingStatus)) {
+        const newStatus = String(bookingStatus).trim().toLowerCase();
+        const validStatuses = ['pending', 'cancelled'];
+        
+        // Customer can only update to pending or cancelled
+        if (!validStatuses.includes(newStatus)) {
+          if (req.files) {
+            if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
+          }
+          return res.status(400).json({
+            success: false,
+            message: 'Customer can only update booking status to pending or cancelled',
+            allowedStatuses: validStatuses
+          });
+        }
+        
+        // Prevent updating to pending if already confirmed/assigned
+        if (newStatus === 'pending' && existingBooking.bookingStatus !== 'pending') {
+          if (req.files) {
+            if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
+          }
+          return res.status(400).json({
+            success: false,
+            message: 'Cannot change status to pending once booking is processed'
+          });
+        }
+        
+        updateData.bookingStatus = newStatus;
+      }
+
       // Handle file updates
-      
-      // 1. Handle car image update
       if (req.files && req.files.carimage && req.files.carimage[0]) {
         // Delete old car image from S3 if exists
         if (existingBooking.carimage && existingBooking.carimage.key) {
           await deleteFromS3(existingBooking.carimage.key).catch(console.error);
         }
         
-        // Add new car image
         updateData.carimage = {
           key: req.files.carimage[0].key,
           url: getS3Url(req.files.carimage[0].key),
@@ -1240,14 +1201,12 @@ router.put('/:id',
         };
       }
 
-      // 2. Handle special request audio update
       if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio[0]) {
         // Delete old audio from S3 if exists
         if (existingBooking.specialRequestAudio && existingBooking.specialRequestAudio.key) {
           await deleteFromS3(existingBooking.specialRequestAudio.key).catch(console.error);
         }
         
-        // Add new audio
         updateData.specialRequestAudio = {
           key: req.files.specialRequestAudio[0].key,
           url: getS3Url(req.files.specialRequestAudio[0].key),
@@ -1257,18 +1216,17 @@ router.put('/:id',
         };
       }
 
-      // 3. Handle special request text update
+      // Handle special request text
       if (specialRequestText !== undefined) {
         if (isValidValue(specialRequestText)) {
           updateData.specialRequestText = String(specialRequestText).trim();
         } else {
-          // If empty/blank is sent, set to null or remove
           updateData.specialRequestText = null;
         }
       }
 
       // Add to tracking timeline
-      updateData.$push = { TrackingTimeLine: 'booking_updated' };
+      updateData.$push = { TrackingTimeLine: 'booking_updated_by_customer' };
 
       console.log('Update data:', JSON.stringify(updateData, null, 2));
 
@@ -1276,94 +1234,30 @@ router.put('/:id',
       const updatedBooking = await Booking.findByIdAndUpdate(
         bookingId,
         updateData,
-        { new: true, runValidators: true } // Return updated document and run validators
+        { new: true, runValidators: true }
       );
 
-      // Get the customerID to use for notifications (use the updated one)
-      const notificationCustomerId = updateData.customerID || existingBooking.customerID;
-
-      // Send notifications based on booking status
-      if (updatedBooking.bookingStatus === 'assigned' && updatedBooking.driverID) {
+      // Send notification based on status change
+      if (updateData.bookingStatus === 'cancelled') {
         await notifyUser(
-          notificationCustomerId,
-          '✅ Booking trip Assigned',
-          `Your booking  has been assigned successfully.`,
+          customerId,
+          '❌ Booking Cancelled',
+          `Your booking has been cancelled successfully.`,
           {
-            type: 'booking_assigned',
+            type: 'booking_cancelled',
             bookingId: updatedBooking._id.toString(),
-            status: 'assigned',
-            // carName: updatedBooking.carName,
-            driverId: updatedBooking.driverID
+            status: 'cancelled'
           }
         );
-      }
-      
-      if (updatedBooking.bookingStatus === 'start_pickup') {
+      } else {
         await notifyUser(
-          notificationCustomerId,
-          '✅ Trip Pickup Started',
-          `Your pickup  has started.`,
+          customerId,
+          '📝 Booking Updated',
+          `Your booking has been updated successfully.`,
           {
-            type: 'pickup_started',
+            type: 'booking_updated',
             bookingId: updatedBooking._id.toString(),
-            status: 'start_pickup',
-            // carName: updatedBooking.carName
-          }
-        );
-      }
-
-      if (updatedBooking.bookingStatus === 'ongoing') {
-        await notifyUser(
-          notificationCustomerId,
-          '✅ Trip On the way',
-          `You're on the way to your destination .`,
-          {
-            type: 'trip_ongoing',
-            bookingId: updatedBooking._id.toString(),
-            status: 'ongoing',
-            // carName: updatedBooking.carName
-          }
-        );
-      }
-
-      if (updatedBooking.bookingStatus === 'end') {
-        await notifyUser(
-          notificationCustomerId,
-          '✅ Destination Reached',
-          `You have reached your destination .`,
-          {
-            type: 'destination_reached',
-            bookingId: updatedBooking._id.toString(),
-            status: 'end',
-            // carName: updatedBooking.carName
-          }
-        );
-      }
-      
-      if (updatedBooking.bookingStatus === 'payment_pending') {
-        await notifyUser(
-          notificationCustomerId,
-          '✅ Payment Pending',
-          `Driver is awaiting payment .`,
-          {
-            type: 'payment_pending',
-            bookingId: updatedBooking._id.toString(),
-            status: 'payment_pending',
-            // carName: updatedBooking.carName
-          }
-        );
-      }
-
-      if (updatedBooking.bookingStatus === 'payment_completed') {
-        await notifyUser(
-          notificationCustomerId,
-          '✅ Trip Completed',
-          `Your trip has been completed successfully.`,
-          {
-            type: 'trip_completed',
-            bookingId: updatedBooking._id.toString(),
-            status: 'payment_completed',
-            // carName: updatedBooking.carName
+            status: updatedBooking.bookingStatus
           }
         );
       }
@@ -1399,21 +1293,13 @@ router.put('/:id',
         });
       }
 
-      if (error.code === 11000) {
-        return res.status(400).json({
-          success: false,
-          message: 'Duplicate field value entered'
-        });
-      }
-
       res.status(500).json({
         success: false,
         message: 'Error updating booking',
         error: error.message
       });
     }
-  }
-);
+});
 
 
 

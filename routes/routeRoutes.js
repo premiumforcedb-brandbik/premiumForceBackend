@@ -139,12 +139,12 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
     }
 
     // IMPORTANT: Check if fromCity and toCity are the same
-    if (fromCity === toCity) {
-      return res.status(400).json({
-        success: false,
-        message: 'From city and To city cannot be the same'
-      });
-    }
+    // if (fromCity === toCity) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: 'From city and To city cannot be the same'
+    //   });
+    // }
 
     // Check if cities exist
     const fromCityExists = await City.findById(fromCity);
@@ -310,12 +310,12 @@ router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
     const newToCity = toCity || existingRoute.toCity;
     const newVehicleID = vehicleID || existingRoute.vehicleID;
     
-    if (newFromCity.toString() === newToCity.toString()) {
-      return res.status(400).json({
-        success: false,
-        message: 'From city and To city cannot be the same'
-      });
-    }
+    // if (newFromCity.toString() === newToCity.toString()) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: 'From city and To city cannot be the same'
+    //   });
+    // }
 
     // Check if updated route already exists (excluding current route)
     if (fromCity || toCity || vehicleID) {

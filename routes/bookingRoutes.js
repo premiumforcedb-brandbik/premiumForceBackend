@@ -2280,7 +2280,6 @@ router.get('/customer/:customerId',
 });
 
 
-
 // GET BOOKINGS BY DRIVER ID
 router.get('/driver/:driverid',async (req, res) => {
   try {

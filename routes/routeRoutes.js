@@ -310,6 +310,7 @@ router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
     const newToCity = toCity || existingRoute.toCity;
     const newVehicleID = vehicleID || existingRoute.vehicleID;
     
+    
     // if (newFromCity.toString() === newToCity.toString()) {
     //   return res.status(400).json({
     //     success: false,

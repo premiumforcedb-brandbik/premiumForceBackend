@@ -2215,10 +2215,8 @@ router.get('/:id',  authenticateToken,
 
 // GET /api/bookings/customer/:customerId - Get all bookings for a specific customer
 
-
 router.get('/customer/:customerId', 
-   authenticateToken,
-  authorizeAdmin, async (req, res) => {
+    async (req, res) => {
   try {
     const { customerId } = req.params;
     const { status, page = 1, limit = 10, sort = '-createdAt' } = req.query;
@@ -2282,9 +2280,9 @@ router.get('/customer/:customerId',
 });
 
 
+
 // GET BOOKINGS BY DRIVER ID
-router.get('/driver/:driverid', authenticateToken,
-  authorizeAdmin, async (req, res) => {
+router.get('/driver/:driverid',async (req, res) => {
   try {
     // FIXED: Use the correct parameter name from the route
     const { driverid } = req.params;  // Changed from driverID to driverid

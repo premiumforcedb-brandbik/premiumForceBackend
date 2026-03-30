@@ -28,6 +28,7 @@ router.get('/', async (req, res) => {
     }
 });
 
+
 // ============= ADD OR UPDATE VAT =============
 // @route   POST /api/vat
 // @desc    Add or update VAT value (Admin only)

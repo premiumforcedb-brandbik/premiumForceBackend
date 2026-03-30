@@ -2,6 +2,8 @@ const { GoogleAuth } = require('google-auth-library');
 const axios = require('axios');
 const User = require('./models/users_model');
 
+const Admin = require('./models/adminModel');
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Firebase project ID (must match your google-services.json / Firebase Console)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -154,6 +156,25 @@ async function notifyUser(userId, title, body, data = {}) {
     user.fcmToken,
     title, body, data);
 }
+
+
+/**
+ * Look up a user by MongoDB _id and send them a notification.
+ *
+ * @param {string|ObjectId} userId  MongoDB user _id
+ * @param {string}          title
+ * @param {string}          body
+ * @param {object}          data
+ */
+
+async function notifyUserAdmin(userId, title, body, data = {}) {
+  const user = await Admin.findById(userId).select('fcmToken').lean();
+  if (!user?.fcmToken) return;
+  await sendPushNotification(
+    user.fcmToken,
+    title, body, data);
+}
+
 
 
 /**

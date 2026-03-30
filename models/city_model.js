@@ -33,7 +33,6 @@ const citySchema = new mongoose.Schema({
 });
 
 // Index for better query performance
-// citySchema.index({ cityName: 1 });
 citySchema.index({ isActive: 1 });
 
 

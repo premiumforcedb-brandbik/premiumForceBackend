@@ -21,6 +21,17 @@ const hourlyBookingSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+   transactionID: {
+    type: String,
+    required: true
+  },
+   orderID: {
+    type: String,
+    required: true
+  },
+  discountPercentage: {
+    type: Number,
+    default: 0},
   category: {
     type: String,
     required: true

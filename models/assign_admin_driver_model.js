@@ -15,15 +15,15 @@ const adminAssignDriverSchema = new mongoose.Schema(
       type: String,
       required: true
     },
-    customerID:{
-      type: String,
-     required: true
-    },
-    assignedAt: {
-       required: [true, 'Assigned date and time is required'],
-      type: Date,
-      // default: Date.now
-    }
+    // customerID:{
+    //   type: String,
+    //  required: true
+    // },
+    // assignedAt: {
+    //    required: [true, 'Assigned date and time is required'],
+    //   type: Date,
+    //   // default: Date.now
+    // }
   },
   {
     timestamps: true // ✅ This is CORRECT - outside the fields object

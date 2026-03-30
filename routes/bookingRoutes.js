@@ -1467,6 +1467,7 @@ router.post('/',
 });
 
 
+
 // ============= UPDATE BOOKING by ID =============
 router.put('/:id', 
   authenticateCustomer,
@@ -1840,6 +1841,271 @@ router.put('/:id',
 
 
 
+
+// ============= GET BOOKING BY ID =============
+// GET /api/bookings/:id - Get a single booking with full details
+router.get('/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    // Validate booking ID
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid booking ID format'
+      });
+    }
+
+    // Build query based on user role
+    let query = { _id: id };
+    
+    // If user is customer, only allow access to their own bookings
+    if (userRole === 'customer') {
+      const customerId = req.customer?.customerId;
+      if (!customerId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication failed - Customer data not found'
+        });
+      }
+      query.customerID = new mongoose.Types.ObjectId(customerId);
+    }
+    
+    // If user is driver, only allow access to their assigned bookings
+    if (userRole === 'driver') {
+      query.driverID = new mongoose.Types.ObjectId(userId);
+    }
+    
+    // Admin can access any booking
+
+    // Find booking with all populated fields
+    const booking = await Booking.findOne(query)
+      .populate({
+        path: 'customerID',
+        model: 'User',
+        select: '_id username email phoneNumber countryCode profileImage role isActive fullPhoneNumber'
+      })
+      .populate({
+        path: 'cityID',
+        model: 'City',
+        select: '_id cityName image isActive createdAt'
+      })
+      .populate({
+        path: 'airportID',
+        model: 'Airport',
+        populate: {
+          path: 'cityID',
+          model: 'City',
+          select: '_id cityName'
+        },
+        select: '_id cityID airportName lat long image isActive createdAt'
+      })
+      .populate({
+        path: 'terminalID',
+        model: 'Terminal',
+        populate: {
+          path: 'airportID',
+          model: 'Airport',
+          select: '_id airportName'
+        },
+        select: '_id airportID terminalName image isActive createdAt'
+      })
+      .populate({
+        path: 'carID',
+        model: 'Car',
+        populate: [
+          {
+            path: 'categoryID',
+            model: 'Category',
+            select: '_id categoryName'
+          },
+          {
+            path: 'brandID',
+            model: 'Brand',
+            select: '_id brandName'
+          }
+        ],
+        select: '_id categoryID brandID carName model numberOfPassengers carImage minimumChargeDistance createdAt'
+      })
+      .populate({
+        path: 'driverID',
+        model: 'Driver',
+        select: '_id driverName countryCode phoneNumber licenseNumber profileImage rating totalTrips isActive isVerified createdAt'
+      })
+      .lean();
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found or you do not have permission to view it'
+      });
+    }
+
+    // Format the booking response with full details
+    const formattedBooking = {
+      _id: booking._id,
+      category: booking.category,
+      
+      // City details
+      city: booking.cityID && typeof booking.cityID === 'object' ? {
+        _id: booking.cityID._id,
+        cityName: booking.cityID.cityName,
+        image: booking.cityID.image,
+        isActive: booking.cityID.isActive,
+        createdAt: booking.cityID.createdAt
+      } : null,
+      
+      // Airport details with city info
+      airport: booking.airportID && typeof booking.airportID === 'object' ? {
+        _id: booking.airportID._id,
+        cityID: booking.airportID.cityID,
+        cityDetails: booking.airportID.cityID && typeof booking.airportID.cityID === 'object' ? {
+          _id: booking.airportID.cityID._id,
+          cityName: booking.airportID.cityID.cityName
+        } : null,
+        airportName: booking.airportID.airportName,
+        lat: booking.airportID.lat,
+        long: booking.airportID.long,
+        image: booking.airportID.image,
+        isActive: booking.airportID.isActive,
+        createdAt: booking.airportID.createdAt
+      } : null,
+      
+      // Terminal details with airport info
+      terminal: booking.terminalID && typeof booking.terminalID === 'object' ? {
+        _id: booking.terminalID._id,
+        airportID: booking.terminalID.airportID,
+        airportDetails: booking.terminalID.airportID && typeof booking.terminalID.airportID === 'object' ? {
+          _id: booking.terminalID.airportID._id,
+          airportName: booking.terminalID.airportID.airportName
+        } : null,
+        terminalName: booking.terminalID.terminalName,
+        image: booking.terminalID.image,
+        isActive: booking.terminalID.isActive,
+        createdAt: booking.terminalID.createdAt
+      } : null,
+      
+      // Car details with category and brand
+      car: booking.carID && typeof booking.carID === 'object' ? {
+        _id: booking.carID._id,
+        categoryID: booking.carID.categoryID,
+        categoryDetails: booking.carID.categoryID && typeof booking.carID.categoryID === 'object' ? {
+          _id: booking.carID.categoryID._id,
+          categoryName: booking.carID.categoryID.categoryName
+        } : null,
+        brandID: booking.carID.brandID,
+        brandDetails: booking.carID.brandID && typeof booking.carID.brandID === 'object' ? {
+          _id: booking.carID.brandID._id,
+          brandName: booking.carID.brandID.brandName
+        } : null,
+        carName: booking.carID.carName,
+        model: booking.carID.model,
+        numberOfPassengers: booking.carID.numberOfPassengers,
+        carImage: booking.carID.carImage,
+        minimumChargeDistance: booking.carID.minimumChargeDistance,
+        createdAt: booking.carID.createdAt
+      } : null,
+      
+      // Driver details
+      driver: booking.driverID && typeof booking.driverID === 'object' ? {
+        _id: booking.driverID._id,
+        driverName: booking.driverID.driverName,
+        countryCode: booking.driverID.countryCode,
+        phoneNumber: booking.driverID.phoneNumber,
+        fullPhoneNumber: `${booking.driverID.countryCode}${booking.driverID.phoneNumber}`,
+        licenseNumber: booking.driverID.licenseNumber,
+        profileImage: booking.driverID.profileImage,
+        rating: booking.driverID.rating,
+        totalTrips: booking.driverID.totalTrips,
+        isActive: booking.driverID.isActive,
+        isVerified: booking.driverID.isVerified,
+        createdAt: booking.driverID.createdAt
+      } : null,
+      
+      // Customer details
+      customer: booking.customerID && typeof booking.customerID === 'object' ? {
+        _id: booking.customerID._id,
+        username: booking.customerID.username,
+        email: booking.customerID.email,
+        phoneNumber: booking.customerID.phoneNumber,
+        countryCode: booking.customerID.countryCode,
+        fullPhoneNumber: `${booking.customerID.countryCode}${booking.customerID.phoneNumber}`,
+        profileImage: booking.customerID.profileImage,
+        role: booking.customerID.role,
+        isActive: booking.customerID.isActive,
+        createdAt: booking.customerID.createdAt
+      } : null,
+      
+      // Flight details
+      flightNumber: booking.flightNumber,
+      arrival: booking.arrival,
+      
+      // Pickup details
+      pickupLat: booking.pickupLat,
+      pickupLong: booking.pickupLong,
+      pickupAddress: booking.pickupAddress,
+      
+      // Dropoff details
+      dropOffLat: booking.dropOffLat,
+      dropOffLong: booking.dropOffLong,
+      dropOffAddress: booking.dropOffAddress,
+      
+      // Car details from booking
+      carmodel: booking.carmodel,
+      charge: booking.charge,
+      carimage: booking.carimage,
+      discountPercentage: booking.discountPercentage || 0,
+      
+      // Passenger details
+      passengerCount: booking.passengerCount,
+      passengerNames: booking.passengerNames,
+      passengerMobile: booking.passengerMobile,
+      distance: booking.distance,
+      
+      // Status and tracking
+      bookingStatus: booking.bookingStatus,
+      TrackingTimeLine: booking.TrackingTimeLine || [],
+      paymentStatus: booking.paymentStatus,
+      rating: booking.rating || {},
+      
+      // Special requests
+      specialRequestText: booking.specialRequestText,
+      specialRequestAudio: booking.specialRequestAudio,
+      
+      // Transaction details
+      transactionID: booking.transactionID,
+      orderID: booking.orderID,
+      
+      // Timestamps
+      createdAt: booking.createdAt,
+      updatedAt: booking.updatedAt
+    };
+
+    res.status(200).json({
+      success: true,
+      message: 'Booking fetched successfully',
+      data: formattedBooking
+    });
+
+  } catch (error) {
+    console.error('Get booking by ID error:', error);
+    
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid booking ID format'
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching booking',
+      error: error.message
+    });
+  }
+});
 
 
 

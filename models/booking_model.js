@@ -20,6 +20,17 @@ const bookingSchema = new mongoose.Schema({
     carID: {
     type: String
   },
+  transactionID: {
+    type: String,
+    required: true
+  },
+   orderID: {
+    type: String,
+    required: true
+  },
+  discountPercentage: {
+    type: Number,
+    default: 0},
   flightNumber: {
     type: String
   },

@@ -1008,9 +1008,9 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //     }
 // });
 
-
 // ============= CREATE BOOKING with Images =============
 router.post('/', 
+  
   authenticateCustomer,
   upload.fields([
     { name: 'carimage', maxCount: 1 },
@@ -1041,7 +1041,8 @@ router.post('/',
         charge, carID, carmodel,
         specialRequestText,
         passengerCount, passengerNames, passengerMobile, distance,
-        bookingStatus, driverID
+        bookingStatus, driverID,transactionID,orderID,discountPercentage
+        
       } = req.body;
 
       // Log the fields for debugging
@@ -1064,7 +1065,8 @@ router.post('/',
         'category', 'cityID', 'arrival', 'pickupLat', 'pickupLong',
         'dropOffLat', 'dropOffLong', 'dropOffAddress', 'carmodel',
         'passengerCount', 'passengerNames', 'pickupAddress',
-        'passengerMobile', 'distance', 'charge', 'carID'
+        'passengerMobile', 'distance', 'charge', 'carID', 'transactionID', 'orderID',
+        
       ];
 
       const missingFields = [];
@@ -1351,6 +1353,10 @@ router.post('/',
         dropOffLong: dropOffLongNum,
         dropOffAddress: String(dropOffAddress).trim(),
         carID: finalCarID,
+        transactionID: String(transactionID).trim(),
+        orderID: String(orderID).trim(),
+        discountPercentage: discountPercentage || 0,
+        pickupAddress: String(pickupAddress).trim(),
         carmodel: String(carmodel).trim(),
         charge: chargeStr,
         carimage: {
@@ -1527,7 +1533,7 @@ router.put('/:id',
         pickupLat, pickupLong, pickupAddress, dropOffLat, dropOffLong, dropOffAddress,
         carID, charge, carmodel, specialRequestText,
         passengerCount, passengerNames, passengerMobile, distance,
-        bookingStatus
+        bookingStatus, transactionID, orderID, discountPercentage
       } = req.body;
 
       // Helper function to check if value is null/undefined/empty
@@ -1632,6 +1638,9 @@ router.put('/:id',
       updateData.passengerNames = parsedPassengerNames;
       updateData.passengerMobile = cleanStringField(passengerMobile, existingBooking.passengerMobile);
       updateData.distance = cleanStringField(distance, existingBooking.distance);
+      updateData.transactionID = cleanStringField(transactionID, existingBooking.transactionID);
+      updateData.orderID = cleanStringField(orderID, existingBooking.orderID);
+      updateData.discountPercentage = discountPercentage || 0;
       updateData.updatedAt = new Date();
 
       // Handle booking status update

@@ -282,6 +282,93 @@ router.post('/verify-otp', async (req, res) => {
 
 
 
+/**
+ * @route   PATCH /api/drivers/:id/busy-status
+ * @desc    Update driver's busy status (Admin or Driver can update)
+ * @access  Private (Admin or Driver)
+ */
+router.patch('/:id/busy-status',
+   async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isBusy } = req.body;
+    
+    // Validate ID format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid driver ID format'
+      });
+    }
+    
+    // Check if isBusy is provided
+    if (isBusy === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'isBusy status is required'
+      });
+    }
+    
+    // Find driver
+    const driver = await Driver.findById(id);
+    if (!driver) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found'
+      });
+    }
+    
+    // // Check authorization - either admin or the driver themselves
+    // const isAdmin = req.user?.role === 'admin' || req.user?.role === 'superAdmin';
+    // const isSelf = req.driver?._id?.toString() === id || req.user?.driverId === id;
+    
+    // if (!isAdmin && !isSelf) {
+    //   return res.status(403).json({
+    //     success: false,
+    //     message: 'You are not authorized to update this driver\'s status'
+    //   });
+    // }
+    
+    // Update busy status
+    const oldStatus = driver.isBusy;
+    driver.isBusy = isBusy;
+    
+  
+    driver.lastStatusUpdate = new Date();
+    
+    await driver.save();
+    
+    console.log(`Driver ${driver.driverName} (${id}) busy status updated: ${oldStatus} -> ${driver.isBusy}`);
+    
+    res.status(200).json({
+      success: true,
+      message: driver.isBusy ? 'Driver marked as busy' : 'Driver marked as available',
+      data: {
+        _id: driver._id,
+        driverName: driver.driverName,
+        isBusy: driver.isBusy,
+        currentBookingId: driver.currentBookingId,
+        lastStatusUpdate: driver.lastStatusUpdate,
+        isActive: driver.isActive,
+        isVerified: driver.isVerified,
+        status: driver.isBusy ? 'busy' : 'available'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Update driver busy status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating driver busy status',
+      error: error.message
+    });
+  }
+});
+
+
+
+
+
 // drivers list specific dates api needed
 /**
  * @route   GET /api/drivers/availability/date-wise

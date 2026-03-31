@@ -17,6 +17,11 @@ const hourlyBookingSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+   pickupDateTime: {
+    type: Date,
+    required: true,
+    default: Date.now
+  },
   extraHours: {
     type: Number,
     default: 0
@@ -74,7 +79,35 @@ const hourlyBookingSchema = new mongoose.Schema({
   },
   carImage: {
     type: String,
-    required: true
+    required: false
+  },
+extraPayment: {
+    type: Number,
+    default: 0,
+    required: false
+  },
+  startedAt: {
+    type: Date,
+    default: null},
+  stoppedAt: {
+    type: Date,
+    default: null
+  },
+   extraTransactionID: {
+    type: String,
+    required: false
+  },
+   extraOrderID: {
+    type: String,
+    required: false
+  },
+    extraDiscount: {
+    type: Number,
+    required: false
+  },
+   extraPaymentCompleted: {
+    type: Boolean,
+    default: false
   },
   specialRequestText: {
     type: String,

@@ -3305,15 +3305,15 @@ router.get('/driver/:driverid',async (req, res) => {
 });
 
 
+
 // ============= UPDATE BOOKING STATUS =============
 // PATCH /api/bookings/:id/status - Update booking status
-router.patch('/:id/status', authenticateToken,
-  authorizeAdmin, async (req, res) => {
+router.patch('/:id/status',  async (req, res) => {
   try {
-    const { status, driverID } = req.body;
+    const { status } = req.body;
     const { id } = req.params;
 
-    const validStatuses = ['pending', 'confirmed', 'assigned', 'in_progress', 'completed', 'cancelled'];
+    const validStatuses = ['pending','assigned', 'starttrack', 'completed', 'cancelled','reviewed'];
     
     if (!status || !validStatuses.includes(status)) {
       return res.status(400).json({
@@ -3335,15 +3335,7 @@ router.patch('/:id/status', authenticateToken,
       $push: { TrackingTimeLine: `booking_${status}` }
     };
 
-    if (driverID && status === 'assigned') {
-      if (!mongoose.Types.ObjectId.isValid(driverID)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid driver ID format'
-        });
-      }
-      updateData.driverID = driverID;
-    }
+  
 
     if (status === 'completed') {
       updateData.paymentStatus = true;
@@ -3376,6 +3368,7 @@ router.patch('/:id/status', authenticateToken,
     });
   }
 });
+
 
 // ============= ADD RATING TO BOOKING =============
 // PATCH /api/bookings/:id/rating - Add rating

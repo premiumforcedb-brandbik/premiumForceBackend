@@ -5,7 +5,7 @@ const HourlyBooking = require('../models/hourlyBookingModel');
 const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
 const NotificationService = require('../services/notificationService');
 
-const {authenticateDriver} = require('../middleware/driverware');
+const { authenticateDriver } = require('../middleware/driverware');
 // // Helper function for notifications (implement as needed)
 // const notifyUser = async (userId, title, body, data) => {
 //   console.log(`Notification to ${userId}:`, { title, body, data });
@@ -15,13 +15,13 @@ const {authenticateDriver} = require('../middleware/driverware');
 
 const { notifyUser } = require('../fcm');
 
- const {authenticateCustomer
- } = require('../middleware/customermiddleware');
- 
+const { authenticateCustomer
+} = require('../middleware/customermiddleware');
+
 
 
 // POST /api/hourly-bookings - Create hourly booking
-router.post('/', 
+router.post('/',
   authenticateCustomer,
   (req, res, next) => {
     console.log('POST request received');
@@ -51,11 +51,11 @@ router.post('/',
 
       // Helper function to check if value is valid (not empty, not null, not undefined)
       const isValidValue = (value) => {
-        return value !== undefined && 
-               value !== null && 
-               value !== '' && 
-               value !== 'null' && 
-               value !== 'undefined';
+        return value !== undefined &&
+          value !== null &&
+          value !== '' &&
+          value !== 'null' &&
+          value !== 'undefined';
       };
 
       const {
@@ -64,8 +64,12 @@ router.post('/',
         charge, customerID, driverID, passsenrgersCount,
         passengerMobile, carClass, specialRequestText,
         bookingStatus, passengerNames, isActive,
-        transactionID, orderID, discountPercentage
+        transactionID, orderID, discountPercentage, pickupDateTime
+        , stoppedAt, startedAt, extraPayment, extraTransactionID, extraOrderID,
+        extraDiscount, extraPaymentCompleted
       } = req.body;
+
+
 
       // ========== IMPROVED VALIDATION ==========
       // Required fields (carImage is now optional)
@@ -74,6 +78,7 @@ router.post('/',
         pickupLat: pickupLat,
         pickuplong: pickuplong,
         pickupAdddress: pickupAdddress,
+        pickupDateTime: pickupDateTime,
         category: category,
         model: model,
         brand: brand,
@@ -107,7 +112,7 @@ router.post('/',
             await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
         }
-        
+
         return res.status(400).json({
           success: false,
           message: 'Please provide all required fields',
@@ -186,12 +191,12 @@ router.post('/',
 
       // Handle car image (OPTIONAL - can be from file upload or URL)
       let carImageUrl = null;
-      
+
       // Check for uploaded file
       if (req.files && req.files.carImage && req.files.carImage.length > 0) {
         carImageUrl = getS3Url(req.files.carImage[0].key);
         console.log('Using uploaded car image:', carImageUrl);
-      } 
+      }
       // Check for image URL in body
       else if (req.body.carImage && isValidValue(req.body.carImage)) {
         carImageUrl = String(req.body.carImage).trim();
@@ -217,6 +222,18 @@ router.post('/',
       const parsedPassengersCount = parseInt(passsenrgersCount);
       const parsedExtraHours = extraHours && isValidValue(extraHours) ? parseInt(extraHours) : 0;
       const parsedDiscountPercentage = discountPercentage && isValidValue(discountPercentage) ? parseFloat(discountPercentage) : 0;
+
+
+
+
+
+
+
+
+
+
+
+
 
       // Validate numeric values
       if (isNaN(parsedHours) || parsedHours <= 0) {
@@ -263,13 +280,76 @@ router.post('/',
         });
       }
 
+
+
+
+
+      let parsedExtraPayment = 0;
+      if (extraPayment && isValidValue(extraPayment)) {
+        parsedExtraPayment = parseFloat(extraPayment);
+        if (isNaN(parsedExtraPayment)) parsedExtraPayment = 0;
+      }
+
+      let parsedExtraDiscount = 0;
+      if (extraDiscount && isValidValue(extraDiscount)) {
+        parsedExtraDiscount = parseFloat(extraDiscount);
+        if (isNaN(parsedExtraDiscount)) parsedExtraDiscount = 0;
+      }
+
+      let parsedExtraPaymentCompleted = false;
+      if (extraPaymentCompleted && isValidValue(extraPaymentCompleted)) {
+        parsedExtraPaymentCompleted = extraPaymentCompleted === 'true' ||
+          extraPaymentCompleted === true ||
+          extraPaymentCompleted === '1';
+      }
+
+      let parsedStartedAt = null;
+      if (startedAt && isValidValue(startedAt) && startedAt !== 'null' && startedAt !== 'undefined') {
+        parsedStartedAt = new Date(startedAt);
+        if (isNaN(parsedStartedAt.getTime())) parsedStartedAt = null;
+      }
+
+      let parsedStoppedAt = null;
+      if (stoppedAt && isValidValue(stoppedAt) && stoppedAt !== 'null' && stoppedAt !== 'undefined') {
+        parsedStoppedAt = new Date(stoppedAt);
+        if (isNaN(parsedStoppedAt.getTime())) parsedStoppedAt = null;
+      }
+
+      // Handle extraTransactionID and extraOrderID as strings
+      let parsedExtraTransactionID = null;
+      if (extraTransactionID && isValidValue(extraTransactionID) &&
+        extraTransactionID !== 'null' && extraTransactionID !== 'undefined') {
+        parsedExtraTransactionID = String(extraTransactionID).trim();
+      }
+
+      let parsedExtraOrderID = null;
+      if (extraOrderID && isValidValue(extraOrderID) &&
+        extraOrderID !== 'null' && extraOrderID !== 'undefined') {
+        parsedExtraOrderID = String(extraOrderID).trim();
+      }
+
+
+
       // Create booking object
+
       const bookingData = {
         hours: parsedHours,
         pickupLat: parsedPickupLat,
         pickuplong: parsedPickuplong,
+      
+        // Add the parsed optional fields:
+        extraPayment: parsedExtraPayment,
+        extraTransactionID: parsedExtraTransactionID,
+        extraOrderID: parsedExtraOrderID,
+        extraDiscount: parsedExtraDiscount,
+        extraPaymentCompleted: parsedExtraPaymentCompleted,
+        startedAt: parsedStartedAt,
+        stoppedAt: parsedStoppedAt,
+
+
         pickupAdddress: String(pickupAdddress).trim(),
         category: String(category).trim(),
+        pickupDateTime: pickupDateTime,
         model: String(model).trim(),
         brand: String(brand).trim(),
         carName: String(carName).trim(),
@@ -285,6 +365,7 @@ router.post('/',
         specialRequestText: specialRequestText && isValidValue(specialRequestText) ? String(specialRequestText).trim() : '',
         discountPercentage: parsedDiscountPercentage
       };
+
 
       // Add optional fields only if they exist
       if (carImageUrl) {
@@ -337,10 +418,10 @@ router.post('/',
         message: 'Hourly booking created successfully',
         data: savedBooking
       });
-      
+
     } catch (error) {
       console.error('Create booking error:', error);
-      
+
       // Delete uploaded files if error occurs
       if (req.files) {
         if (req.files.carImage) {
@@ -376,18 +457,22 @@ router.post('/',
         error: error.message
       });
     }
-});
+  });
+
+
 
 
 
 // PUT /api/hourly-bookings/:id - Update hourly booking
-router.put('/:id', 
+router.put('/:id',
   authenticateCustomer,
   (req, res, next) => {
-    console.log('🔵 PUT request received for ID:', req.params.id);
+    console.log('PUT request received');
+    console.log('Booking ID:', req.params.id);
     console.log('Content-Type:', req.headers['content-type']);
     next();
   },
+  
   (req, res, next) => {
     upload.fields([
       { name: 'carImage', maxCount: 1 },
@@ -406,31 +491,17 @@ router.put('/:id',
   },
   async (req, res) => {
     try {
-      const bookingId = req.params.id;
-      
-      console.log('📦 Update booking ID:', bookingId);
-      console.log('📁 Files received:', req.files ? Object.keys(req.files) : 'No files');
-      console.log('📝 Body received:', req.body);
+      console.log('✅ Files received:', req.files);
+      console.log('✅ Body received:', req.body);
 
-      // Helper function to check if value is valid
-      const isValidValue = (value) => {
-        return value !== undefined && 
-               value !== null && 
-               value !== '' && 
-               value !== 'null' && 
-               value !== 'undefined';
-      };
+      const { id } = req.params;
 
       // Validate booking ID
-      if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+      if (!mongoose.Types.ObjectId.isValid(id)) {
         // Delete uploaded files if validation fails
         if (req.files) {
-          if (req.files.carImage) {
-            await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-          }
-          if (req.files.specialRequestAudio) {
-            await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
+          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(400).json({
           success: false,
@@ -438,46 +509,26 @@ router.put('/:id',
         });
       }
 
-      // Find existing booking
-      const existingBooking = await HourlyBooking.findById(bookingId);
-      
+      // Helper function to check if value is valid
+      const isValidValue = (value) => {
+        return value !== undefined &&
+          value !== null &&
+          value !== '' &&
+          value !== 'null' &&
+          value !== 'undefined';
+      };
+
+      // Check if booking exists
+      const existingBooking = await HourlyBooking.findById(id);
       if (!existingBooking) {
         // Delete uploaded files if booking not found
         if (req.files) {
-          if (req.files.carImage) {
-            await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-          }
-          if (req.files.specialRequestAudio) {
-            await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
+          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(404).json({
           success: false,
           message: 'Booking not found'
-        });
-      }
-
-      console.log('Existing booking:', {
-        id: existingBooking._id,
-        status: existingBooking.bookingStatus,
-        customerID: existingBooking.customerID
-      });
-
-      // ========== EXISTING BOOKING CHECK FOR UPDATE ==========
-      // Check if trying to update a completed booking
-      if (existingBooking.bookingStatus === 'completed') {
-        if (req.files) {
-          if (req.files.carImage) {
-            await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-          }
-          if (req.files.specialRequestAudio) {
-            await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Cannot update a completed booking',
-          currentStatus: existingBooking.bookingStatus
         });
       }
 
@@ -488,218 +539,108 @@ router.put('/:id',
         charge, customerID, driverID, passsenrgersCount,
         passengerMobile, carClass, specialRequestText,
         bookingStatus, passengerNames, isActive,
-        transactionID, orderID, discountPercentage
+        transactionID, orderID, discountPercentage, pickupDateTime,
+        stoppedAt, startedAt, extraPayment, extraTransactionID, extraOrderID,
+        extraDiscount, extraPaymentCompleted
       } = req.body;
 
       // Build update object
       const updateData = {};
 
-      // ========== VALIDATE AND UPDATE FIELDS ==========
-
-      // Numeric fields
+      // Handle regular fields (only update if provided)
       if (isValidValue(hours)) {
         const parsedHours = parseInt(hours);
-        if (isNaN(parsedHours) || parsedHours <= 0) {
-          if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid hours value. Must be a positive number'
-          });
+        if (!isNaN(parsedHours) && parsedHours > 0) {
+          updateData.hours = parsedHours;
         }
-        updateData.hours = parsedHours;
       }
 
-      if (isValidValue(pickupLat)) {
+      if (isValidValue(pickupLat) && isValidValue(pickuplong)) {
         const parsedPickupLat = parseFloat(pickupLat);
-        if (isNaN(parsedPickupLat)) {
-          if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid pickup latitude value'
-          });
+        const parsedPickuplong = parseFloat(pickuplong);
+        if (!isNaN(parsedPickupLat) && !isNaN(parsedPickuplong)) {
+          updateData.pickupLat = parsedPickupLat;
+          updateData.pickuplong = parsedPickuplong;
         }
-        updateData.pickupLat = parsedPickupLat;
       }
 
-      if (isValidValue(pickuplong)) {
-        const parsedPickuplong = parseFloat(pickuplong);
-        if (isNaN(parsedPickuplong)) {
-          if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid pickup longitude value'
-          });
-        }
-        updateData.pickuplong = parsedPickuplong;
+      if (isValidValue(pickupAdddress)) {
+        updateData.pickupAdddress = String(pickupAdddress).trim();
+      }
+
+      if (isValidValue(pickupDateTime)) {
+        updateData.pickupDateTime = pickupDateTime;
+      }
+
+      if (isValidValue(category)) {
+        updateData.category = String(category).trim();
+      }
+
+      if (isValidValue(model)) {
+        updateData.model = String(model).trim();
+      }
+
+      if (isValidValue(brand)) {
+        updateData.brand = String(brand).trim();
+      }
+
+      if (isValidValue(carName)) {
+        updateData.carName = String(carName).trim();
       }
 
       if (isValidValue(charge)) {
         const parsedCharge = parseFloat(charge);
-        if (isNaN(parsedCharge) || parsedCharge <= 0) {
-          if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid charge value. Must be a positive number'
-          });
+        if (!isNaN(parsedCharge) && parsedCharge > 0) {
+          updateData.charge = parsedCharge;
         }
-        updateData.charge = parsedCharge;
+      }
+
+      if (isValidValue(customerID)) {
+        updateData.customerID = String(customerID).trim();
       }
 
       if (isValidValue(passsenrgersCount)) {
         const parsedPassengersCount = parseInt(passsenrgersCount);
-        if (isNaN(parsedPassengersCount) || parsedPassengersCount < 1) {
-          if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid passenger count. Must be at least 1'
-          });
+        if (!isNaN(parsedPassengersCount) && parsedPassengersCount >= 1) {
+          updateData.passsenrgersCount = parsedPassengersCount;
         }
-        updateData.passsenrgersCount = parsedPassengersCount;
+      }
+
+      if (isValidValue(passengerMobile)) {
+        updateData.passengerMobile = String(passengerMobile).trim();
+      }
+
+      if (isValidValue(carClass)) {
+        updateData.carClass = String(carClass).trim();
       }
 
       if (isValidValue(extraHours)) {
-        updateData.extraHours = parseInt(extraHours);
+        const parsedExtraHours = parseInt(extraHours);
+        if (!isNaN(parsedExtraHours)) {
+          updateData.extraHours = parsedExtraHours;
+        }
       }
 
-      if (isValidValue(discountPercentage)) {
-        updateData.discountPercentage = parseFloat(discountPercentage);
+      if (isValidValue(bookingStatus)) {
+        const validStatuses = ['pending', 'confirmed', 'in-progress', 'completed', 'cancelled'];
+        const status = String(bookingStatus).trim().toLowerCase();
+        if (validStatuses.includes(status)) {
+          updateData.bookingStatus = status;
+        }
       }
 
-      // String fields
-      if (isValidValue(pickupAdddress)) updateData.pickupAdddress = String(pickupAdddress).trim();
-      if (isValidValue(category)) updateData.category = String(category).trim();
-      if (isValidValue(model)) updateData.model = String(model).trim();
-      if (isValidValue(brand)) updateData.brand = String(brand).trim();
-      if (isValidValue(carName)) updateData.carName = String(carName).trim();
-      if (isValidValue(passengerMobile)) updateData.passengerMobile = String(passengerMobile).trim();
-      if (isValidValue(carClass)) updateData.carClass = String(carClass).trim();
-      if (isValidValue(transactionID)) updateData.transactionID = String(transactionID).trim();
-      if (isValidValue(orderID)) updateData.orderID = String(orderID).trim();
-
-      // Special request text (can be empty)
-      if (specialRequestText !== undefined) {
-        updateData.specialRequestText = isValidValue(specialRequestText) ? String(specialRequestText).trim() : '';
-      }
-
-      // Boolean
-      if (isActive !== undefined) {
+      if (isValidValue(isActive)) {
         updateData.isActive = isActive === 'true' || isActive === true;
       }
 
-      // Handle customerID - Check if changing
-      if (isValidValue(customerID) && customerID !== existingBooking.customerID) {
-        // Check if new customer has active booking
-        const customerActiveBooking = await HourlyBooking.findOne({
-          _id: { $ne: bookingId },
-          customerID: String(customerID).trim(),
-          bookingStatus: { $in: ['pending', 'confirmed', 'in-progress'] },
-          isActive: true
-        });
-
-        if (customerActiveBooking) {
-          if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-          return res.status(409).json({
-            success: false,
-            message: 'New customer already has an active booking',
-            data: {
-              existingBookingId: customerActiveBooking._id,
-              existingStatus: customerActiveBooking.bookingStatus
-            }
-          });
-        }
-        updateData.customerID = String(customerID).trim();
+      if (isValidValue(specialRequestText)) {
+        updateData.specialRequestText = String(specialRequestText).trim();
       }
 
-      // Handle driverID (optional)
-      if (driverID !== undefined) {
-        if (!isValidValue(driverID) || driverID === 'null' || driverID === 'undefined') {
-          updateData.driverID = null;
-        } else if (mongoose.Types.ObjectId.isValid(driverID)) {
-          // Check if driver is already assigned to another active booking
-          const driverActiveBooking = await HourlyBooking.findOne({
-            _id: { $ne: bookingId },
-            driverID: driverID,
-            bookingStatus: { $in: ['pending', 'confirmed', 'in-progress'] },
-            isActive: true
-          });
-
-          if (driverActiveBooking) {
-            if (req.files) {
-              if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-              if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-            }
-            return res.status(409).json({
-              success: false,
-              message: 'Driver already assigned to another active booking',
-              data: {
-                existingBookingId: driverActiveBooking._id,
-                existingStatus: driverActiveBooking.bookingStatus
-              }
-            });
-          }
-          updateData.driverID = driverID;
-        }
-      }
-
-      // Handle bookingStatus
-      if (isValidValue(bookingStatus)) {
-        const newStatus = String(bookingStatus).trim().toLowerCase();
-        const validStatuses = ['pending', 'confirmed', 'in-progress', 'completed', 'cancelled'];
-        
-        if (!validStatuses.includes(newStatus)) {
-          if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-          return res.status(400).json({
-            success: false,
-            message: `Invalid status value: "${bookingStatus}"`,
-            validStatuses: validStatuses
-          });
-        }
-
-        // Define valid transitions
-        const validTransitions = {
-          'pending': ['confirmed', 'cancelled'],
-          'confirmed': ['in-progress', 'cancelled'],
-          'in-progress': ['completed'],
-          'completed': [],
-          'cancelled': []
-        };
-
-        // Check if transition is valid
-        if (newStatus !== existingBooking.bookingStatus) {
-          if (validTransitions[existingBooking.bookingStatus]?.includes(newStatus)) {
-            updateData.bookingStatus = newStatus;
-          } else {
-            if (req.files) {
-              if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-              if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-            }
-            return res.status(400).json({
-              success: false,
-              message: `Invalid status transition from "${existingBooking.bookingStatus}" to "${bookingStatus}"`,
-              allowedTransitions: validTransitions[existingBooking.bookingStatus] || []
-            });
-          }
+      if (isValidValue(discountPercentage)) {
+        const parsedDiscount = parseFloat(discountPercentage);
+        if (!isNaN(parsedDiscount)) {
+          updateData.discountPercentage = parsedDiscount;
         }
       }
 
@@ -722,130 +663,155 @@ router.put('/:id',
         updateData.passengerNames = parsedPassengerNames;
       }
 
-      // Handle car image (OPTIONAL - can be from file upload or URL)
+      // Handle car image (delete old one if new one is uploaded)
       if (req.files && req.files.carImage && req.files.carImage.length > 0) {
         // Delete old image from S3 if exists
-        if (existingBooking.carImage && typeof existingBooking.carImage === 'string') {
-          const extractKeyFromUrl = (url) => {
-            if (!url) return null;
-            try {
-              const urlObj = new URL(url);
-              return urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
-            } catch (error) {
-              const parts = url.split('.amazonaws.com/');
-              return parts.length > 1 ? parts[1] : null;
-            }
-          };
-          const oldImageKey = extractKeyFromUrl(existingBooking.carImage);
-          if (oldImageKey) {
-            await deleteFromS3(oldImageKey).catch(console.error);
-          }
+        if (existingBooking.carImage) {
+          const oldKey = existingBooking.carImage.split('/').pop();
+          await deleteFromS3(oldKey).catch(console.error);
         }
         updateData.carImage = getS3Url(req.files.carImage[0].key);
-        console.log('🖼️ Car image updated:', updateData.carImage);
-      } else if (req.body.carImage !== undefined) {
-        // Handle car image URL from body (can be null to remove image)
-        if (isValidValue(req.body.carImage)) {
-          updateData.carImage = String(req.body.carImage).trim();
-        } else {
-          updateData.carImage = null; // Remove image
+        console.log('Updated car image:', updateData.carImage);
+      } else if (req.body.carImage && isValidValue(req.body.carImage)) {
+        updateData.carImage = String(req.body.carImage).trim();
+        console.log('Updated car image URL from body:', updateData.carImage);
+      }
+
+      // Handle audio file
+      if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio.length > 0) {
+        // Delete old audio from S3 if exists
+        if (existingBooking.specialRequestAudio) {
+          const oldKey = existingBooking.specialRequestAudio.split('/').pop();
+          await deleteFromS3(oldKey).catch(console.error);
+        }
+        updateData.specialRequestAudio = getS3Url(req.files.specialRequestAudio[0].key);
+        console.log('Updated audio:', updateData.specialRequestAudio);
+      } else if (req.body.specialRequestAudio && isValidValue(req.body.specialRequestAudio)) {
+        updateData.specialRequestAudio = String(req.body.specialRequestAudio).trim();
+        console.log('Updated audio URL from body:', updateData.specialRequestAudio);
+      }
+
+      // Handle driverID
+      if (isValidValue(driverID) && driverID !== 'null' && driverID !== 'undefined') {
+        if (mongoose.Types.ObjectId.isValid(driverID)) {
+          updateData.driverID = driverID;
         }
       }
 
-      // Handle special request audio (optional)
-      if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio.length > 0) {
-        // Delete old audio from S3 if exists
-        if (existingBooking.specialRequestAudio && typeof existingBooking.specialRequestAudio === 'string') {
-          const extractKeyFromUrl = (url) => {
-            if (!url) return null;
-            try {
-              const urlObj = new URL(url);
-              return urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
-            } catch (error) {
-              const parts = url.split('.amazonaws.com/');
-              return parts.length > 1 ? parts[1] : null;
-            }
-          };
-          const oldAudioKey = extractKeyFromUrl(existingBooking.specialRequestAudio);
-          if (oldAudioKey) {
-            await deleteFromS3(oldAudioKey).catch(console.error);
-          }
+      // Handle transaction and order IDs
+      if (isValidValue(transactionID)) {
+        updateData.transactionID = String(transactionID).trim();
+      }
+      if (isValidValue(orderID)) {
+        updateData.orderID = String(orderID).trim();
+      }
+
+      // Handle extra payment fields
+      if (isValidValue(extraPayment)) {
+        const parsedExtraPayment = parseFloat(extraPayment);
+        updateData.extraPayment = !isNaN(parsedExtraPayment) ? parsedExtraPayment : 0;
+      }
+
+      if (isValidValue(extraDiscount)) {
+        const parsedExtraDiscount = parseFloat(extraDiscount);
+        updateData.extraDiscount = !isNaN(parsedExtraDiscount) ? parsedExtraDiscount : 0;
+      }
+
+      if (isValidValue(extraPaymentCompleted)) {
+        updateData.extraPaymentCompleted = extraPaymentCompleted === 'true' ||
+          extraPaymentCompleted === true ||
+          extraPaymentCompleted === '1';
+      }
+
+      if (isValidValue(extraTransactionID) && extraTransactionID !== 'null' && extraTransactionID !== 'undefined') {
+        updateData.extraTransactionID = String(extraTransactionID).trim();
+      }
+
+      if (isValidValue(extraOrderID) && extraOrderID !== 'null' && extraOrderID !== 'undefined') {
+        updateData.extraOrderID = String(extraOrderID).trim();
+      }
+
+      // Handle startedAt and stoppedAt
+      if (isValidValue(startedAt) && startedAt !== 'null' && startedAt !== 'undefined') {
+        const parsedStartedAt = new Date(startedAt);
+        if (!isNaN(parsedStartedAt.getTime())) {
+          updateData.startedAt = parsedStartedAt;
         }
-        updateData.specialRequestAudio = getS3Url(req.files.specialRequestAudio[0].key);
-        console.log('🎵 Audio file updated:', updateData.specialRequestAudio);
-      } else if (req.body.specialRequestAudio !== undefined) {
-        // Handle audio URL from body (can be null to remove)
-        if (isValidValue(req.body.specialRequestAudio)) {
-          updateData.specialRequestAudio = String(req.body.specialRequestAudio).trim();
-        } else {
-          updateData.specialRequestAudio = null; // Remove audio
+      }
+
+      if (isValidValue(stoppedAt) && stoppedAt !== 'null' && stoppedAt !== 'undefined') {
+        const parsedStoppedAt = new Date(stoppedAt);
+        if (!isNaN(parsedStoppedAt.getTime())) {
+          updateData.stoppedAt = parsedStoppedAt;
         }
       }
 
       // Add updated timestamp
       updateData.updatedAt = new Date();
 
-      // If no fields to update
-      if (Object.keys(updateData).length === 0) {
-        if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'No valid fields provided for update'
-        });
-      }
-
-      console.log('📦 Final update data:', JSON.stringify(updateData, null, 2));
+      console.log('Final update data:', JSON.stringify(updateData, null, 2));
 
       // Update the booking
       const updatedBooking = await HourlyBooking.findByIdAndUpdate(
-        bookingId,
-        updateData,
+        id,
+        { $set: updateData },
         { new: true, runValidators: true }
       );
 
-      // Send notification
-      try {
-        let notificationMessage = `Your hourly booking for ${updatedBooking.carName} has been updated successfully.`;
-        let notificationType = 'booking_updated';
-        
-        if (updateData.bookingStatus === 'cancelled') {
-          notificationMessage = `Your hourly booking for ${updatedBooking.carName} has been cancelled.`;
-          notificationType = 'booking_cancelled';
-        } else if (updateData.bookingStatus === 'confirmed') {
-          notificationMessage = `Your hourly booking for ${updatedBooking.carName} has been confirmed.`;
-          notificationType = 'booking_confirmed';
-        } else if (updateData.bookingStatus === 'in-progress') {
-          notificationMessage = `Your hourly booking for ${updatedBooking.carName} is now in progress.`;
-          notificationType = 'booking_in_progress';
-        }
-        
-        await notifyUser(
-          updatedBooking.customerID,
-          '📅 Booking Updated',
-          notificationMessage,
-          {
-            type: notificationType,
-            bookingId: updatedBooking._id.toString(),
-            status: updatedBooking.bookingStatus
+      if (!updatedBooking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found'
+        });
+      }
+
+      // Send notification for status change
+      if (updateData.bookingStatus && updateData.bookingStatus !== existingBooking.bookingStatus) {
+        try {
+          let statusMessage = '';
+          switch (updateData.bookingStatus) {
+            case 'confirmed':
+              statusMessage = 'Your booking has been confirmed!';
+              break;
+            case 'in-progress':
+              statusMessage = 'Your ride has started!';
+              break;
+            case 'completed':
+              statusMessage = 'Your ride is complete. Thank you for booking with us!';
+              break;
+            case 'cancelled':
+              statusMessage = 'Your booking has been cancelled.';
+              break;
+            default:
+              statusMessage = `Your booking status has been updated to ${updateData.bookingStatus}`;
           }
-        );
-      } catch (notifyError) {
-        console.error('Notification error:', notifyError);
+          
+          await notifyUser(
+            updatedBooking.customerID,
+            '📅 Booking Updated',
+            statusMessage,
+            {
+              type: 'booking_updated',
+              bookingId: updatedBooking._id.toString(),
+              oldStatus: existingBooking.bookingStatus,
+              newStatus: updateData.bookingStatus
+            }
+          );
+        } catch (notifyError) {
+          console.error('Notification error:', notifyError);
+        }
       }
 
       res.status(200).json({
         success: true,
-        message: 'Booking updated successfully',
+        message: 'Hourly booking updated successfully',
         data: updatedBooking
       });
-      
+
     } catch (error) {
-      console.error('❌ Update booking error:', error);
-      
-      // Delete newly uploaded files if error occurs
+      console.error('Update booking error:', error);
+
+      // Delete uploaded files if error occurs
       if (req.files) {
         if (req.files.carImage) {
           await deleteFromS3(req.files.carImage[0].key).catch(console.error);
@@ -866,20 +832,523 @@ router.put('/:id',
         });
       }
 
-      if (error.name === 'CastError') {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid booking ID format'
-        });
-      }
-
       res.status(500).json({
         success: false,
-        message: 'Error updating booking',
+        message: 'Error updating hourly booking',
         error: error.message
       });
     }
-});
+  }
+);
+
+
+
+
+// // PUT /api/hourly-bookings/:id - Update hourly booking
+// router.put('/:id',
+//   authenticateCustomer,
+//   (req, res, next) => {
+//     console.log('🔵 PUT request received for ID:', req.params.id);
+//     console.log('Content-Type:', req.headers['content-type']);
+//     next();
+//   },
+//   (req, res, next) => {
+//     upload.fields([
+//       { name: 'carImage', maxCount: 1 },
+//       { name: 'specialRequestAudio', maxCount: 1 }
+//     ])(req, res, (err) => {
+//       if (err) {
+//         console.error('❌ Multer error:', err);
+//         return res.status(400).json({
+//           success: false,
+//           message: 'File upload error',
+//           error: err.message
+//         });
+//       }
+//       next();
+//     });
+//   },
+//   async (req, res) => {
+//     try {
+//       const bookingId = req.params.id;
+
+//       console.log('📦 Update booking ID:', bookingId);
+//       console.log('📁 Files received:', req.files ? Object.keys(req.files) : 'No files');
+//       console.log('📝 Body received:', req.body);
+
+//       // Helper function to check if value is valid
+//       const isValidValue = (value) => {
+//         return value !== undefined &&
+//           value !== null &&
+//           value !== '' &&
+//           value !== 'null' &&
+//           value !== 'undefined';
+//       };
+
+//       // Validate booking ID
+//       if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+//         // Delete uploaded files if validation fails
+//         if (req.files) {
+//           if (req.files.carImage) {
+//             await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+//           }
+//           if (req.files.specialRequestAudio) {
+//             await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+//           }
+//         }
+//         return res.status(400).json({
+//           success: false,
+//           message: 'Invalid booking ID format'
+//         });
+//       }
+
+//       // Find existing booking
+//       const existingBooking = await HourlyBooking.findById(bookingId);
+
+//       if (!existingBooking) {
+//         // Delete uploaded files if booking not found
+//         if (req.files) {
+//           if (req.files.carImage) {
+//             await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+//           }
+//           if (req.files.specialRequestAudio) {
+//             await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+//           }
+//         }
+//         return res.status(404).json({
+//           success: false,
+//           message: 'Booking not found'
+//         });
+//       }
+
+//       console.log('Existing booking:', {
+//         id: existingBooking._id,
+//         status: existingBooking.bookingStatus,
+//         customerID: existingBooking.customerID
+//       });
+
+//       // ========== EXISTING BOOKING CHECK FOR UPDATE ==========
+//       // Check if trying to update a completed booking
+//       if (existingBooking.bookingStatus === 'completed') {
+//         if (req.files) {
+//           if (req.files.carImage) {
+//             await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+//           }
+//           if (req.files.specialRequestAudio) {
+//             await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+//           }
+//         }
+//         return res.status(400).json({
+//           success: false,
+//           message: 'Cannot update a completed booking',
+//           currentStatus: existingBooking.bookingStatus
+//         });
+//       }
+
+//       // Extract fields from request body
+//       const {
+//         hours, pickupLat, pickuplong, pickupAdddress,
+//         extraHours, category, model, brand, carName,
+//         charge, customerID, driverID, passsenrgersCount,
+//         passengerMobile, carClass, specialRequestText,
+//         bookingStatus, passengerNames, isActive,
+//         transactionID, orderID, discountPercentage,
+//         pickupDateTime, extraPayment, startedAt, stoppedAt,
+//         extratransactionID, extraorderID, exDiscount, extraPaymentCompleted
+
+//       } = req.body;
+
+//       // Build update object
+//       const updateData = {};
+
+//       // ========== VALIDATE AND UPDATE FIELDS ==========
+
+//       // Numeric fields
+//       if (isValidValue(hours)) {
+//         const parsedHours = parseInt(hours);
+//         if (isNaN(parsedHours) || parsedHours <= 0) {
+//           if (req.files) {
+//             if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+//             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+//           }
+//           return res.status(400).json({
+//             success: false,
+//             message: 'Invalid hours value. Must be a positive number'
+//           });
+//         }
+//         updateData.hours = parsedHours;
+//       }
+
+//       if (isValidValue(pickupLat)) {
+//         const parsedPickupLat = parseFloat(pickupLat);
+//         if (isNaN(parsedPickupLat)) {
+//           if (req.files) {
+//             if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+//             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+//           }
+//           return res.status(400).json({
+//             success: false,
+//             message: 'Invalid pickup latitude value'
+//           });
+//         }
+//         updateData.pickupLat = parsedPickupLat;
+//       }
+
+//       if (isValidValue(pickuplong)) {
+//         const parsedPickuplong = parseFloat(pickuplong);
+//         if (isNaN(parsedPickuplong)) {
+//           if (req.files) {
+//             if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+//             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+//           }
+//           return res.status(400).json({
+//             success: false,
+//             message: 'Invalid pickup longitude value'
+//           });
+//         }
+//         updateData.pickuplong = parsedPickuplong;
+//       }
+
+//       if (isValidValue(charge)) {
+//         const parsedCharge = parseFloat(charge);
+//         if (isNaN(parsedCharge) || parsedCharge <= 0) {
+//           if (req.files) {
+//             if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+//             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+//           }
+//           return res.status(400).json({
+//             success: false,
+//             message: 'Invalid charge value. Must be a positive number'
+//           });
+//         }
+//         updateData.charge = parsedCharge;
+//       }
+
+//       if (isValidValue(passsenrgersCount)) {
+//         const parsedPassengersCount = parseInt(passsenrgersCount);
+//         if (isNaN(parsedPassengersCount) || parsedPassengersCount < 1) {
+//           if (req.files) {
+//             if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+//             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+//           }
+//           return res.status(400).json({
+//             success: false,
+//             message: 'Invalid passenger count. Must be at least 1'
+//           });
+//         }
+//         updateData.passsenrgersCount = parsedPassengersCount;
+//       }
+
+//       if (isValidValue(extraHours)) {
+//         updateData.extraHours = parseInt(extraHours);
+//       }
+
+//       if (isValidValue(discountPercentage)) {
+//         updateData.discountPercentage = parseFloat(discountPercentage);
+//       }
+
+//       // String fields
+//       if (isValidValue(pickupAdddress)) updateData.pickupAdddress = String(pickupAdddress).trim();
+//       if (isValidValue(category)) updateData.category = String(category).trim();
+//       if (isValidValue(model)) updateData.model = String(model).trim();
+//       if (isValidValue(brand)) updateData.brand = String(brand).trim();
+//       if (isValidValue(carName)) updateData.carName = String(carName).trim();
+//       if (isValidValue(passengerMobile)) updateData.passengerMobile = String(passengerMobile).trim();
+//       if (isValidValue(carClass)) updateData.carClass = String(carClass).trim();
+//       if (isValidValue(transactionID)) updateData.transactionID = String(transactionID).trim();
+//       if (isValidValue(orderID)) updateData.orderID = String(orderID).trim();
+//       if (isValidValue(pickupDateTime)) updateData.pickupDateTime =
+//         new Date(pickupDateTime);
+
+//       // Special request text (can be empty)
+//       if (specialRequestText !== undefined) {
+//         updateData.specialRequestText = isValidValue(specialRequestText) ? String(specialRequestText).trim() : '';
+//       }
+
+//       // Boolean
+//       if (isActive !== undefined) {
+//         updateData.isActive = isActive === 'true' || isActive === true;
+//       }
+
+//       // Handle customerID - Check if changing
+//       if (isValidValue(customerID) && customerID !== existingBooking.customerID) {
+//         // Check if new customer has active booking
+//         const customerActiveBooking = await HourlyBooking.findOne({
+//           _id: { $ne: bookingId },
+//           customerID: String(customerID).trim(),
+//           bookingStatus: { $in: ['pending', 'confirmed', 'in-progress'] },
+//           isActive: true
+//         });
+
+//         if (customerActiveBooking) {
+//           if (req.files) {
+//             if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+//             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+//           }
+//           return res.status(409).json({
+//             success: false,
+//             message: 'New customer already has an active booking',
+//             data: {
+//               existingBookingId: customerActiveBooking._id,
+//               existingStatus: customerActiveBooking.bookingStatus
+//             }
+//           });
+//         }
+//         updateData.customerID = String(customerID).trim();
+//       }
+
+//       // Handle driverID (optional)
+//       if (driverID !== undefined) {
+//         if (!isValidValue(driverID) || driverID === 'null' || driverID === 'undefined') {
+//           updateData.driverID = null;
+//         } else if (mongoose.Types.ObjectId.isValid(driverID)) {
+//           // Check if driver is already assigned to another active booking
+//           const driverActiveBooking = await HourlyBooking.findOne({
+//             _id: { $ne: bookingId },
+//             driverID: driverID,
+//             bookingStatus: { $in: ['pending', 'confirmed', 'in-progress'] },
+//             isActive: true
+//           });
+
+//           if (driverActiveBooking) {
+//             if (req.files) {
+//               if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+//               if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+//             }
+//             return res.status(409).json({
+//               success: false,
+//               message: 'Driver already assigned to another active booking',
+//               data: {
+//                 existingBookingId: driverActiveBooking._id,
+//                 existingStatus: driverActiveBooking.bookingStatus
+//               }
+//             });
+//           }
+//           updateData.driverID = driverID;
+//         }
+//       }
+
+//       // Handle bookingStatus
+//       if (isValidValue(bookingStatus)) {
+//         const newStatus = String(bookingStatus).trim().toLowerCase();
+//         const validStatuses = ['pending', 'starttracking', 'completed', 'cancelled'];
+
+//         if (!validStatuses.includes(newStatus)) {
+//           if (req.files) {
+//             if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+//             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+//           }
+//           return res.status(400).json({
+//             success: false,
+//             message: `Invalid status value: "${bookingStatus}"`,
+//             validStatuses: validStatuses
+//           });
+//         }
+
+//         // Define valid transitions
+//         const validTransitions = {
+//           'pending': ['completed', 'cancelled'],
+//           'completed': ['starttracking', 'cancelled'],
+//           'starttracking': ['completed'],
+//           'cancelled': []
+//         };
+
+//         // Check if transition is valid
+//         if (newStatus !== existingBooking.bookingStatus) {
+//           if (validTransitions[existingBooking.bookingStatus]?.includes(newStatus)) {
+//             updateData.bookingStatus = newStatus;
+//           } else {
+//             if (req.files) {
+//               if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+//               if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+//             }
+//             return res.status(400).json({
+//               success: false,
+//               message: `Invalid status transition from "${existingBooking.bookingStatus}" to "${bookingStatus}"`,
+//               allowedTransitions: validTransitions[existingBooking.bookingStatus] || []
+//             });
+//           }
+//         }
+//       }
+
+//       // Handle passengerNames
+//       if (isValidValue(passengerNames)) {
+//         let parsedPassengerNames = [];
+//         if (typeof passengerNames === 'string') {
+//           if (passengerNames.trim().startsWith('[')) {
+//             try {
+//               parsedPassengerNames = JSON.parse(passengerNames);
+//             } catch (e) {
+//               parsedPassengerNames = passengerNames.split(',').map(name => name.trim());
+//             }
+//           } else {
+//             parsedPassengerNames = passengerNames.split(',').map(name => name.trim());
+//           }
+//         } else if (Array.isArray(passengerNames)) {
+//           parsedPassengerNames = passengerNames;
+//         }
+//         updateData.passengerNames = parsedPassengerNames;
+//       }
+
+//       // Handle car image (OPTIONAL - can be from file upload or URL)
+//       if (req.files && req.files.carImage && req.files.carImage.length > 0) {
+//         // Delete old image from S3 if exists
+//         if (existingBooking.carImage && typeof existingBooking.carImage === 'string') {
+//           const extractKeyFromUrl = (url) => {
+//             if (!url) return null;
+//             try {
+//               const urlObj = new URL(url);
+//               return urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+//             } catch (error) {
+//               const parts = url.split('.amazonaws.com/');
+//               return parts.length > 1 ? parts[1] : null;
+//             }
+//           };
+//           const oldImageKey = extractKeyFromUrl(existingBooking.carImage);
+//           if (oldImageKey) {
+//             await deleteFromS3(oldImageKey).catch(console.error);
+//           }
+//         }
+//         updateData.carImage = getS3Url(req.files.carImage[0].key);
+//         console.log('🖼️ Car image updated:', updateData.carImage);
+//       } else if (req.body.carImage !== undefined) {
+//         // Handle car image URL from body (can be null to remove image)
+//         if (isValidValue(req.body.carImage)) {
+//           updateData.carImage = String(req.body.carImage).trim();
+//         } else {
+//           updateData.carImage = null; // Remove image
+//         }
+//       }
+
+//       // Handle special request audio (optional)
+//       if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio.length > 0) {
+//         // Delete old audio from S3 if exists
+//         if (existingBooking.specialRequestAudio && typeof existingBooking.specialRequestAudio === 'string') {
+//           const extractKeyFromUrl = (url) => {
+//             if (!url) return null;
+//             try {
+//               const urlObj = new URL(url);
+//               return urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+//             } catch (error) {
+//               const parts = url.split('.amazonaws.com/');
+//               return parts.length > 1 ? parts[1] : null;
+//             }
+//           };
+//           const oldAudioKey = extractKeyFromUrl(existingBooking.specialRequestAudio);
+//           if (oldAudioKey) {
+//             await deleteFromS3(oldAudioKey).catch(console.error);
+//           }
+//         }
+//         updateData.specialRequestAudio = getS3Url(req.files.specialRequestAudio[0].key);
+//         console.log('🎵 Audio file updated:', updateData.specialRequestAudio);
+//       } else if (req.body.specialRequestAudio !== undefined) {
+//         // Handle audio URL from body (can be null to remove)
+//         if (isValidValue(req.body.specialRequestAudio)) {
+//           updateData.specialRequestAudio = String(req.body.specialRequestAudio).trim();
+//         } else {
+//           updateData.specialRequestAudio = null; // Remove audio
+//         }
+//       }
+
+//       // Add updated timestamp
+//       updateData.updatedAt = new Date();
+
+//       // If no fields to update
+//       if (Object.keys(updateData).length === 0) {
+//         if (req.files) {
+//           if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+//           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+//         }
+//         return res.status(400).json({
+//           success: false,
+//           message: 'No valid fields provided for update'
+//         });
+//       }
+
+//       console.log('📦 Final update data:', JSON.stringify(updateData, null, 2));
+
+//       // Update the booking
+//       const updatedBooking = await HourlyBooking.findByIdAndUpdate(
+//         bookingId,
+//         updateData,
+//         { new: true, runValidators: true }
+//       );
+
+//       // Send notification
+//       try {
+//         let notificationMessage = `Your hourly booking for ${updatedBooking.carName} has been updated successfully.`;
+//         let notificationType = 'booking_updated';
+
+//         if (updateData.bookingStatus === 'cancelled') {
+//           notificationMessage = `Your hourly booking for ${updatedBooking.carName} has been cancelled.`;
+//           notificationType = 'booking_cancelled';
+//         } else if (updateData.bookingStatus === 'confirmed') {
+//           notificationMessage = `Your hourly booking for ${updatedBooking.carName} has been confirmed.`;
+//           notificationType = 'booking_confirmed';
+//         } else if (updateData.bookingStatus === 'starttracking') {
+//           notificationMessage = `Your hourly booking for ${updatedBooking.carName} is now being tracked.`;
+//           notificationType = 'booking_starttracking';
+//         }
+
+//         await notifyUser(
+//           updatedBooking.customerID,
+//           '📅 Booking Updated',
+//           notificationMessage,
+//           {
+//             type: notificationType,
+//             bookingId: updatedBooking._id.toString(),
+//             status: updatedBooking.bookingStatus
+//           }
+//         );
+//       } catch (notifyError) {
+//         console.error('Notification error:', notifyError);
+//       }
+
+//       res.status(200).json({
+//         success: true,
+//         message: 'Booking updated successfully',
+//         data: updatedBooking
+//       });
+
+//     } catch (error) {
+//       console.error('❌ Update booking error:', error);
+
+//       // Delete newly uploaded files if error occurs
+//       if (req.files) {
+//         if (req.files.carImage) {
+//           await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+//         }
+//         if (req.files.specialRequestAudio) {
+//           await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+//         }
+//       }
+
+//       if (error.name === 'ValidationError') {
+//         return res.status(400).json({
+//           success: false,
+//           message: 'Validation error',
+//           errors: Object.keys(error.errors).reduce((acc, key) => {
+//             acc[key] = error.errors[key].message;
+//             return acc;
+//           }, {})
+//         });
+//       }
+
+
+//       if (error.name === 'CastError') {
+//         return res.status(400).json({
+//           success: false,
+//           message: 'Invalid booking ID format'
+//         });
+//       }
+
+//       res.status(500).json({
+//         success: false,
+//         message: 'Error updating booking',
+//         error: error.message
+//       });
+//     }
+//   });
 
 
 
@@ -887,260 +1356,260 @@ router.put('/:id',
 // GET /api/hourly-bookings/customer/:customerId
 // @desc    Get all bookings for a specific customer
 router.get('/customer/:customerId', async (req, res) => {
-    try {
-        const { customerId } = req.params;
-        const { 
-            status, 
-            startDate, 
-            endDate,
-            page = 1,
-            limit = 10,
-            sortBy = 'createdAt',
-            sortOrder = 'desc'
-        } = req.query;
+  try {
+    const { customerId } = req.params;
+    const {
+      status,
+      startDate,
+      endDate,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
 
-        // Validate customer ID
-        if (!customerId || customerId === 'null' || customerId === 'undefined') {
-            return res.status(400).json({
-                success: false,
-                message: 'Customer ID is required'
-            });
-        }
-
-        // Build query
-        const query = {
-            customerID: String(customerId).trim()
-        };
-
-        // Filter by status if provided
-        if (status) {
-            const validStatuses = ['pending', 'confirmed', 'in-progress', 'completed', 'cancelled'];
-            const cleanStatus = status.toLowerCase().trim();
-            if (validStatuses.includes(cleanStatus)) {
-                query.bookingStatus = cleanStatus;
-            } else {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Invalid status value',
-                    validStatuses: validStatuses
-                });
-            }
-        }
-
-        // Date range filter
-        if (startDate || endDate) {
-            query.createdAt = {};
-            if (startDate) {
-                const start = new Date(startDate);
-                start.setHours(0, 0, 0, 0);
-                query.createdAt.$gte = start;
-            }
-            if (endDate) {
-                const end = new Date(endDate);
-                end.setHours(23, 59, 59, 999);
-                query.createdAt.$lte = end;
-            }
-        }
-
-        // Pagination
-        const pageNum = parseInt(page) || 1;
-        const limitNum = parseInt(limit) || 10;
-        const skip = (pageNum - 1) * limitNum;
-
-        // Sort
-        const sort = {};
-        sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-        // Get bookings
-        const bookings = await HourlyBooking.find(query)
-            .sort(sort)
-            .skip(skip)
-            .limit(limitNum);
-
-        // Get total count
-        const total = await HourlyBooking.countDocuments(query);
-
-        // Calculate summary statistics
-        const summary = {
-            total: total,
-            pending: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'pending' }),
-            confirmed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'confirmed' }),
-            inProgress: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'in-progress' }),
-            completed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'completed' }),
-            cancelled: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'cancelled' }),
-            active: await HourlyBooking.countDocuments({ 
-                ...query, 
-                bookingStatus: { $in: ['pending', 'confirmed', 'in-progress'] },
-                isActive: true 
-            })
-        };
-
-        // Calculate total spending (for completed bookings)
-        const completedBookings = await HourlyBooking.find({ 
-            ...query, 
-            bookingStatus: 'completed' 
-        }).select('charge hours');
-        
-        const totalSpent = completedBookings.reduce((sum, booking) => {
-            return sum + (booking.charge * booking.hours);
-        }, 0);
-
-        res.status(200).json({
-            success: true,
-            message: 'Customer bookings fetched successfully',
-            data: bookings,
-            summary: {
-                ...summary,
-                totalSpent: totalSpent
-            },
-            pagination: {
-                currentPage: pageNum,
-                totalPages: Math.ceil(total / limitNum),
-                totalItems: total,
-                itemsPerPage: limitNum,
-                hasNextPage: pageNum < Math.ceil(total / limitNum),
-                hasPrevPage: pageNum > 1
-            }
-        });
-
-    } catch (error) {
-        console.error('Get customer bookings error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error fetching customer bookings',
-            error: error.message
-        });
+    // Validate customer ID
+    if (!customerId || customerId === 'null' || customerId === 'undefined') {
+      return res.status(400).json({
+        success: false,
+        message: 'Customer ID is required'
+      });
     }
+
+    // Build query
+    const query = {
+      customerID: String(customerId).trim()
+    };
+
+    // Filter by status if provided
+    if (status) {
+      const validStatuses = ['pending', 'confirmed', 'in-progress', 'completed', 'cancelled'];
+      const cleanStatus = status.toLowerCase().trim();
+      if (validStatuses.includes(cleanStatus)) {
+        query.bookingStatus = cleanStatus;
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid status value',
+          validStatuses: validStatuses
+        });
+      }
+    }
+
+    // Date range filter
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        query.createdAt.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = end;
+      }
+    }
+
+    // Pagination
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 10;
+    const skip = (pageNum - 1) * limitNum;
+
+    // Sort
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Get bookings
+    const bookings = await HourlyBooking.find(query)
+      .sort(sort)
+      .skip(skip)
+      .limit(limitNum);
+
+    // Get total count
+    const total = await HourlyBooking.countDocuments(query);
+
+    // Calculate summary statistics
+    const summary = {
+      total: total,
+      pending: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'pending' }),
+      confirmed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'confirmed' }),
+      inProgress: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'in-progress' }),
+      completed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'completed' }),
+      cancelled: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'cancelled' }),
+      active: await HourlyBooking.countDocuments({
+        ...query,
+        bookingStatus: { $in: ['pending', 'confirmed', 'in-progress'] },
+        isActive: true
+      })
+    };
+
+    // Calculate total spending (for completed bookings)
+    const completedBookings = await HourlyBooking.find({
+      ...query,
+      bookingStatus: 'completed'
+    }).select('charge hours');
+
+    const totalSpent = completedBookings.reduce((sum, booking) => {
+      return sum + (booking.charge * booking.hours);
+    }, 0);
+
+    res.status(200).json({
+      success: true,
+      message: 'Customer bookings fetched successfully',
+      data: bookings,
+      summary: {
+        ...summary,
+        totalSpent: totalSpent
+      },
+      pagination: {
+        currentPage: pageNum,
+        totalPages: Math.ceil(total / limitNum),
+        totalItems: total,
+        itemsPerPage: limitNum,
+        hasNextPage: pageNum < Math.ceil(total / limitNum),
+        hasPrevPage: pageNum > 1
+      }
+    });
+
+  } catch (error) {
+    console.error('Get customer bookings error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching customer bookings',
+      error: error.message
+    });
+  }
 });
 
 // ============= GET HOURLY BOOKINGS BY DRIVER ID =============
 // GET /api/hourly-bookings/driver/:driverId
 // @desc    Get all bookings for a specific driver
 router.get('/driver/:driverId', async (req, res) => {
-    try {
-        const { driverId } = req.params;
-        const { 
-            status, 
-            startDate, 
-            endDate,
-            page = 1,
-            limit = 10,
-            sortBy = 'createdAt',
-            sortOrder = 'desc'
-        } = req.query;
+  try {
+    const { driverId } = req.params;
+    const {
+      status,
+      startDate,
+      endDate,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
 
-        // Validate driver ID
-        if (!driverId || driverId === 'null' || driverId === 'undefined') {
-            return res.status(400).json({
-                success: false,
-                message: 'Driver ID is required'
-            });
-        }
-
-        // Build query
-        const query = {
-            driverID: String(driverId).trim()
-        };
-
-        // Filter by status if provided
-        if (status) {
-            const validStatuses = ['pending', 'confirmed', 'in-progress', 'completed', 'cancelled'];
-            const cleanStatus = status.toLowerCase().trim();
-            if (validStatuses.includes(cleanStatus)) {
-                query.bookingStatus = cleanStatus;
-            } else {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Invalid status value',
-                    validStatuses: validStatuses
-                });
-            }
-        }
-
-        // Date range filter
-        if (startDate || endDate) {
-            query.createdAt = {};
-            if (startDate) {
-                const start = new Date(startDate);
-                start.setHours(0, 0, 0, 0);
-                query.createdAt.$gte = start;
-            }
-            if (endDate) {
-                const end = new Date(endDate);
-                end.setHours(23, 59, 59, 999);
-                query.createdAt.$lte = end;
-            }
-        }
-
-        // Pagination
-        const pageNum = parseInt(page) || 1;
-        const limitNum = parseInt(limit) || 10;
-        const skip = (pageNum - 1) * limitNum;
-
-        // Sort
-        const sort = {};
-        sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-        // Get bookings
-        const bookings = await HourlyBooking.find(query)
-            .sort(sort)
-            .skip(skip)
-            .limit(limitNum);
-
-        // Get total count
-        const total = await HourlyBooking.countDocuments(query);
-
-        // Calculate summary statistics
-        const summary = {
-            total: total,
-            pending: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'pending' }),
-            confirmed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'confirmed' }),
-            inProgress: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'in-progress' }),
-            completed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'completed' }),
-            cancelled: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'cancelled' }),
-            active: await HourlyBooking.countDocuments({ 
-                ...query, 
-                bookingStatus: { $in: ['confirmed', 'in-progress'] },
-                isActive: true 
-            })
-        };
-
-        // Calculate total earnings (for completed bookings)
-        const completedBookings = await HourlyBooking.find({ 
-            ...query, 
-            bookingStatus: 'completed' 
-        }).select('charge hours');
-        
-        const totalEarnings = completedBookings.reduce((sum, booking) => {
-            return sum + (booking.charge * booking.hours);
-        }, 0);
-
-        res.status(200).json({
-            success: true,
-            message: 'Driver bookings fetched successfully',
-            data: bookings,
-            summary: {
-                ...summary,
-                totalEarnings: totalEarnings
-            },
-            pagination: {
-                currentPage: pageNum,
-                totalPages: Math.ceil(total / limitNum),
-                totalItems: total,
-                itemsPerPage: limitNum,
-                hasNextPage: pageNum < Math.ceil(total / limitNum),
-                hasPrevPage: pageNum > 1
-            }
-        });
-
-    } catch (error) {
-        console.error('Get driver bookings error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error fetching driver bookings',
-            error: error.message
-        });
+    // Validate driver ID
+    if (!driverId || driverId === 'null' || driverId === 'undefined') {
+      return res.status(400).json({
+        success: false,
+        message: 'Driver ID is required'
+      });
     }
+
+    // Build query
+    const query = {
+      driverID: String(driverId).trim()
+    };
+
+    // Filter by status if provided
+    if (status) {
+      const validStatuses = ['pending', 'confirmed', 'in-progress', 'completed', 'cancelled'];
+      const cleanStatus = status.toLowerCase().trim();
+      if (validStatuses.includes(cleanStatus)) {
+        query.bookingStatus = cleanStatus;
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid status value',
+          validStatuses: validStatuses
+        });
+      }
+    }
+
+    // Date range filter
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        query.createdAt.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = end;
+      }
+    }
+
+    // Pagination
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 10;
+    const skip = (pageNum - 1) * limitNum;
+
+    // Sort
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Get bookings
+    const bookings = await HourlyBooking.find(query)
+      .sort(sort)
+      .skip(skip)
+      .limit(limitNum);
+
+    // Get total count
+    const total = await HourlyBooking.countDocuments(query);
+
+    // Calculate summary statistics
+    const summary = {
+      total: total,
+      pending: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'pending' }),
+      confirmed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'confirmed' }),
+      inProgress: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'in-progress' }),
+      completed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'completed' }),
+      cancelled: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'cancelled' }),
+      active: await HourlyBooking.countDocuments({
+        ...query,
+        bookingStatus: { $in: ['confirmed', 'in-progress'] },
+        isActive: true
+      })
+    };
+
+    // Calculate total earnings (for completed bookings)
+    const completedBookings = await HourlyBooking.find({
+      ...query,
+      bookingStatus: 'completed'
+    }).select('charge hours');
+
+    const totalEarnings = completedBookings.reduce((sum, booking) => {
+      return sum + (booking.charge * booking.hours);
+    }, 0);
+
+    res.status(200).json({
+      success: true,
+      message: 'Driver bookings fetched successfully',
+      data: bookings,
+      summary: {
+        ...summary,
+        totalEarnings: totalEarnings
+      },
+      pagination: {
+        currentPage: pageNum,
+        totalPages: Math.ceil(total / limitNum),
+        totalItems: total,
+        itemsPerPage: limitNum,
+        hasNextPage: pageNum < Math.ceil(total / limitNum),
+        hasPrevPage: pageNum > 1
+      }
+    });
+
+  } catch (error) {
+    console.error('Get driver bookings error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching driver bookings',
+      error: error.message
+    });
+  }
 });
 
 
@@ -1197,10 +1666,10 @@ router.get('/:id', async (req, res) => {
 // READ - Get bookings by customer ID
 router.get('/customer/:customerId', async (req, res) => {
   try {
-    const bookings = await HourlyBooking.find({ 
-      customerID: req.params.customerId 
+    const bookings = await HourlyBooking.find({
+      customerID: req.params.customerId
     }).sort({ createdAt: -1 });
-    
+
     res.status(200).json({
       success: true,
       count: bookings.length,
@@ -1217,10 +1686,10 @@ router.get('/customer/:customerId', async (req, res) => {
 // READ - Get bookings by driver ID
 router.get('/driver/:driverId', async (req, res) => {
   try {
-    const bookings = await HourlyBooking.find({ 
-      driverID: req.params.driverId 
+    const bookings = await HourlyBooking.find({
+      driverID: req.params.driverId
     }).sort({ createdAt: -1 });
-    
+
     res.status(200).json({
       success: true,
       count: bookings.length,
@@ -1237,10 +1706,10 @@ router.get('/driver/:driverId', async (req, res) => {
 // READ - Get bookings by status
 router.get('/status/:status', async (req, res) => {
   try {
-    const bookings = await HourlyBooking.find({ 
-      bookingStatus: req.params.status 
+    const bookings = await HourlyBooking.find({
+      bookingStatus: req.params.status
     }).sort({ createdAt: -1 });
-    
+
     res.status(200).json({
       success: true,
       count: bookings.length,
@@ -1260,20 +1729,20 @@ router.get('/status/:status', async (req, res) => {
 router.patch('/:id/status', async (req, res) => {
   try {
     const { bookingStatus } = req.body;
-    
+
     const updatedBooking = await HourlyBooking.findByIdAndUpdate(
       req.params.id,
       { bookingStatus },
       { new: true }
     );
-    
+
     if (!updatedBooking) {
       return res.status(404).json({
         success: false,
         message: 'Booking not found'
       });
     }
-    
+
     res.status(200).json({
       success: true,
       message: 'Booking status updated successfully',
@@ -1291,17 +1760,17 @@ router.patch('/:id/status', async (req, res) => {
 router.patch('/:id/toggle-active', async (req, res) => {
   try {
     const booking = await HourlyBooking.findById(req.params.id);
-    
+
     if (!booking) {
       return res.status(404).json({
         success: false,
         message: 'Booking not found'
       });
     }
-    
+
     booking.isActive = !booking.isActive;
     await booking.save();
-    
+
     res.status(200).json({
       success: true,
       message: `Booking ${booking.isActive ? 'activated' : 'deactivated'} successfully`,
@@ -1319,14 +1788,14 @@ router.patch('/:id/toggle-active', async (req, res) => {
 // router.delete('/:id', async (req, res) => {
 //   try {
 //     const deletedBooking = await HourlyBooking.findByIdAndDelete(req.params.id);
-    
+
 //     if (!deletedBooking) {
 //       return res.status(404).json({
 //         success: false,
 //         message: 'Booking not found'
 //       });
 //     }
-    
+
 //     res.status(200).json({
 //       success: true,
 //       message: 'Booking deleted successfully'
@@ -1341,13 +1810,13 @@ router.patch('/:id/toggle-active', async (req, res) => {
 
 
 // DELETE /api/hourly-bookings/:id - Delete booking and associated files from S3
-router.delete('/:id', 
- // Optional: Only allow admins to delete bookings
+router.delete('/:id',
+  // Optional: Only allow admins to delete bookings
   async (req, res) => {
     try {
 
       const bookingId = req.params.id;
-      
+
       console.log('🔴 DELETE request received for ID:', bookingId);
       console.log('User:', req.user?.adminId || req.user?.id || 'Unknown');
 
@@ -1361,7 +1830,7 @@ router.delete('/:id',
 
       // Find the booking first to get file references
       const booking = await HourlyBooking.findById(bookingId);
-      
+
       if (!booking) {
         return res.status(404).json({
           success: false,
@@ -1476,14 +1945,14 @@ router.delete('/:id',
       const s3Status = [];
       if (deletionResults.carImage.deleted) s3Status.push('car image');
       if (deletionResults.audio.deleted) s3Status.push('audio file');
-      
-      const s3Message = s3Status.length > 0 
+
+      const s3Message = s3Status.length > 0
         ? ` and associated ${s3Status.join(' & ')} deleted from storage`
         : '';
 
       // Check if any S3 deletions failed
       const hasErrors = deletionResults.carImage.error || deletionResults.audio.error;
-      
+
       res.status(200).json({
         success: true,
         message: `Booking deleted successfully${s3Message}`,
@@ -1529,7 +1998,7 @@ router.delete('/:id',
         error: error.message
       });
     }
-});
+  });
 
 
 

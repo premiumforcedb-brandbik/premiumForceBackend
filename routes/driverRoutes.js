@@ -318,16 +318,7 @@ router.patch('/:id/busy-status',
       });
     }
     
-    // // Check authorization - either admin or the driver themselves
-    // const isAdmin = req.user?.role === 'admin' || req.user?.role === 'superAdmin';
-    // const isSelf = req.driver?._id?.toString() === id || req.user?.driverId === id;
-    
-    // if (!isAdmin && !isSelf) {
-    //   return res.status(403).json({
-    //     success: false,
-    //     message: 'You are not authorized to update this driver\'s status'
-    //   });
-    // }
+   
     
     // Update busy status
     const oldStatus = driver.isBusy;

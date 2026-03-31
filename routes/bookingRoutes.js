@@ -2408,11 +2408,12 @@ router.put('/:id',
 
 // ============= GET BOOKING BY ID =============
 // GET /api/bookings/:id - Get a single booking with full details
-router.get('/:id', authenticateToken, async (req, res) => {
+router.get('/:id', authenticateCustomer, async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
-    const userRole = req.user.role;
+    const userId = req.customer.customerId;
+    const userRole = 'customer'; // Default to 'customer' if role is not set
+
 
     // Validate booking ID
     if (!mongoose.Types.ObjectId.isValid(id)) {

@@ -11,6 +11,11 @@ const terminalSchema = new mongoose.Schema({
     required: [true, 'Terminal name is required'],
     trim: true
   },
+  terminalNameAr: {
+    type: String,
+    required: [true, 'Terminal name in Arabic is required'],
+    trim: true
+  },
   image: {
     type: {
       key: String,

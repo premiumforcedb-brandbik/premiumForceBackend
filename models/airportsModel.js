@@ -11,6 +11,10 @@ const airportSchema = new mongoose.Schema({
     required: [true, 'Airport name is required'],
     trim: true
   },
+  airportNameAr: {
+    type: String,
+    required: [true, 'Airport name in Arabic is required'],
+  },
   lat: {
     type: Number,
     required: false

@@ -5,18 +5,18 @@ const City = require('../models/city_model');
 const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddleware');
 const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
 
+
 // ============= CREATE CITY with Image =============
 // POST /api/cities - Create a new city
 router.post('/', 
-  authenticateToken,
-  authorizeAdmin,
+authenticateToken,authorizeAdmin,
   upload.single('image'), 
   async (req, res) => {
     try {
       console.log('Request body:', req.body);
       console.log('Request file:', req.file);
 
-      const { cityName, isActive } = req.body;
+      const { cityName,cityNameAr, isActive ,} = req.body;
 
       // Validation
       if (!cityName) {
@@ -26,6 +26,21 @@ router.post('/',
           message: 'City name is required'
         });
       }
+
+      if (!('cityNameAr' in req.body) || !cityNameAr) {
+        console.log();
+ if (req.file) await deleteFromS3(req.file.key);
+        return res.status(400).json({
+          success: false,
+          message: 'City name in Arabic is required'
+        });
+}
+
+      // if (!cityNameAr) {
+
+      //   console.log('City name in Arabic is missing',cityNameAr);
+       
+      // }
 
       if (!req.file) {
         return res.status(400).json({
@@ -57,7 +72,8 @@ router.post('/',
           mimeType: req.file.mimetype,
           size: req.file.size
         },
-        isActive: isActive === 'true' || isActive === true
+        isActive: isActive === 'true' || isActive === true,
+        cityNameAr: String(cityNameAr).trim()
       };
 
       const city = new City(cityData);
@@ -220,7 +236,7 @@ router.put('/:id',
       console.log('Request file:', req.file);
 
       const { id } = req.params;
-      const { cityName, isActive } = req.body;
+      const { cityName,cityNameAr, isActive } = req.body;
 
       // Validate ID
       if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -260,6 +276,7 @@ router.put('/:id',
       // Prepare update data
       const updateData = {
         cityName: cityName ? String(cityName).trim() : existingCity.cityName,
+        cityNameAr: cityNameAr ? String(cityNameAr).trim() : existingCity.cityNameAr,
         isActive: isActive !== undefined ? isActive === 'true' || isActive === true : existingCity.isActive
       };
 
@@ -320,6 +337,7 @@ router.put('/:id',
       });
     }
 });
+
 
 
 // ============= UPDATE CITY STATUS =============

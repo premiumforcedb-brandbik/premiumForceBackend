@@ -7,6 +7,10 @@ const citySchema = new mongoose.Schema({
     trim: true,
     unique: true
   },
+cityNameAr: {
+    type: String,
+    required: [true, 'City name in Arabic is required'],
+  },
 
   image: {
     type: {

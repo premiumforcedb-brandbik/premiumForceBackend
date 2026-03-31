@@ -20,7 +20,7 @@ router.post('/',
       console.log('Create airport - Body:', req.body);
       console.log('Create airport - File:', req.file);
 
-      const { cityID, airportName, isActive, lat, long } = req.body;
+      const { cityID, airportName,airportNameAr, isActive, lat, long } = req.body;
 
       // Validation
       if (!cityID) {
@@ -76,6 +76,7 @@ router.post('/',
       const airportData = {
         cityID: cityID,
         airportName: String(airportName).trim(),
+        airportNameAr: String(airportNameAr).trim(),
         isActive: isActive === 'true' || isActive === true || isActive === undefined
       };
 
@@ -141,10 +142,11 @@ router.post('/',
 
 
 
+
 // ============= UPDATE AIRPORT =============
 // PUT /api/airports/:id - Update airport (image optional)
 router.put('/:id', 
-  authenticateToken,
+ authenticateToken,
   authorizeAdmin,
   upload.single('image'), 
   async (req, res) => {
@@ -154,7 +156,7 @@ router.put('/:id',
       console.log('Request file:', req.file);
 
       const { id } = req.params;
-      const { cityID, airportName, isActive, lat, long } = req.body;
+      const { cityID, airportName, airportNameAr, isActive, lat, long } = req.body;
 
       // Validate ID
       if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -216,6 +218,7 @@ router.put('/:id',
       const updateData = {
         cityID: cityID || existingAirport.cityID,
         airportName: airportName ? String(airportName).trim() : existingAirport.airportName,
+        airportNameAr: airportNameAr ? String(airportNameAr).trim() : existingAirport.airportNameAr,
         isActive: isActive !== undefined ? isActive === 'true' || isActive === true : existingAirport.isActive
       };
 

@@ -39,22 +39,7 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
       });
     }
 
-    // // Validate assignedAt is provided
-    // if (!assignedAt) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: 'Assigned date and time (assignedAt) is required'
-    //   });
-    // }
-
-    // Validate assignedAt format
-    // const assignedDate = new Date(assignedAt);
-    // if (isNaN(assignedDate.getTime())) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: 'Invalid assignedAt format'
-    //   });
-    // }
+   
 
     // Get admin ID from token
     const adminID = req.user?.adminId || req.user?.id || req.user?._id;
@@ -125,21 +110,11 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
     
 
     // return;
-    // Check if customer exists
-    
-    // const customer = await Customer.findById(customerID);
-    // if (!customer) {
-    //   return res.status(404).json({
-    //     success: false,
-    //     message: 'Customer not found'
-    //   });
-    // }
-
+   
     // Check for existing assignment
     const existingAssignment = await AdminAssignDriver.findOne({
       driverID: driverID,
       bookingID: bookingID,
-      // assignedAt:assignedAt
     });
 
 
@@ -156,13 +131,23 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
       adminID: adminID.toString(),
       driverID,
       bookingID,
-      // assignedAt: assignedDate,
       status: 'active'
     });
 
     await assignment.save();
 
-
+    
+      // Update booking with driver and status
+    const updatedBooking = await Booking.findByIdAndUpdate(
+      bookingID,
+      {
+        driverID: driverID,
+        bookingStatus: 'assigned', // Change status to assigned when driver assigned
+        driverAssignedAt: new Date(),
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
     
     // Update driver as busy
     await driver.setBusy(bookingID);
@@ -185,7 +170,6 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
           booking: bookingData,
           customer: customerData,
           assignedBy: adminData,
-          // assignedAt: assignment.assignedAt,
           status: assignment.status
         },
         driverStatus: {
@@ -193,9 +177,9 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
           currentBookingId: driver.currentBookingId
         },
         bookingUpdate: {
-          id: booking._id,
-          bookingStatus: booking.bookingStatus,
-          driverAssignedAt: booking.driverAssignedAt
+          id: updatedBooking._id,
+          bookingStatus: updatedBooking.bookingStatus,
+          driverAssignedAt: updatedBooking.driverAssignedAt
         }
       }
     });

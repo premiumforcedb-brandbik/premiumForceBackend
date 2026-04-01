@@ -2482,17 +2482,24 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 
 
 
-
-
 // ============= GET BOOKING BY ID =============
-// GET /api/bookings/:id - Get a single booking with full details
-router.get('/:id', authenticateCustomer,
-   async (req, res) => {
+// GET /api/bookings/:id - Get a single booking with full details (Admin Only)
+router.get('/:id', 
+  authenticateToken,
+  authorizeAdmin, // Only admin/superadmin can access
+  async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.customer.customerId;
-    const userRole = 'customer'; // Default to 'customer' if role is not set
-
+    
+    // Get admin info from the authenticated token
+    const adminId = req.user?.id;
+    const adminRole = req.user?.role;
+    
+    console.log('Get booking by ID - Admin info:', {
+      adminId,
+      adminRole,
+      bookingId: id
+    });
 
     // Validate booking ID
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -2502,27 +2509,8 @@ router.get('/:id', authenticateCustomer,
       });
     }
 
-    // Build query based on user role
-    let query = { _id: id };
-    
-    // If user is customer, only allow access to their own bookings
-    if (userRole === 'customer') {
-      const customerId = req.customer?.customerId;
-      if (!customerId) {
-        return res.status(401).json({
-          success: false,
-          message: 'Authentication failed - Customer data not found'
-        });
-      }
-      query.customerID = new mongoose.Types.ObjectId(customerId);
-    }
-    
-    // If user is driver, only allow access to their assigned bookings
-    if (userRole === 'driver') {
-      query.driverID = new mongoose.Types.ObjectId(userId);
-    }
-    
-    // Admin can access any booking
+    // Admin can access any booking - no restrictions
+    const query = { _id: id };
 
     // Find booking with all populated fields
     const booking = await Booking.findOne(query)
@@ -2566,7 +2554,6 @@ router.get('/:id', authenticateCustomer,
             select: '_id name'
           },
           {
-
             path: 'brandID',
             model: 'Brand',
             select: '_id brandName'
@@ -2584,7 +2571,7 @@ router.get('/:id', authenticateCustomer,
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: 'Booking not found or you do not have permission to view it'
+        message: 'Booking not found'
       });
     }
 
@@ -2603,11 +2590,9 @@ router.get('/:id', authenticateCustomer,
         createdAt: booking.cityID.createdAt
       } : null,
       
-
       // Airport details with city info
       airport: booking.airportID && typeof booking.airportID === 'object' ? {
         _id: booking.airportID._id,
-        // cityID: booking.airportID.cityID,
         cityDetails: booking.airportID.cityID && typeof booking.airportID.cityID === 'object' ? {
           _id: booking.airportID.cityID._id,
           cityName: booking.airportID.cityID.cityName,
@@ -2625,13 +2610,11 @@ router.get('/:id', authenticateCustomer,
       // Terminal details with airport info
       terminal: booking.terminalID && typeof booking.terminalID === 'object' ? {
         _id: booking.terminalID._id,
-        // airportID: booking.terminalID.airportID,
         airportDetails: booking.terminalID.airportID && typeof booking.terminalID.airportID === 'object' ? {
           _id: booking.terminalID.airportID._id,
           airportName: booking.terminalID.airportID.airportName,
           airportNameAr: booking.terminalID.airportID.airportNameAr
         } : null,
-
         terminalName: booking.terminalID.terminalName,
         terminalNameAr: booking.terminalID.terminalNameAr,
         image: booking.terminalID.image,
@@ -2639,17 +2622,13 @@ router.get('/:id', authenticateCustomer,
         createdAt: booking.terminalID.createdAt
       } : null,
       
-
       // Car details with category and brand
       car: booking.carID && typeof booking.carID === 'object' ? {
         _id: booking.carID._id,
-        // categoryID: booking.carID.categoryID,
         categoryDetails: booking.carID.categoryID && typeof booking.carID.categoryID === 'object' ? {
           _id: booking.carID.categoryID._id,
           categoryName: booking.carID.categoryID.name
         } : null,
-        // brandID: booking.carID.brandID,
-
         brandDetails: booking.carID.brandID && typeof booking.carID.brandID === 'object' ? {
           _id: booking.carID.brandID._id,
           brandName: booking.carID.brandID.brandName
@@ -2734,7 +2713,14 @@ router.get('/:id', authenticateCustomer,
       
       // Timestamps
       createdAt: booking.createdAt,
-      updatedAt: booking.updatedAt
+      updatedAt: booking.updatedAt,
+      
+      // Admin info (for debugging)
+      accessedBy: {
+        adminId,
+        adminRole,
+        accessTime: new Date().toISOString()
+      }
     };
 
     res.status(200).json({

@@ -3582,7 +3582,7 @@ router.get('/',authenticateToken,
         populate: {
           path: 'airportID',
           model: 'Airport',
-          select: '_id airportName airportNameAr'
+          select: '_id airportName airportNameAr terminalName terminalNameAr lat long image isActive createdAt'
         },
         select: '_id airportID terminalName terminalNameAr image isActive createdAt'
       })
@@ -3639,6 +3639,7 @@ router.get('/',authenticateToken,
           _id: booking.cityID._id,
           cityName: booking.cityID.cityName,
           image: booking.cityID.image,
+          cityNameAr: booking.cityID.cityNameAr,
           isActive: booking.cityID.isActive,
           createdAt: booking.cityID.createdAt
         } : null,
@@ -3649,9 +3650,11 @@ router.get('/',authenticateToken,
           cityID: booking.airportID.cityID,
           cityDetails: booking.airportID.cityID && typeof booking.airportID.cityID === 'object' ? {
             _id: booking.airportID.cityID._id,
-            cityName: booking.airportID.cityID.cityName
+            cityName: booking.airportID.cityID.cityName,
+            cityNameAr: booking.airportID.cityID.cityNameAr
           } : null,
           airportName: booking.airportID.airportName,
+          airportNameAr: booking.airportID.airportNameAr,
           lat: booking.airportID.lat,
           long: booking.airportID.long,
           image: booking.airportID.image,
@@ -3668,6 +3671,7 @@ router.get('/',authenticateToken,
             airportName: booking.terminalID.airportID.airportName
           } : null,
           terminalName: booking.terminalID.terminalName,
+          terminalNameAr: booking.terminalID.terminalNameAr,
           image: booking.terminalID.image,
           isActive: booking.terminalID.isActive,
           createdAt: booking.terminalID.createdAt

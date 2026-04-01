@@ -37,7 +37,1005 @@ const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
 const NotificationService = require('../services/notificationService');
 
 
-const { notifyUser, notifyUsers } = require('../fcm');
+const { notifyUser, notifyUsers,notifyUserAdmin  } = require('../fcm');
+
+
+
+
+
+// ============= Helper function to get all admin users =============
+async function getAllAdminFcmTokens() {
+  try {
+    const Admin = require('../models/adminModel');
+    const admins = await Admin.find({ 
+      isActive: true,
+      fcmToken: { $ne: null, $exists: true }
+    }).select('fcmToken').lean();
+    
+    return admins.map(admin => admin.fcmToken).filter(token => token);
+  } catch (error) {
+    console.error('Error fetching admin tokens:', error);
+    return [];
+  }
+}
+
+// ============= Helper function to notify all admins =============
+async function notifyAllAdmins(title, body, data = {}) {
+  try {
+    const adminTokens = await getAllAdminFcmTokens();
+    
+    if (adminTokens.length === 0) {
+      console.log('No admin FCM tokens found');
+      return;
+    }
+    
+    const { sendPushNotification } = require('../fcm');
+    
+    // Send notifications to all admins in parallel
+    await Promise.allSettled(
+      adminTokens.map(token => 
+        sendPushNotification(token, title, body, data)
+      )
+    );
+    
+    console.log(`Notifications sent to ${adminTokens.length} admins`);
+  } catch (error) {
+    console.error('Error notifying admins:', error);
+  }
+}
+
+
+// ============= CREATE BOOKING with Images and Audio =============
+router.post('/', 
+  authenticateCustomer,
+  upload.fields([
+    { name: 'carimage', maxCount: 1 },
+    { name: 'specialRequestAudio', maxCount: 1 }
+  ]), 
+  async (req, res) => {
+    try {
+      console.log('Request body:', req.body);
+      console.log('Request files:', req.files);
+      
+      // FIXED: Check if req.customer exists
+      if (!req.customer) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication failed - Customer data not found'
+        });
+      }
+      
+      console.log('Authenticated customer:', req.customer);
+      
+      // Get customer ID from authenticated user (already an ObjectId)
+      const customerID = req.customer.customerId;
+      console.log('Customer ID:', customerID);
+
+      const {
+        category, cityID, airportID, terminalID, flightNumber, arrival,
+        pickupLat, pickupLong, pickupAddress, dropOffLat, dropOffLong, dropOffAddress,
+        charge, carID, carmodel,
+        specialRequestText,
+        passengerCount, passengerNames, passengerMobile, distance,
+        bookingStatus, driverID, transactionID, orderID, discountPercentage
+      } = req.body;
+
+      // Log the fields for debugging
+      console.log('Raw arrival value:', arrival);
+      console.log('Raw airportID:', airportID);
+      console.log('Raw terminalID:', terminalID);
+      console.log('Type of airportID:', typeof airportID);
+      console.log('Type of terminalID:', typeof terminalID);
+
+      // Check if carimage file is uploaded
+      if (!req.files || !req.files.carimage || !req.files.carimage[0]) {
+        return res.status(400).json({
+          success: false,
+          message: 'Car image is required'
+        });
+      }
+
+      // ========== AUDIO FILE VALIDATION ==========
+      // Allowed audio MIME types
+      const allowedAudioMimeTypes = [
+        'audio/mpeg',      // MP3
+        'audio/mp3',       // MP3 alternative
+        'audio/wav',       // WAV
+        'audio/x-wav',     // WAV alternative
+        'audio/mp4',       // MP4/AAC
+        'audio/m4a',       // M4A
+        'audio/aac',       // AAC
+        'audio/ogg',       // OGG
+        'audio/webm',      // WebM Audio
+        'audio/flac',      // FLAC
+        'audio/x-m4a'      // M4A alternative
+      ];
+      
+      // Allowed audio file extensions
+      const allowedAudioExtensions = [
+        'mp3', 'wav', 'mp4', 'm4a', 'aac', 'ogg', 'webm', 'flac', 'mpeg'
+      ];
+      
+      // Validate audio file if uploaded
+      if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio[0]) {
+        const audioFile = req.files.specialRequestAudio[0];
+        const fileExtension = audioFile.originalname.split('.').pop().toLowerCase();
+        const mimeType = audioFile.mimetype;
+        
+        // Check file size (max 10MB for audio)
+        const maxAudioSize = 10 * 1024 * 1024; // 10MB
+        if (audioFile.size > maxAudioSize) {
+          // Delete uploaded files
+          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(audioFile.key).catch(console.error);
+          
+          return res.status(400).json({
+            success: false,
+            message: `Audio file size too large. Maximum size is 10MB. Your file size: ${(audioFile.size / (1024 * 1024)).toFixed(2)}MB`,
+            field: 'specialRequestAudio'
+          });
+        }
+        
+        // Check if MIME type is allowed
+        const isMimeTypeAllowed = allowedAudioMimeTypes.includes(mimeType);
+        
+        // Check if file extension is allowed
+        const isExtensionAllowed = allowedAudioExtensions.includes(fileExtension);
+        
+        if (!isMimeTypeAllowed && !isExtensionAllowed) {
+          // Delete uploaded files
+          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(audioFile.key).catch(console.error);
+          
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid audio file format. Supported formats: MP3, WAV, M4A, AAC, OGG, WebM, FLAC',
+            field: 'specialRequestAudio',
+            supportedFormats: allowedAudioExtensions,
+            receivedMimeType: mimeType,
+            receivedExtension: fileExtension
+          });
+        }
+        
+        console.log('Audio file validated:', {
+          originalName: audioFile.originalname,
+          size: `${(audioFile.size / (1024 * 1024)).toFixed(2)}MB`,
+          mimeType: audioFile.mimetype,
+          extension: fileExtension
+        });
+      }
+
+      // Validation for required fields
+      const requiredFields = [
+        'category', 'cityID', 'arrival', 'pickupLat', 'pickupLong',
+        'dropOffLat', 'dropOffLong', 'dropOffAddress', 'carmodel',
+        'passengerCount', 'passengerNames', 'pickupAddress',
+        'passengerMobile', 'distance', 'charge', 'carID', 'transactionID', 'orderID'
+      ];
+
+      const missingFields = [];
+      for (const field of requiredFields) {
+        if (!req.body[field] || req.body[field] === '') {
+          missingFields.push(field);
+        }
+      }
+
+      if (missingFields.length > 0) {
+        // Delete uploaded files if validation fails
+        if (req.files) {
+          if (req.files.carimage) {
+            await deleteFromS3(req.files.carimage[0].key).catch(console.error);
+          }
+          if (req.files.specialRequestAudio) {
+            await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+        }
+        
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide all required fields',
+          required: requiredFields,
+          missing: missingFields
+        });
+      }
+
+      // IMPROVED DATE VALIDATION
+      let parsedDate;
+      
+      // Handle different date formats
+      try {
+        // Trim whitespace from arrival string
+        const arrivalStr = String(arrival).trim();
+        console.log('Cleaned arrival string:', arrivalStr);
+        
+        // Try to parse the date
+        parsedDate = new Date(arrivalStr);
+        
+        // Check if date is valid
+        if (isNaN(parsedDate.getTime())) {
+          // Try alternative parsing without milliseconds
+          const alternativeFormat = arrivalStr.replace(/\.\d{3}Z$/, 'Z');
+          if (alternativeFormat !== arrivalStr) {
+            parsedDate = new Date(alternativeFormat);
+          }
+          
+          // If still invalid, try parsing with timezone
+          if (isNaN(parsedDate.getTime())) {
+            // Try replacing Z with +00:00
+            const withTimezone = arrivalStr.replace('Z', '+00:00');
+            parsedDate = new Date(withTimezone);
+          }
+        }
+        
+        // Final validation
+        if (isNaN(parsedDate.getTime())) {
+          throw new Error('Invalid date format');
+        }
+        
+        console.log('Parsed date successfully:', parsedDate);
+        console.log('ISO string:', parsedDate.toISOString());
+        
+      } catch (dateError) {
+        console.error('Date parsing error:', dateError);
+        if (req.files) {
+          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid date format for arrival. Use ISO format (YYYY-MM-DDTHH:mm:ss.sssZ)',
+          receivedValue: arrival,
+          example: '2024-12-27T08:45:00.000Z'
+        });
+      }
+
+      // CHECK FOR EXISTING BOOKING
+      const startOfDay = new Date(parsedDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(parsedDate);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      console.log('Checking existing bookings for date range:', {
+        startOfDay: startOfDay.toISOString(),
+        endOfDay: endOfDay.toISOString(),
+        customerID: customerID
+      });
+
+      const existingBooking = await Booking.findOne({
+        customerID: customerID,
+        arrival: {
+          $gte: startOfDay,
+          $lte: endOfDay
+        },
+        bookingStatus: { $nin: ['cancelled', 'completed'] }
+      });
+
+      if (existingBooking) {
+        if (req.files) {
+          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+
+        await notifyUser(
+          customerID,
+          '✅ Booking Already Exists',
+          `You already have a booking scheduled for this date`,
+          {
+            type: 'booking_exists',
+            bookingId: existingBooking._id.toString(),
+            status: existingBooking.bookingStatus,
+          }
+        );
+
+        return res.status(400).json({
+          success: false,
+          message: 'You already have a booking scheduled for this date',
+          existingBooking: {
+            id: existingBooking._id,
+            arrival: existingBooking.arrival,
+            status: existingBooking.bookingStatus,
+            driverID: existingBooking.driverID
+          }
+        });
+      }
+
+      // Parse passengerNames - Accept both JSON array and comma-separated
+      let parsedPassengerNames = [];
+      if (typeof passengerNames === 'string') {
+        try {
+          // Try to parse as JSON first
+          parsedPassengerNames = JSON.parse(passengerNames);
+          if (!Array.isArray(parsedPassengerNames)) {
+            parsedPassengerNames = [passengerNames];
+          }
+        } catch {
+          // If JSON parse fails, split by comma
+          parsedPassengerNames = passengerNames.split(',').map(name => name.trim());
+        }
+      } else if (Array.isArray(passengerNames)) {
+        parsedPassengerNames = passengerNames;
+      } else {
+        parsedPassengerNames = [String(passengerNames)];
+      }
+
+      // Helper function to safely convert to ObjectId
+      const safeObjectId = (id, fieldName) => {
+        if (!id || id === 'null' || id === 'undefined' || id === '') {
+          return null;
+        }
+        
+        // If it's already an ObjectId, return it
+        if (id instanceof mongoose.Types.ObjectId) {
+          return id;
+        }
+        
+        // Try to convert string to ObjectId
+        if (typeof id === 'string' && mongoose.Types.ObjectId.isValid(id)) {
+          return new mongoose.Types.ObjectId(id);
+        }
+        
+        console.warn(`Invalid ${fieldName} format:`, id);
+        return null;
+      };
+
+      // Convert IDs to ObjectId with validation
+      let finalCityID = null;
+      let finalAirportID = null;
+      let finalTerminalID = null;
+      let finalCarID = null;
+      let finalDriverID = null;
+
+      // Convert cityID (required)
+      if (cityID && mongoose.Types.ObjectId.isValid(cityID)) {
+        finalCityID = new mongoose.Types.ObjectId(cityID);
+      } else {
+        if (req.files) {
+          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid cityID format. Must be a valid MongoDB ObjectId',
+          received: cityID
+        });
+      }
+
+      // Convert airportID (optional) - Handle null/undefined/empty properly
+      if (airportID && airportID !== 'null' && airportID !== 'undefined' && airportID !== '') {
+        if (mongoose.Types.ObjectId.isValid(airportID)) {
+          finalAirportID = new mongoose.Types.ObjectId(airportID);
+          console.log('AirportID converted to ObjectId:', finalAirportID);
+        } else {
+          console.log('Invalid airportID format, setting to null:', airportID);
+          finalAirportID = null;
+        }
+      } else {
+        console.log('airportID is empty or null, setting to undefined');
+        finalAirportID = undefined;
+      }
+
+      // Convert terminalID (optional) - Handle null/undefined/empty properly
+      if (terminalID && terminalID !== 'null' && terminalID !== 'undefined' && terminalID !== '') {
+        if (mongoose.Types.ObjectId.isValid(terminalID)) {
+          finalTerminalID = new mongoose.Types.ObjectId(terminalID);
+          console.log('TerminalID converted to ObjectId:', finalTerminalID);
+        } else {
+          console.log('Invalid terminalID format, setting to null:', terminalID);
+          finalTerminalID = null;
+        }
+      } else {
+        console.log('terminalID is empty or null, setting to undefined');
+        finalTerminalID = undefined;
+      }
+
+      // Convert carID (required)
+      if (carID && mongoose.Types.ObjectId.isValid(carID)) {
+        finalCarID = new mongoose.Types.ObjectId(carID);
+      } else {
+        if (req.files) {
+          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid carID format. Must be a valid MongoDB ObjectId',
+          received: carID
+        });
+      }
+
+      // Convert driverID (optional)
+      if (driverID && driverID !== 'null' && driverID !== 'undefined' && driverID !== '') {
+        if (mongoose.Types.ObjectId.isValid(driverID)) {
+          finalDriverID = new mongoose.Types.ObjectId(driverID);
+        }
+      }
+
+      // Parse numeric values
+      const pickupLatNum = parseFloat(pickupLat);
+      const pickupLongNum = parseFloat(pickupLong);
+      const dropOffLatNum = parseFloat(dropOffLat);
+      const dropOffLongNum = parseFloat(dropOffLong);
+      const passengerCountNum = parseInt(passengerCount);
+      const distanceStr = String(distance).replace(/[^0-9.-]/g, ''); // Remove units like "km"
+      const chargeStr = String(charge).replace(/[^0-9.-]/g, '');
+
+      if (isNaN(pickupLatNum) || isNaN(pickupLongNum) || isNaN(dropOffLatNum) || isNaN(dropOffLongNum)) {
+        if (req.files) {
+          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid coordinates. Latitude and Longitude must be valid numbers',
+          received: { pickupLat, pickupLong, dropOffLat, dropOffLong }
+        });
+      }
+
+      if (isNaN(passengerCountNum) || passengerCountNum < 1) {
+        if (req.files) {
+          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid passenger count. Must be a number greater than 0'
+        });
+      }
+
+      // Create booking object with ObjectId fields
+      const bookingData = {
+        category: String(category).trim(),
+        cityID: finalCityID,
+        airportID: finalAirportID, // Will be undefined if not provided
+        terminalID: finalTerminalID, // Will be undefined if not provided
+        flightNumber: flightNumber ? String(flightNumber).trim() : undefined,
+        arrival: parsedDate,
+        pickupLat: pickupLatNum,
+        pickupLong: pickupLongNum,
+        pickupAddress: String(pickupAddress).trim(),
+        dropOffLat: dropOffLatNum,
+        dropOffLong: dropOffLongNum,
+        dropOffAddress: String(dropOffAddress).trim(),
+        carID: finalCarID,
+        transactionID: String(transactionID).trim(),
+        orderID: String(orderID).trim(),
+        discountPercentage: discountPercentage || 0,
+        carmodel: String(carmodel).trim(),
+        charge: chargeStr,
+        carimage: {
+          key: req.files.carimage[0].key,
+          url: getS3Url(req.files.carimage[0].key),
+          originalName: req.files.carimage[0].originalname,
+          mimeType: req.files.carimage[0].mimetype,
+          size: req.files.carimage[0].size
+        },
+        passengerCount: passengerCountNum,
+        passengerNames: parsedPassengerNames,
+        passengerMobile: String(passengerMobile).trim(),
+        distance: distanceStr,
+        customerID: customerID,
+        bookingStatus: bookingStatus || 'pending',
+        TrackingTimeLine: ['booking_created'],
+        paymentStatus: false,
+        rating: {},
+        driverID: finalDriverID
+      };
+
+      // Remove undefined fields (optional fields that weren't provided)
+      Object.keys(bookingData).forEach(key => {
+        if (bookingData[key] === undefined) {
+          delete bookingData[key];
+        }
+      });
+
+      // Add optional fields
+      if (specialRequestText && specialRequestText.trim() !== '') {
+        bookingData.specialRequestText = String(specialRequestText).trim();
+      }
+
+      // Add audio file if uploaded
+      if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio[0]) {
+        const audioFile = req.files.specialRequestAudio[0];
+        bookingData.specialRequestAudio = {
+          key: audioFile.key,
+          url: getS3Url(audioFile.key),
+          originalName: audioFile.originalname,
+          mimeType: audioFile.mimetype,
+          size: audioFile.size,
+          duration: null, // You can add duration if you process audio files
+          format: audioFile.originalname.split('.').pop().toLowerCase()
+        };
+        
+        console.log('Audio file added to booking:', {
+          key: audioFile.key,
+          format: bookingData.specialRequestAudio.format,
+          size: `${(audioFile.size / (1024 * 1024)).toFixed(2)}MB`
+        });
+      }
+
+      console.log('Booking data to save:', JSON.stringify(bookingData, (key, value) => {
+        if (value instanceof mongoose.Types.ObjectId) return value.toString();
+        return value;
+      }, 2));
+
+      const booking = new Booking(bookingData);
+      await booking.save();
+
+      // Send notification to the customer
+      await notifyUser(
+        customerID,
+        '✅ Booking Confirmed',
+        `Your booking has been created successfully.${bookingData.specialRequestAudio ? ' Your audio request has been received.' : ''}`,
+        {
+          type: 'booking_created',
+          bookingId: booking._id.toString(),
+          status: booking.bookingStatus,
+          hasAudio: !!bookingData.specialRequestAudio
+        }
+      );
+
+
+
+
+
+       // 2. Send notification to ALL ADMINS
+      const adminNotificationData = {
+        type: 'new_booking',
+        bookingId: booking._id.toString(),
+        customerId: customerID.toString(),
+        customerName: customerName,
+        arrival: parsedDate.toISOString(),
+        pickupAddress: bookingData.pickupAddress,
+        dropOffAddress: bookingData.dropOffAddress,
+        charge: chargeStr,
+        passengerCount: passengerCountNum,
+        carModel: carmodel,
+        hasAudio: !!bookingData.specialRequestAudio,
+        hasSpecialRequest: !!specialRequestText
+      };
+
+
+    await  notifyUserAdmin(
+        'New Booking Alert!',
+       `Review and assign a driver`,
+        ""
+      );
+
+      await notifyAllAdmins(
+        'New Booking Alert!',
+       `Review and assign a driver`,
+        ""
+      );
+
+
+
+
+
+      res.status(201).json({
+        success: true,
+        message: 'Booking created successfully',
+        data: booking
+      });
+      
+    } catch (error) {
+      console.error('Create booking error:', error);
+      
+      // Delete uploaded files if error occurs
+      if (req.files) {
+        if (req.files.carimage) {
+          await deleteFromS3(req.files.carimage[0].key).catch(console.error);
+        }
+        if (req.files.specialRequestAudio) {
+          await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+      }
+
+      if (error.name === 'ValidationError') {
+        const errors = {};
+        for (let field in error.errors) {
+          errors[field] = error.errors[field].message;
+        }
+        return res.status(400).json({
+          success: false,
+          message: 'Validation error',
+          errors: errors
+        });
+      }
+
+      if (error.code === 11000) {
+        return res.status(400).json({
+          success: false,
+          message: 'Duplicate field value entered'
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        message: 'Error creating booking',
+        error: error.message
+      });
+    }
+});
+
+
+
+
+
+// ============= UPDATE BOOKING by ID =============
+router.put('/:id', 
+  authenticateCustomer,
+  upload.fields([
+    { name: 'carimage', maxCount: 1 },
+    { name: 'specialRequestAudio', maxCount: 1 }
+  ]), 
+  async (req, res) => {
+    try {
+      console.log('Update booking - ID:', req.params.id);
+      console.log('Request body:', req.body);
+      console.log('Request files:', req.files);
+      
+      // Check if req.customer exists
+      if (!req.customer) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication failed - Customer data not found'
+        });
+      }
+      
+      console.log('Authenticated customer:', req.customer);
+
+      const bookingId = req.params.id;
+      const customerId = req.customer.customerId;
+
+      // Validate booking ID
+      if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+        // Delete uploaded files if validation fails
+        if (req.files) {
+          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
+        }
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid booking ID format'
+        });
+      }
+
+      // Check if booking exists AND belongs to the authenticated customer
+      const existingBooking = await Booking.findOne({
+        _id: bookingId,
+        customerID: customerId
+      });
+      
+      if (!existingBooking) {
+        // Delete uploaded files if booking not found
+        if (req.files) {
+          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
+        }
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found or you do not have permission to update it'
+        });
+      }
+
+      console.log('Current booking status:', existingBooking.bookingStatus);
+      console.log('Current driver ID:', existingBooking.driverID);
+
+      // Extract fields from request body
+      const {
+        category, cityID, airportID, terminalID, flightNumber, arrival,
+        pickupLat, pickupLong, pickupAddress, dropOffLat, dropOffLong, dropOffAddress,
+        carID, charge, carmodel, specialRequestText,
+        passengerCount, passengerNames, passengerMobile, distance,
+        bookingStatus, transactionID, orderID, discountPercentage
+      } = req.body;
+
+      // Helper function to check if value is null/undefined/empty
+      const isValidValue = (value) => {
+        return value !== undefined && value !== null && value !== '' && value !== 'null' && value !== 'undefined';
+      };
+
+      // Helper function to safely convert to ObjectId
+      const toObjectId = (value, existingValue) => {
+        if (!isValidValue(value)) return existingValue;
+        
+        // If it's already an ObjectId
+        if (value instanceof mongoose.Types.ObjectId) {
+          return value;
+        }
+        
+        // If it's a string, try to convert
+        if (typeof value === 'string') {
+          const trimmedId = value.trim();
+          // Check if it's a valid ObjectId (24 hex characters)
+          if (/^[0-9a-fA-F]{24}$/.test(trimmedId)) {
+            return new ObjectId(trimmedId);
+          }
+        }
+        
+        console.warn(`Invalid ObjectId format for update:`, value);
+        return existingValue;
+      };
+
+      // Helper function to clean string fields
+      const cleanStringField = (value, existingValue) => {
+        if (!isValidValue(value)) return existingValue;
+        return String(value).trim();
+      };
+
+      const cleanNumberField = (value, existingValue, parseFunc = parseFloat) => {
+        if (!isValidValue(value)) return existingValue;
+        const parsed = parseFunc(value);
+        return isNaN(parsed) ? existingValue : parsed;
+      };
+
+      // Validate date if provided
+      let parsedDate = existingBooking.arrival;
+      if (isValidValue(arrival)) {
+        try {
+          const arrivalStr = String(arrival).trim();
+          parsedDate = new Date(arrivalStr);
+          if (isNaN(parsedDate.getTime())) {
+            throw new Error('Invalid date');
+          }
+          console.log('Updated arrival date:', parsedDate);
+        } catch (dateError) {
+          if (req.files) {
+            if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
+          }
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid date format for arrival. Use ISO format (YYYY-MM-DDTHH:mm:ss.sssZ)'
+          });
+        }
+      }
+
+      // Parse passengerNames if provided
+      let parsedPassengerNames = existingBooking.passengerNames;
+      if (isValidValue(passengerNames)) {
+        if (typeof passengerNames === 'string') {
+          try {
+            parsedPassengerNames = JSON.parse(passengerNames);
+            if (!Array.isArray(parsedPassengerNames)) {
+              parsedPassengerNames = [passengerNames];
+            }
+          } catch {
+            // If JSON parse fails, split by comma
+            parsedPassengerNames = passengerNames.split(',').map(name => name.trim());
+          }
+        } else if (Array.isArray(passengerNames)) {
+          parsedPassengerNames = passengerNames;
+        }
+      }
+
+      // Prepare update data - Start with an empty object
+      const updateData = {};
+      
+      // Add all regular fields
+      updateData.category = cleanStringField(category, existingBooking.category);
+      updateData.cityID = toObjectId(cityID, existingBooking.cityID);
+      updateData.airportID = toObjectId(airportID, existingBooking.airportID);
+      updateData.terminalID = toObjectId(terminalID, existingBooking.terminalID);
+      updateData.flightNumber = cleanStringField(flightNumber, existingBooking.flightNumber);
+      updateData.arrival = parsedDate;
+      updateData.pickupLat = cleanNumberField(pickupLat, existingBooking.pickupLat, parseFloat);
+      updateData.pickupLong = cleanNumberField(pickupLong, existingBooking.pickupLong, parseFloat);
+      updateData.pickupAddress = cleanStringField(pickupAddress, existingBooking.pickupAddress);
+      updateData.dropOffLat = cleanNumberField(dropOffLat, existingBooking.dropOffLat, parseFloat);
+      updateData.dropOffLong = cleanNumberField(dropOffLong, existingBooking.dropOffLong, parseFloat);
+      updateData.dropOffAddress = cleanStringField(dropOffAddress, existingBooking.dropOffAddress);
+      updateData.carID = toObjectId(carID, existingBooking.carID);
+      updateData.carmodel = cleanStringField(carmodel, existingBooking.carmodel);
+      updateData.charge = cleanStringField(charge, existingBooking.charge);
+      updateData.passengerCount = cleanNumberField(passengerCount, existingBooking.passengerCount, parseInt);
+      updateData.passengerNames = parsedPassengerNames;
+      updateData.passengerMobile = cleanStringField(passengerMobile, existingBooking.passengerMobile);
+      updateData.distance = cleanStringField(distance, existingBooking.distance);
+      updateData.transactionID = cleanStringField(transactionID, existingBooking.transactionID);
+      updateData.orderID = cleanStringField(orderID, existingBooking.orderID);
+      updateData.discountPercentage = discountPercentage || 0;
+      updateData.updatedAt = new Date();
+
+      // Handle booking status update
+      if (isValidValue(bookingStatus)) {
+        const newStatus = String(bookingStatus).trim().toLowerCase();
+        
+        // Define allowed statuses
+        const allowedStatuses = ['pending', 'starttracking', 'assigned', 'completed', 'cancelled'];
+        
+        // Check if the new status is valid
+        if (!allowedStatuses.includes(newStatus)) {
+          if (req.files) {
+            if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
+          }
+          return res.status(400).json({
+            success: false,
+            message: `Invalid booking status. Allowed statuses: ${allowedStatuses.join(', ')}`,
+            allowedStatuses: allowedStatuses,
+            currentStatus: existingBooking.bookingStatus
+          });
+        }
+        
+        updateData.bookingStatus = newStatus;
+      }
+
+      // Handle file updates - Car Image
+      if (req.files && req.files.carimage && req.files.carimage[0]) {
+        // Delete old car image from S3 if exists
+        if (existingBooking.carimage && existingBooking.carimage.key) {
+          await deleteFromS3(existingBooking.carimage.key).catch(console.error);
+        }
+        
+        updateData.carimage = {
+          key: req.files.carimage[0].key,
+          url: getS3Url(req.files.carimage[0].key),
+          originalName: req.files.carimage[0].originalname,
+          mimeType: req.files.carimage[0].mimetype,
+          size: req.files.carimage[0].size
+        };
+      }
+
+      // Handle file updates - Special Request Audio
+      if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio[0]) {
+        // Delete old audio from S3 if exists
+        if (existingBooking.specialRequestAudio && existingBooking.specialRequestAudio.key) {
+          await deleteFromS3(existingBooking.specialRequestAudio.key).catch(console.error);
+        }
+        
+        updateData.specialRequestAudio = {
+          key: req.files.specialRequestAudio[0].key,
+          url: getS3Url(req.files.specialRequestAudio[0].key),
+          originalName: req.files.specialRequestAudio[0].originalname,
+          mimeType: req.files.specialRequestAudio[0].mimetype,
+          size: req.files.specialRequestAudio[0].size
+        };
+      }
+
+      // Handle special request text
+      if (specialRequestText !== undefined) {
+        if (isValidValue(specialRequestText)) {
+          updateData.specialRequestText = String(specialRequestText).trim();
+        } else {
+          updateData.specialRequestText = null;
+        }
+      }
+
+      // Remove undefined fields (optional fields that weren't provided)
+      Object.keys(updateData).forEach(key => {
+        if (updateData[key] === undefined) {
+          delete updateData[key];
+        }
+      });
+
+      // Handle TrackingTimeLine separately using $push
+      // Initialize tracking timeline updates
+      const timelineUpdates = [];
+      
+      // Add status change to timeline if status changed
+      if (isValidValue(bookingStatus) && updateData.bookingStatus !== existingBooking.bookingStatus) {
+        timelineUpdates.push(`status_changed_from_${existingBooking.bookingStatus}_to_${updateData.bookingStatus}_by_customer`);
+        console.log(`Status changing from ${existingBooking.bookingStatus} to ${updateData.bookingStatus}`);
+      }
+      
+      // Add general update to timeline
+      timelineUpdates.push('booking_updated_by_customer');
+      
+      // Prepare the final update operation
+      let finalUpdateOperation = { $set: updateData };
+      
+      // Add $push for timeline if there are any timeline updates
+      if (timelineUpdates.length > 0) {
+        finalUpdateOperation.$push = {
+          TrackingTimeLine: { $each: timelineUpdates }
+        };
+      }
+
+      console.log('Final update operation:', JSON.stringify(finalUpdateOperation, (key, value) => {
+        if (value instanceof ObjectId) return value.toString();
+        return value;
+      }, 2));
+
+      // Update the booking
+      const updatedBooking = await Booking.findByIdAndUpdate(
+        bookingId,
+        finalUpdateOperation,
+        { new: true, runValidators: true }
+      );
+
+      // Send notification based on status change
+      if (updateData.bookingStatus === 'cancelled') {
+        await notifyUser(
+          customerId,
+          '❌ Booking Cancelled',
+          `Your booking has been cancelled successfully.`,
+          {
+            type: 'booking_cancelled',
+            bookingId: updatedBooking._id.toString(),
+            status: 'cancelled'
+          }
+        );
+      } else if (updateData.bookingStatus === 'completed') {
+        await notifyUser(
+          customerId,
+          '✅ Booking Completed',
+          `Your booking has been marked as completed.`,
+          {
+            type: 'booking_completed',
+            bookingId: updatedBooking._id.toString(),
+            status: 'completed'
+          }
+        );
+      } else if (updateData.bookingStatus && updateData.bookingStatus !== existingBooking.bookingStatus) {
+        await notifyUser(
+          customerId,
+          '🔄 Booking Status Updated',
+          `Your booking status has been updated to ${updateData.bookingStatus}.`,
+          {
+            type: 'booking_status_updated',
+            bookingId: updatedBooking._id.toString(),
+            oldStatus: existingBooking.bookingStatus,
+            newStatus: updateData.bookingStatus
+          }
+        );
+      } else {
+        await notifyUser(
+          customerId,
+          '📝 Booking Updated',
+          `Your booking has been updated successfully.`,
+          {
+            type: 'booking_updated',
+            bookingId: updatedBooking._id.toString(),
+            status: updatedBooking.bookingStatus
+          }
+        );
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Booking updated successfully',
+        data: updatedBooking
+      });
+
+    } catch (error) {
+      console.error('Update booking error:', error);
+      
+      // Delete newly uploaded files if error occurs
+      if (req.files) {
+        if (req.files.carimage) {
+          await deleteFromS3(req.files.carimage[0].key).catch(console.error);
+        }
+        if (req.files.specialRequestAudio) {
+          await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+      }
+
+      if (error.name === 'ValidationError') {
+        const errors = {};
+        for (let field in error.errors) {
+          errors[field] = error.errors[field].message;
+        }
+        return res.status(400).json({
+          success: false,
+          message: 'Validation error',
+
+          errors: errors
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        message: 'Error updating booking',
+        error: error.message
+      });
+    }
+});
+
+
+
+
+
 
 
 
@@ -1020,558 +2018,6 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 
 
 
-
-
-
-
-
-
-
-
-// ============= CREATE BOOKING with Images and Audio =============
-router.post('/', 
-  authenticateCustomer,
-  upload.fields([
-    { name: 'carimage', maxCount: 1 },
-    { name: 'specialRequestAudio', maxCount: 1 }
-  ]), 
-  async (req, res) => {
-    try {
-      console.log('Request body:', req.body);
-      console.log('Request files:', req.files);
-      
-      // FIXED: Check if req.customer exists
-      if (!req.customer) {
-        return res.status(401).json({
-          success: false,
-          message: 'Authentication failed - Customer data not found'
-        });
-      }
-      
-      console.log('Authenticated customer:', req.customer);
-      
-      // Get customer ID from authenticated user (already an ObjectId)
-      const customerID = req.customer.customerId;
-      console.log('Customer ID:', customerID);
-
-      const {
-        category, cityID, airportID, terminalID, flightNumber, arrival,
-        pickupLat, pickupLong, pickupAddress, dropOffLat, dropOffLong, dropOffAddress,
-        charge, carID, carmodel,
-        specialRequestText,
-        passengerCount, passengerNames, passengerMobile, distance,
-        bookingStatus, driverID, transactionID, orderID, discountPercentage
-      } = req.body;
-
-      // Log the fields for debugging
-      console.log('Raw arrival value:', arrival);
-      console.log('Raw airportID:', airportID);
-      console.log('Raw terminalID:', terminalID);
-      console.log('Type of airportID:', typeof airportID);
-      console.log('Type of terminalID:', typeof terminalID);
-
-      // Check if carimage file is uploaded
-      if (!req.files || !req.files.carimage || !req.files.carimage[0]) {
-        return res.status(400).json({
-          success: false,
-          message: 'Car image is required'
-        });
-      }
-
-      // ========== AUDIO FILE VALIDATION ==========
-      // Allowed audio MIME types
-      const allowedAudioMimeTypes = [
-        'audio/mpeg',      // MP3
-        'audio/mp3',       // MP3 alternative
-        'audio/wav',       // WAV
-        'audio/x-wav',     // WAV alternative
-        'audio/mp4',       // MP4/AAC
-        'audio/m4a',       // M4A
-        'audio/aac',       // AAC
-        'audio/ogg',       // OGG
-        'audio/webm',      // WebM Audio
-        'audio/flac',      // FLAC
-        'audio/x-m4a'      // M4A alternative
-      ];
-      
-      // Allowed audio file extensions
-      const allowedAudioExtensions = [
-        'mp3', 'wav', 'mp4', 'm4a', 'aac', 'ogg', 'webm', 'flac', 'mpeg'
-      ];
-      
-      // Validate audio file if uploaded
-      if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio[0]) {
-        const audioFile = req.files.specialRequestAudio[0];
-        const fileExtension = audioFile.originalname.split('.').pop().toLowerCase();
-        const mimeType = audioFile.mimetype;
-        
-        // Check file size (max 10MB for audio)
-        const maxAudioSize = 10 * 1024 * 1024; // 10MB
-        if (audioFile.size > maxAudioSize) {
-          // Delete uploaded files
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(audioFile.key).catch(console.error);
-          
-          return res.status(400).json({
-            success: false,
-            message: `Audio file size too large. Maximum size is 10MB. Your file size: ${(audioFile.size / (1024 * 1024)).toFixed(2)}MB`,
-            field: 'specialRequestAudio'
-          });
-        }
-        
-        // Check if MIME type is allowed
-        const isMimeTypeAllowed = allowedAudioMimeTypes.includes(mimeType);
-        
-        // Check if file extension is allowed
-        const isExtensionAllowed = allowedAudioExtensions.includes(fileExtension);
-        
-        if (!isMimeTypeAllowed && !isExtensionAllowed) {
-          // Delete uploaded files
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(audioFile.key).catch(console.error);
-          
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid audio file format. Supported formats: MP3, WAV, M4A, AAC, OGG, WebM, FLAC',
-            field: 'specialRequestAudio',
-            supportedFormats: allowedAudioExtensions,
-            receivedMimeType: mimeType,
-            receivedExtension: fileExtension
-          });
-        }
-        
-        console.log('Audio file validated:', {
-          originalName: audioFile.originalname,
-          size: `${(audioFile.size / (1024 * 1024)).toFixed(2)}MB`,
-          mimeType: audioFile.mimetype,
-          extension: fileExtension
-        });
-      }
-
-      // Validation for required fields
-      const requiredFields = [
-        'category', 'cityID', 'arrival', 'pickupLat', 'pickupLong',
-        'dropOffLat', 'dropOffLong', 'dropOffAddress', 'carmodel',
-        'passengerCount', 'passengerNames', 'pickupAddress',
-        'passengerMobile', 'distance', 'charge', 'carID', 'transactionID', 'orderID'
-      ];
-
-      const missingFields = [];
-      for (const field of requiredFields) {
-        if (!req.body[field] || req.body[field] === '') {
-          missingFields.push(field);
-        }
-      }
-
-      if (missingFields.length > 0) {
-        // Delete uploaded files if validation fails
-        if (req.files) {
-          if (req.files.carimage) {
-            await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          }
-          if (req.files.specialRequestAudio) {
-            await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-        }
-        
-        return res.status(400).json({
-          success: false,
-          message: 'Please provide all required fields',
-          required: requiredFields,
-          missing: missingFields
-        });
-      }
-
-      // IMPROVED DATE VALIDATION
-      let parsedDate;
-      
-      // Handle different date formats
-      try {
-        // Trim whitespace from arrival string
-        const arrivalStr = String(arrival).trim();
-        console.log('Cleaned arrival string:', arrivalStr);
-        
-        // Try to parse the date
-        parsedDate = new Date(arrivalStr);
-        
-        // Check if date is valid
-        if (isNaN(parsedDate.getTime())) {
-          // Try alternative parsing without milliseconds
-          const alternativeFormat = arrivalStr.replace(/\.\d{3}Z$/, 'Z');
-          if (alternativeFormat !== arrivalStr) {
-            parsedDate = new Date(alternativeFormat);
-          }
-          
-          // If still invalid, try parsing with timezone
-          if (isNaN(parsedDate.getTime())) {
-            // Try replacing Z with +00:00
-            const withTimezone = arrivalStr.replace('Z', '+00:00');
-            parsedDate = new Date(withTimezone);
-          }
-        }
-        
-        // Final validation
-        if (isNaN(parsedDate.getTime())) {
-          throw new Error('Invalid date format');
-        }
-        
-        console.log('Parsed date successfully:', parsedDate);
-        console.log('ISO string:', parsedDate.toISOString());
-        
-      } catch (dateError) {
-        console.error('Date parsing error:', dateError);
-        if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid date format for arrival. Use ISO format (YYYY-MM-DDTHH:mm:ss.sssZ)',
-          receivedValue: arrival,
-          example: '2024-12-27T08:45:00.000Z'
-        });
-      }
-
-      // CHECK FOR EXISTING BOOKING
-      const startOfDay = new Date(parsedDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(parsedDate);
-      endOfDay.setHours(23, 59, 59, 999);
-
-      console.log('Checking existing bookings for date range:', {
-        startOfDay: startOfDay.toISOString(),
-        endOfDay: endOfDay.toISOString(),
-        customerID: customerID
-      });
-
-      const existingBooking = await Booking.findOne({
-        customerID: customerID,
-        arrival: {
-          $gte: startOfDay,
-          $lte: endOfDay
-        },
-        bookingStatus: { $nin: ['cancelled', 'completed'] }
-      });
-
-      if (existingBooking) {
-        if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-
-        await notifyUser(
-          customerID,
-          '✅ Booking Already Exists',
-          `You already have a booking scheduled for this date`,
-          {
-            type: 'booking_exists',
-            bookingId: existingBooking._id.toString(),
-            status: existingBooking.bookingStatus,
-          }
-        );
-
-        return res.status(400).json({
-          success: false,
-          message: 'You already have a booking scheduled for this date',
-          existingBooking: {
-            id: existingBooking._id,
-            arrival: existingBooking.arrival,
-            status: existingBooking.bookingStatus,
-            driverID: existingBooking.driverID
-          }
-        });
-      }
-
-      // Parse passengerNames - Accept both JSON array and comma-separated
-      let parsedPassengerNames = [];
-      if (typeof passengerNames === 'string') {
-        try {
-          // Try to parse as JSON first
-          parsedPassengerNames = JSON.parse(passengerNames);
-          if (!Array.isArray(parsedPassengerNames)) {
-            parsedPassengerNames = [passengerNames];
-          }
-        } catch {
-          // If JSON parse fails, split by comma
-          parsedPassengerNames = passengerNames.split(',').map(name => name.trim());
-        }
-      } else if (Array.isArray(passengerNames)) {
-        parsedPassengerNames = passengerNames;
-      } else {
-        parsedPassengerNames = [String(passengerNames)];
-      }
-
-      // Helper function to safely convert to ObjectId
-      const safeObjectId = (id, fieldName) => {
-        if (!id || id === 'null' || id === 'undefined' || id === '') {
-          return null;
-        }
-        
-        // If it's already an ObjectId, return it
-        if (id instanceof mongoose.Types.ObjectId) {
-          return id;
-        }
-        
-        // Try to convert string to ObjectId
-        if (typeof id === 'string' && mongoose.Types.ObjectId.isValid(id)) {
-          return new mongoose.Types.ObjectId(id);
-        }
-        
-        console.warn(`Invalid ${fieldName} format:`, id);
-        return null;
-      };
-
-      // Convert IDs to ObjectId with validation
-      let finalCityID = null;
-      let finalAirportID = null;
-      let finalTerminalID = null;
-      let finalCarID = null;
-      let finalDriverID = null;
-
-      // Convert cityID (required)
-      if (cityID && mongoose.Types.ObjectId.isValid(cityID)) {
-        finalCityID = new mongoose.Types.ObjectId(cityID);
-      } else {
-        if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid cityID format. Must be a valid MongoDB ObjectId',
-          received: cityID
-        });
-      }
-
-      // Convert airportID (optional) - Handle null/undefined/empty properly
-      if (airportID && airportID !== 'null' && airportID !== 'undefined' && airportID !== '') {
-        if (mongoose.Types.ObjectId.isValid(airportID)) {
-          finalAirportID = new mongoose.Types.ObjectId(airportID);
-          console.log('AirportID converted to ObjectId:', finalAirportID);
-        } else {
-          console.log('Invalid airportID format, setting to null:', airportID);
-          finalAirportID = null;
-        }
-      } else {
-        console.log('airportID is empty or null, setting to undefined');
-        finalAirportID = undefined;
-      }
-
-      // Convert terminalID (optional) - Handle null/undefined/empty properly
-      if (terminalID && terminalID !== 'null' && terminalID !== 'undefined' && terminalID !== '') {
-        if (mongoose.Types.ObjectId.isValid(terminalID)) {
-          finalTerminalID = new mongoose.Types.ObjectId(terminalID);
-          console.log('TerminalID converted to ObjectId:', finalTerminalID);
-        } else {
-          console.log('Invalid terminalID format, setting to null:', terminalID);
-          finalTerminalID = null;
-        }
-      } else {
-        console.log('terminalID is empty or null, setting to undefined');
-        finalTerminalID = undefined;
-      }
-
-      // Convert carID (required)
-      if (carID && mongoose.Types.ObjectId.isValid(carID)) {
-        finalCarID = new mongoose.Types.ObjectId(carID);
-      } else {
-        if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid carID format. Must be a valid MongoDB ObjectId',
-          received: carID
-        });
-      }
-
-      // Convert driverID (optional)
-      if (driverID && driverID !== 'null' && driverID !== 'undefined' && driverID !== '') {
-        if (mongoose.Types.ObjectId.isValid(driverID)) {
-          finalDriverID = new mongoose.Types.ObjectId(driverID);
-        }
-      }
-
-      // Parse numeric values
-      const pickupLatNum = parseFloat(pickupLat);
-      const pickupLongNum = parseFloat(pickupLong);
-      const dropOffLatNum = parseFloat(dropOffLat);
-      const dropOffLongNum = parseFloat(dropOffLong);
-      const passengerCountNum = parseInt(passengerCount);
-      const distanceStr = String(distance).replace(/[^0-9.-]/g, ''); // Remove units like "km"
-      const chargeStr = String(charge).replace(/[^0-9.-]/g, '');
-
-      if (isNaN(pickupLatNum) || isNaN(pickupLongNum) || isNaN(dropOffLatNum) || isNaN(dropOffLongNum)) {
-        if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid coordinates. Latitude and Longitude must be valid numbers',
-          received: { pickupLat, pickupLong, dropOffLat, dropOffLong }
-        });
-      }
-
-      if (isNaN(passengerCountNum) || passengerCountNum < 1) {
-        if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid passenger count. Must be a number greater than 0'
-        });
-      }
-
-      // Create booking object with ObjectId fields
-      const bookingData = {
-        category: String(category).trim(),
-        cityID: finalCityID,
-        airportID: finalAirportID, // Will be undefined if not provided
-        terminalID: finalTerminalID, // Will be undefined if not provided
-        flightNumber: flightNumber ? String(flightNumber).trim() : undefined,
-        arrival: parsedDate,
-        pickupLat: pickupLatNum,
-        pickupLong: pickupLongNum,
-        pickupAddress: String(pickupAddress).trim(),
-        dropOffLat: dropOffLatNum,
-        dropOffLong: dropOffLongNum,
-        dropOffAddress: String(dropOffAddress).trim(),
-        carID: finalCarID,
-        transactionID: String(transactionID).trim(),
-        orderID: String(orderID).trim(),
-        discountPercentage: discountPercentage || 0,
-        carmodel: String(carmodel).trim(),
-        charge: chargeStr,
-        carimage: {
-          key: req.files.carimage[0].key,
-          url: getS3Url(req.files.carimage[0].key),
-          originalName: req.files.carimage[0].originalname,
-          mimeType: req.files.carimage[0].mimetype,
-          size: req.files.carimage[0].size
-        },
-        passengerCount: passengerCountNum,
-        passengerNames: parsedPassengerNames,
-        passengerMobile: String(passengerMobile).trim(),
-        distance: distanceStr,
-        customerID: customerID,
-        bookingStatus: bookingStatus || 'pending',
-        TrackingTimeLine: ['booking_created'],
-        paymentStatus: false,
-        rating: {},
-        driverID: finalDriverID
-      };
-
-      // Remove undefined fields (optional fields that weren't provided)
-      Object.keys(bookingData).forEach(key => {
-        if (bookingData[key] === undefined) {
-          delete bookingData[key];
-        }
-      });
-
-      // Add optional fields
-      if (specialRequestText && specialRequestText.trim() !== '') {
-        bookingData.specialRequestText = String(specialRequestText).trim();
-      }
-
-      // Add audio file if uploaded
-      if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio[0]) {
-        const audioFile = req.files.specialRequestAudio[0];
-        bookingData.specialRequestAudio = {
-          key: audioFile.key,
-          url: getS3Url(audioFile.key),
-          originalName: audioFile.originalname,
-          mimeType: audioFile.mimetype,
-          size: audioFile.size,
-          duration: null, // You can add duration if you process audio files
-          format: audioFile.originalname.split('.').pop().toLowerCase()
-        };
-        
-        console.log('Audio file added to booking:', {
-          key: audioFile.key,
-          format: bookingData.specialRequestAudio.format,
-          size: `${(audioFile.size / (1024 * 1024)).toFixed(2)}MB`
-        });
-      }
-
-      console.log('Booking data to save:', JSON.stringify(bookingData, (key, value) => {
-        if (value instanceof mongoose.Types.ObjectId) return value.toString();
-        return value;
-      }, 2));
-
-      const booking = new Booking(bookingData);
-      await booking.save();
-
-      // Send notification to the customer
-      await notifyUser(
-        customerID,
-        '✅ Booking Confirmed',
-        `Your booking has been created successfully.${bookingData.specialRequestAudio ? ' Your audio request has been received.' : ''}`,
-        {
-          type: 'booking_created',
-          bookingId: booking._id.toString(),
-          status: booking.bookingStatus,
-          hasAudio: !!bookingData.specialRequestAudio
-        }
-      );
-
-      res.status(201).json({
-        success: true,
-        message: 'Booking created successfully',
-        data: booking
-      });
-      
-    } catch (error) {
-      console.error('Create booking error:', error);
-      
-      // Delete uploaded files if error occurs
-      if (req.files) {
-        if (req.files.carimage) {
-          await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-        }
-        if (req.files.specialRequestAudio) {
-          await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-      }
-
-      if (error.name === 'ValidationError') {
-        const errors = {};
-        for (let field in error.errors) {
-          errors[field] = error.errors[field].message;
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Validation error',
-          errors: errors
-        });
-      }
-
-      if (error.code === 11000) {
-        return res.status(400).json({
-          success: false,
-          message: 'Duplicate field value entered'
-        });
-      }
-
-      res.status(500).json({
-        success: false,
-        message: 'Error creating booking',
-        error: error.message
-      });
-    }
-});
-
-
-
-
-
-
-
-
-
-
 // // ============= CREATE BOOKING with Images =============
 // router.post('/', 
   
@@ -2032,375 +2478,7 @@ router.post('/',
 
 
 
-// ============= UPDATE BOOKING by ID =============
-router.put('/:id', 
-  authenticateCustomer,
-  upload.fields([
-    { name: 'carimage', maxCount: 1 },
-    { name: 'specialRequestAudio', maxCount: 1 }
-  ]), 
-  async (req, res) => {
-    try {
-      console.log('Update booking - ID:', req.params.id);
-      console.log('Request body:', req.body);
-      console.log('Request files:', req.files);
-      
-      // Check if req.customer exists
-      if (!req.customer) {
-        return res.status(401).json({
-          success: false,
-          message: 'Authentication failed - Customer data not found'
-        });
-      }
-      
-      console.log('Authenticated customer:', req.customer);
 
-      const bookingId = req.params.id;
-      const customerId = req.customer.customerId;
-
-      // Validate booking ID
-      if (!mongoose.Types.ObjectId.isValid(bookingId)) {
-        // Delete uploaded files if validation fails
-        if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid booking ID format'
-        });
-      }
-
-      // Check if booking exists AND belongs to the authenticated customer
-      const existingBooking = await Booking.findOne({
-        _id: bookingId,
-        customerID: customerId
-      });
-      
-      if (!existingBooking) {
-        // Delete uploaded files if booking not found
-        if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
-        }
-        return res.status(404).json({
-          success: false,
-          message: 'Booking not found or you do not have permission to update it'
-        });
-      }
-
-      console.log('Current booking status:', existingBooking.bookingStatus);
-      console.log('Current driver ID:', existingBooking.driverID);
-
-      // Extract fields from request body
-      const {
-        category, cityID, airportID, terminalID, flightNumber, arrival,
-        pickupLat, pickupLong, pickupAddress, dropOffLat, dropOffLong, dropOffAddress,
-        carID, charge, carmodel, specialRequestText,
-        passengerCount, passengerNames, passengerMobile, distance,
-        bookingStatus, transactionID, orderID, discountPercentage
-      } = req.body;
-
-      // Helper function to check if value is null/undefined/empty
-      const isValidValue = (value) => {
-        return value !== undefined && value !== null && value !== '' && value !== 'null' && value !== 'undefined';
-      };
-
-      // Helper function to safely convert to ObjectId
-      const toObjectId = (value, existingValue) => {
-        if (!isValidValue(value)) return existingValue;
-        
-        // If it's already an ObjectId
-        if (value instanceof mongoose.Types.ObjectId) {
-          return value;
-        }
-        
-        // If it's a string, try to convert
-        if (typeof value === 'string') {
-          const trimmedId = value.trim();
-          // Check if it's a valid ObjectId (24 hex characters)
-          if (/^[0-9a-fA-F]{24}$/.test(trimmedId)) {
-            return new ObjectId(trimmedId);
-          }
-        }
-        
-        console.warn(`Invalid ObjectId format for update:`, value);
-        return existingValue;
-      };
-
-      // Helper function to clean string fields
-      const cleanStringField = (value, existingValue) => {
-        if (!isValidValue(value)) return existingValue;
-        return String(value).trim();
-      };
-
-      const cleanNumberField = (value, existingValue, parseFunc = parseFloat) => {
-        if (!isValidValue(value)) return existingValue;
-        const parsed = parseFunc(value);
-        return isNaN(parsed) ? existingValue : parsed;
-      };
-
-      // Validate date if provided
-      let parsedDate = existingBooking.arrival;
-      if (isValidValue(arrival)) {
-        try {
-          const arrivalStr = String(arrival).trim();
-          parsedDate = new Date(arrivalStr);
-          if (isNaN(parsedDate.getTime())) {
-            throw new Error('Invalid date');
-          }
-          console.log('Updated arrival date:', parsedDate);
-        } catch (dateError) {
-          if (req.files) {
-            if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
-          }
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid date format for arrival. Use ISO format (YYYY-MM-DDTHH:mm:ss.sssZ)'
-          });
-        }
-      }
-
-      // Parse passengerNames if provided
-      let parsedPassengerNames = existingBooking.passengerNames;
-      if (isValidValue(passengerNames)) {
-        if (typeof passengerNames === 'string') {
-          try {
-            parsedPassengerNames = JSON.parse(passengerNames);
-            if (!Array.isArray(parsedPassengerNames)) {
-              parsedPassengerNames = [passengerNames];
-            }
-          } catch {
-            // If JSON parse fails, split by comma
-            parsedPassengerNames = passengerNames.split(',').map(name => name.trim());
-          }
-        } else if (Array.isArray(passengerNames)) {
-          parsedPassengerNames = passengerNames;
-        }
-      }
-
-      // Prepare update data - Start with an empty object
-      const updateData = {};
-      
-      // Add all regular fields
-      updateData.category = cleanStringField(category, existingBooking.category);
-      updateData.cityID = toObjectId(cityID, existingBooking.cityID);
-      updateData.airportID = toObjectId(airportID, existingBooking.airportID);
-      updateData.terminalID = toObjectId(terminalID, existingBooking.terminalID);
-      updateData.flightNumber = cleanStringField(flightNumber, existingBooking.flightNumber);
-      updateData.arrival = parsedDate;
-      updateData.pickupLat = cleanNumberField(pickupLat, existingBooking.pickupLat, parseFloat);
-      updateData.pickupLong = cleanNumberField(pickupLong, existingBooking.pickupLong, parseFloat);
-      updateData.pickupAddress = cleanStringField(pickupAddress, existingBooking.pickupAddress);
-      updateData.dropOffLat = cleanNumberField(dropOffLat, existingBooking.dropOffLat, parseFloat);
-      updateData.dropOffLong = cleanNumberField(dropOffLong, existingBooking.dropOffLong, parseFloat);
-      updateData.dropOffAddress = cleanStringField(dropOffAddress, existingBooking.dropOffAddress);
-      updateData.carID = toObjectId(carID, existingBooking.carID);
-      updateData.carmodel = cleanStringField(carmodel, existingBooking.carmodel);
-      updateData.charge = cleanStringField(charge, existingBooking.charge);
-      updateData.passengerCount = cleanNumberField(passengerCount, existingBooking.passengerCount, parseInt);
-      updateData.passengerNames = parsedPassengerNames;
-      updateData.passengerMobile = cleanStringField(passengerMobile, existingBooking.passengerMobile);
-      updateData.distance = cleanStringField(distance, existingBooking.distance);
-      updateData.transactionID = cleanStringField(transactionID, existingBooking.transactionID);
-      updateData.orderID = cleanStringField(orderID, existingBooking.orderID);
-      updateData.discountPercentage = discountPercentage || 0;
-      updateData.updatedAt = new Date();
-
-      // Handle booking status update
-      if (isValidValue(bookingStatus)) {
-        const newStatus = String(bookingStatus).trim().toLowerCase();
-        
-        // Define allowed statuses
-        const allowedStatuses = ['pending', 'starttracking', 'assigned', 'completed', 'cancelled'];
-        
-        // Check if the new status is valid
-        if (!allowedStatuses.includes(newStatus)) {
-          if (req.files) {
-            if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
-          }
-          return res.status(400).json({
-            success: false,
-            message: `Invalid booking status. Allowed statuses: ${allowedStatuses.join(', ')}`,
-            allowedStatuses: allowedStatuses,
-            currentStatus: existingBooking.bookingStatus
-          });
-        }
-        
-        updateData.bookingStatus = newStatus;
-      }
-
-      // Handle file updates - Car Image
-      if (req.files && req.files.carimage && req.files.carimage[0]) {
-        // Delete old car image from S3 if exists
-        if (existingBooking.carimage && existingBooking.carimage.key) {
-          await deleteFromS3(existingBooking.carimage.key).catch(console.error);
-        }
-        
-        updateData.carimage = {
-          key: req.files.carimage[0].key,
-          url: getS3Url(req.files.carimage[0].key),
-          originalName: req.files.carimage[0].originalname,
-          mimeType: req.files.carimage[0].mimetype,
-          size: req.files.carimage[0].size
-        };
-      }
-
-      // Handle file updates - Special Request Audio
-      if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio[0]) {
-        // Delete old audio from S3 if exists
-        if (existingBooking.specialRequestAudio && existingBooking.specialRequestAudio.key) {
-          await deleteFromS3(existingBooking.specialRequestAudio.key).catch(console.error);
-        }
-        
-        updateData.specialRequestAudio = {
-          key: req.files.specialRequestAudio[0].key,
-          url: getS3Url(req.files.specialRequestAudio[0].key),
-          originalName: req.files.specialRequestAudio[0].originalname,
-          mimeType: req.files.specialRequestAudio[0].mimetype,
-          size: req.files.specialRequestAudio[0].size
-        };
-      }
-
-      // Handle special request text
-      if (specialRequestText !== undefined) {
-        if (isValidValue(specialRequestText)) {
-          updateData.specialRequestText = String(specialRequestText).trim();
-        } else {
-          updateData.specialRequestText = null;
-        }
-      }
-
-      // Remove undefined fields (optional fields that weren't provided)
-      Object.keys(updateData).forEach(key => {
-        if (updateData[key] === undefined) {
-          delete updateData[key];
-        }
-      });
-
-      // Handle TrackingTimeLine separately using $push
-      // Initialize tracking timeline updates
-      const timelineUpdates = [];
-      
-      // Add status change to timeline if status changed
-      if (isValidValue(bookingStatus) && updateData.bookingStatus !== existingBooking.bookingStatus) {
-        timelineUpdates.push(`status_changed_from_${existingBooking.bookingStatus}_to_${updateData.bookingStatus}_by_customer`);
-        console.log(`Status changing from ${existingBooking.bookingStatus} to ${updateData.bookingStatus}`);
-      }
-      
-      // Add general update to timeline
-      timelineUpdates.push('booking_updated_by_customer');
-      
-      // Prepare the final update operation
-      let finalUpdateOperation = { $set: updateData };
-      
-      // Add $push for timeline if there are any timeline updates
-      if (timelineUpdates.length > 0) {
-        finalUpdateOperation.$push = {
-          TrackingTimeLine: { $each: timelineUpdates }
-        };
-      }
-
-      console.log('Final update operation:', JSON.stringify(finalUpdateOperation, (key, value) => {
-        if (value instanceof ObjectId) return value.toString();
-        return value;
-      }, 2));
-
-      // Update the booking
-      const updatedBooking = await Booking.findByIdAndUpdate(
-        bookingId,
-        finalUpdateOperation,
-        { new: true, runValidators: true }
-      );
-
-      // Send notification based on status change
-      if (updateData.bookingStatus === 'cancelled') {
-        await notifyUser(
-          customerId,
-          '❌ Booking Cancelled',
-          `Your booking has been cancelled successfully.`,
-          {
-            type: 'booking_cancelled',
-            bookingId: updatedBooking._id.toString(),
-            status: 'cancelled'
-          }
-        );
-      } else if (updateData.bookingStatus === 'completed') {
-        await notifyUser(
-          customerId,
-          '✅ Booking Completed',
-          `Your booking has been marked as completed.`,
-          {
-            type: 'booking_completed',
-            bookingId: updatedBooking._id.toString(),
-            status: 'completed'
-          }
-        );
-      } else if (updateData.bookingStatus && updateData.bookingStatus !== existingBooking.bookingStatus) {
-        await notifyUser(
-          customerId,
-          '🔄 Booking Status Updated',
-          `Your booking status has been updated to ${updateData.bookingStatus}.`,
-          {
-            type: 'booking_status_updated',
-            bookingId: updatedBooking._id.toString(),
-            oldStatus: existingBooking.bookingStatus,
-            newStatus: updateData.bookingStatus
-          }
-        );
-      } else {
-        await notifyUser(
-          customerId,
-          '📝 Booking Updated',
-          `Your booking has been updated successfully.`,
-          {
-            type: 'booking_updated',
-            bookingId: updatedBooking._id.toString(),
-            status: updatedBooking.bookingStatus
-          }
-        );
-      }
-
-      res.status(200).json({
-        success: true,
-        message: 'Booking updated successfully',
-        data: updatedBooking
-      });
-
-    } catch (error) {
-      console.error('Update booking error:', error);
-      
-      // Delete newly uploaded files if error occurs
-      if (req.files) {
-        if (req.files.carimage) {
-          await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-        }
-        if (req.files.specialRequestAudio) {
-          await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-      }
-
-      if (error.name === 'ValidationError') {
-        const errors = {};
-        for (let field in error.errors) {
-          errors[field] = error.errors[field].message;
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Validation error',
-          errors: errors
-        });
-      }
-
-      res.status(500).json({
-        success: false,
-        message: 'Error updating booking',
-        error: error.message
-      });
-    }
-});
 
 
 
@@ -2456,7 +2534,7 @@ router.get('/:id', authenticateCustomer,
       .populate({
         path: 'cityID',
         model: 'City',
-        select: '_id cityName image isActive createdAt'
+        select: '_id cityName cityNameAr image isActive createdAt'
       })
       .populate({
         path: 'airportID',
@@ -2464,9 +2542,9 @@ router.get('/:id', authenticateCustomer,
         populate: {
           path: 'cityID',
           model: 'City',
-          select: '_id cityName'
+          select: '_id cityName cityNameAr'
         },
-        select: '_id cityID airportName lat long image isActive createdAt'
+        select: '_id cityID airportName airportNameAr lat long image isActive createdAt'
       })
       .populate({
         path: 'terminalID',
@@ -2474,9 +2552,9 @@ router.get('/:id', authenticateCustomer,
         populate: {
           path: 'airportID',
           model: 'Airport',
-          select: '_id airportName'
+          select: '_id airportName airportNameAr'
         },
-        select: '_id airportID terminalName image isActive createdAt'
+        select: '_id airportID terminalName terminalNameAr image isActive createdAt'
       })
       .populate({
         path: 'carID',
@@ -2485,9 +2563,10 @@ router.get('/:id', authenticateCustomer,
           {
             path: 'categoryID',
             model: 'Category',
-            select: '_id categoryName'
+            select: '_id name'
           },
           {
+
             path: 'brandID',
             model: 'Brand',
             select: '_id brandName'
@@ -2518,20 +2597,24 @@ router.get('/:id', authenticateCustomer,
       city: booking.cityID && typeof booking.cityID === 'object' ? {
         _id: booking.cityID._id,
         cityName: booking.cityID.cityName,
+        cityNameAr: booking.cityID.cityNameAr,
         image: booking.cityID.image,
         isActive: booking.cityID.isActive,
         createdAt: booking.cityID.createdAt
       } : null,
       
+
       // Airport details with city info
       airport: booking.airportID && typeof booking.airportID === 'object' ? {
         _id: booking.airportID._id,
-        cityID: booking.airportID.cityID,
+        // cityID: booking.airportID.cityID,
         cityDetails: booking.airportID.cityID && typeof booking.airportID.cityID === 'object' ? {
           _id: booking.airportID.cityID._id,
-          cityName: booking.airportID.cityID.cityName
+          cityName: booking.airportID.cityID.cityName,
+          cityNameAr: booking.airportID.cityID.cityNameAr
         } : null,
         airportName: booking.airportID.airportName,
+        airportNameAr: booking.airportID.airportNameAr,
         lat: booking.airportID.lat,
         long: booking.airportID.long,
         image: booking.airportID.image,
@@ -2542,26 +2625,31 @@ router.get('/:id', authenticateCustomer,
       // Terminal details with airport info
       terminal: booking.terminalID && typeof booking.terminalID === 'object' ? {
         _id: booking.terminalID._id,
-        airportID: booking.terminalID.airportID,
+        // airportID: booking.terminalID.airportID,
         airportDetails: booking.terminalID.airportID && typeof booking.terminalID.airportID === 'object' ? {
           _id: booking.terminalID.airportID._id,
-          airportName: booking.terminalID.airportID.airportName
+          airportName: booking.terminalID.airportID.airportName,
+          airportNameAr: booking.terminalID.airportID.airportNameAr
         } : null,
+
         terminalName: booking.terminalID.terminalName,
+        terminalNameAr: booking.terminalID.terminalNameAr,
         image: booking.terminalID.image,
         isActive: booking.terminalID.isActive,
         createdAt: booking.terminalID.createdAt
       } : null,
       
+      
       // Car details with category and brand
       car: booking.carID && typeof booking.carID === 'object' ? {
         _id: booking.carID._id,
-        categoryID: booking.carID.categoryID,
+        // categoryID: booking.carID.categoryID,
         categoryDetails: booking.carID.categoryID && typeof booking.carID.categoryID === 'object' ? {
           _id: booking.carID.categoryID._id,
-          categoryName: booking.carID.categoryID.categoryName
+          categoryName: booking.carID.categoryID.name
         } : null,
-        brandID: booking.carID.brandID,
+        // brandID: booking.carID.brandID,
+
         brandDetails: booking.carID.brandID && typeof booking.carID.brandID === 'object' ? {
           _id: booking.carID.brandID._id,
           brandName: booking.carID.brandID.brandName
@@ -3432,9 +3520,11 @@ router.patch('/:id/charge-detailed', authMiddleware, async (req, res) => {
 // });
 
 
+
 // ============= GET ALL BOOKINGS =============
 // GET /api/bookings - Get all bookings with filtering
-router.get('/', authenticateToken, authorizeAdmin, async (req, res) => {
+router.get('/',authenticateToken,
+  authorizeAdmin, async (req, res) => {
   try {
     const { 
       customerID, 
@@ -3517,7 +3607,7 @@ router.get('/', authenticateToken, authorizeAdmin, async (req, res) => {
           {
             path: 'categoryID',
             model: 'Category',
-            select: '_id categoryName'
+            select: '_id name'
           },
           {
             path: 'brandID',
@@ -3600,12 +3690,12 @@ router.get('/', authenticateToken, authorizeAdmin, async (req, res) => {
         // Car details with category and brand
         car: booking.carID && typeof booking.carID === 'object' ? {
           _id: booking.carID._id,
-          categoryID: booking.carID.categoryID,
+          // categoryID: booking.carID.categoryID,
           categoryDetails: booking.carID.categoryID && typeof booking.carID.categoryID === 'object' ? {
             _id: booking.carID.categoryID._id,
-            categoryName: booking.carID.categoryID.categoryName
+            categoryName: booking.carID.categoryID.name
           } : null,
-          brandID: booking.carID.brandID,
+          // brandID: booking.carID.brandID,
           brandDetails: booking.carID.brandID && typeof booking.carID.brandID === 'object' ? {
             _id: booking.carID.brandID._id,
             brandName: booking.carID.brandID.brandName
@@ -3718,7 +3808,6 @@ router.get('/', authenticateToken, authorizeAdmin, async (req, res) => {
   }
 
 });
-
 
 
 

@@ -1891,6 +1891,8 @@ router.patch('/:id/status', async (req, res) => {
         message: 'Invalid booking ID format'
       });
     }
+
+
     
     // Validate status
   const validStatuses = ['pending', 'assigned', 'starttrack','stoptrack', 'completed',
@@ -2042,6 +2044,7 @@ router.delete('/:id',
           success: false,
           message: 'Booking not found'
         });
+   
       }
 
       console.log('📦 Booking found:', {
@@ -2050,6 +2053,8 @@ router.delete('/:id',
         specialRequestAudio: booking.specialRequestAudio ? 'Present' : 'None',
         status: booking.bookingStatus
       });
+
+      
 
       // ========== DELETE FILES FROM S3 ==========
       const deletionResults = {

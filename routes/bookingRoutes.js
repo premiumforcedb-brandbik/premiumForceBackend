@@ -2639,7 +2639,7 @@ router.get('/:id', authenticateCustomer,
         createdAt: booking.terminalID.createdAt
       } : null,
       
-      
+
       // Car details with category and brand
       car: booking.carID && typeof booking.carID === 'object' ? {
         _id: booking.carID._id,
@@ -3578,7 +3578,7 @@ router.get('/',authenticateToken,
       .populate({
         path: 'cityID',
         model: 'City',
-        select: '_id cityName image isActive createdAt'
+        select: '_id cityName cityNameAr image isActive createdAt'
       })
       .populate({
         path: 'airportID',
@@ -3586,9 +3586,9 @@ router.get('/',authenticateToken,
         populate: {
           path: 'cityID',
           model: 'City',
-          select: '_id cityName'
+          select: '_id cityName cityNameAr'
         },
-        select: '_id cityID airportName lat long image isActive createdAt'
+        select: '_id cityID airportName airportNameAr lat long image isActive createdAt'
       })
       .populate({
         path: 'terminalID',
@@ -3596,9 +3596,9 @@ router.get('/',authenticateToken,
         populate: {
           path: 'airportID',
           model: 'Airport',
-          select: '_id airportName'
+          select: '_id airportName airportNameAr'
         },
-        select: '_id airportID terminalName image isActive createdAt'
+        select: '_id airportID terminalName terminalNameAr image isActive createdAt'
       })
       .populate({
         path: 'carID',

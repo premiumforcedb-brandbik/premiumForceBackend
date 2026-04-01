@@ -37,20 +37,28 @@ const hourlyBookingSchema = new mongoose.Schema({
   discountPercentage: {
     type: Number,
     default: 0},
-  category: {
-    type: String,
-    required: true
-  },
   model: {
     type: String,
     required: true
   },
-  brand: {
-    type: String,
+   categoryID: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Category',
+            required: true
+      },
+  brandID: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Brand',
+        required: true
+  },
+  carID: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Car',
     required: true
   },
-  carName: {
-    type: String,
+  cityID: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'City',
     required: true
   },
   charge: {
@@ -58,11 +66,13 @@ const hourlyBookingSchema = new mongoose.Schema({
     required: true
   },
   customerID: {
-    type: String,
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
     required: true
   },
   driverID: {
-    type: String,
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Driver',
     default: null
   },
   passsenrgersCount: {

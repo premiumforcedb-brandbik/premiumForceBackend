@@ -1,11 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
-const HourlyBooking = require('../models/hourlyBookingModel');
+
 const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
 const NotificationService = require('../services/notificationService');
 
+
+// Make sure to import all required models at the top of your file
+const Category = require('../models/categoryModel');
+const Brand = require('../models/brandModel');
+const Car = require('../models/car_model');
+const City = require('../models/city_model');
+const User = require('../models/users_model');
+const Driver = require('../models/driver_model');
+const HourlyBooking = require('../models/hourlyBookingModel');
+
 const { authenticateDriver } = require('../middleware/driverware');
+
 // // Helper function for notifications (implement as needed)
 // const notifyUser = async (userId, title, body, data) => {
 //   console.log(`Notification to ${userId}:`, { title, body, data });
@@ -49,7 +60,7 @@ router.post('/',
       console.log('✅ Files received:', req.files);
       console.log('✅ Body received:', req.body);
 
-      // Helper function to check if value is valid (not empty, not null, not undefined)
+      // Helper function to check if value is valid
       const isValidValue = (value) => {
         return value !== undefined &&
           value !== null &&
@@ -60,34 +71,34 @@ router.post('/',
 
       const {
         hours, pickupLat, pickuplong, pickupAdddress,
-        extraHours, category, model, brand, carName,
+        extraHours, model, categoryID, brandID, carID, cityID,
         charge, customerID, driverID, passsenrgersCount,
         passengerMobile, carClass, specialRequestText,
         bookingStatus, passengerNames, isActive,
-        transactionID, orderID, discountPercentage, pickupDateTime
-        , stoppedAt, startedAt, extraPayment, extraTransactionID, extraOrderID,
+        transactionID, orderID, discountPercentage, pickupDateTime,
+        stoppedAt, startedAt, extraPayment, extraTransactionID, extraOrderID,
         extraDiscount, extraPaymentCompleted
       } = req.body;
 
-
-
-      // ========== IMPROVED VALIDATION ==========
-      // Required fields (carImage is now optional)
+      // ========== REQUIRED FIELDS VALIDATION ==========
       const requiredFields = {
         hours: hours,
         pickupLat: pickupLat,
         pickuplong: pickuplong,
         pickupAdddress: pickupAdddress,
         pickupDateTime: pickupDateTime,
-        category: category,
         model: model,
-        brand: brand,
-        carName: carName,
+        categoryID: categoryID,
+        brandID: brandID,
+        carID: carID,
+        cityID: cityID,
         charge: charge,
         customerID: customerID,
         passsenrgersCount: passsenrgersCount,
         passengerMobile: passengerMobile,
-        carClass: carClass
+        carClass: carClass,
+        transactionID: transactionID,
+        orderID: orderID
       };
 
       const missingFields = [];
@@ -119,13 +130,170 @@ router.post('/',
           required: Object.keys(requiredFields),
           missing: missingFields,
           empty: emptyFields,
-          received: Object.keys(req.body),
-          note: 'carImage is optional'
+          received: Object.keys(req.body)
         });
       }
 
+      // ========== VALIDATE OBJECT ID FORMAT ==========
+      if (!mongoose.Types.ObjectId.isValid(categoryID)) {
+        if (req.files) {
+          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid categoryID format. Must be a valid ObjectId.' 
+        });
+      }
+      
+      if (!mongoose.Types.ObjectId.isValid(brandID)) {
+        if (req.files) {
+          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid brandID format. Must be a valid ObjectId.' 
+        });
+      }
+      
+      if (!mongoose.Types.ObjectId.isValid(carID)) {
+        if (req.files) {
+          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid carID format. Must be a valid ObjectId.' 
+        });
+      }
+      
+      if (!mongoose.Types.ObjectId.isValid(cityID)) {
+        if (req.files) {
+          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid cityID format. Must be a valid ObjectId.' 
+        });
+      }
+      
+      if (!mongoose.Types.ObjectId.isValid(customerID)) {
+        if (req.files) {
+          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid customerID format. Must be a valid ObjectId.' 
+        });
+      }
+      
+      // if (driverID && isValidValue(driverID) && driverID !== 'null' && driverID !== 'undefined') {
+      //   if (!mongoose.Types.ObjectId.isValid(driverID)) {
+      //     if (req.files) {
+      //       if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+      //       if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+      //     }
+      //     return res.status(400).json({ 
+      //       success: false, 
+      //       message: 'Invalid driverID format. Must be a valid ObjectId.' 
+      //     });
+      //   }
+      // }
+
+      // ========== CHECK IF REFERENCE IDs EXIST IN DATABASE ==========
+      
+      // Import models at the top of your file (make sure these are imported)
+      // const Category = require('../models/Category');
+      // const Brand = require('../models/Brand');
+      // const Car = require('../models/Car');
+      // const City = require('../models/City');
+      // const User = require('../models/User');
+      // const Driver = require('../models/Driver');
+
+      // Check Category exists
+      const categoryExists = await Category.findById(categoryID);
+      if (!categoryExists) {
+        if (req.files) {
+          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(404).json({
+          success: false,
+          message: 'Category not found with the provided categoryID'
+        });
+      }
+
+      // Check Brand exists
+      const brandExists = await Brand.findById(brandID);
+      if (!brandExists) {
+        if (req.files) {
+          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(404).json({
+          success: false,
+          message: 'Brand not found with the provided brandID'
+        });
+      }
+
+      // Check Car exists
+      const carExists = await Car.findById(carID);
+      if (!carExists) {
+        if (req.files) {
+          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(404).json({
+          success: false,
+          message: 'Car not found with the provided carID'
+        });
+      }
+
+      // Check City exists
+      const cityExists = await City.findById(cityID);
+      if (!cityExists) {
+        if (req.files) {
+          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(404).json({
+          success: false,
+          message: 'City not found with the provided cityID'
+        });
+      }
+
+      // Check Customer exists
+      const customerExists = await User.findById(customerID);
+      if (!customerExists) {
+        if (req.files) {
+          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(404).json({
+          success: false,
+          message: 'Customer not found with the provided customerID'
+        });
+      }
+
+      // Check Driver exists if provided
+      // if (driverID && isValidValue(driverID) && driverID !== 'null' && driverID !== 'undefined') {
+      //   const driverExists = await Driver.findById(driverID);
+      //   if (!driverExists) {
+      //     if (req.files) {
+      //       if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+      //       if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+      //     }
+      //     return res.status(404).json({
+      //       success: false,
+      //       message: 'Driver not found with the provided driverID'
+      //     });
+      //   }
+      // }
+
       // ========== EXISTING BOOKING CHECK ==========
-      // Check if customer already has an active booking
       const activeBooking = await HourlyBooking.findOne({
         customerID: String(customerID).trim(),
         bookingStatus: { $in: ['pending', 'confirmed', 'in-progress'] },
@@ -133,7 +301,6 @@ router.post('/',
       });
 
       if (activeBooking) {
-        // Delete uploaded files if customer has active booking
         if (req.files) {
           if (req.files.carImage) {
             await deleteFromS3(req.files.carImage[0].key).catch(console.error);
@@ -143,12 +310,11 @@ router.post('/',
           }
         }
 
-        // Send notification
         try {
           await notifyUser(
             String(customerID).trim(),
             '📅 Booking Already Exists',
-            `You already have an active booking for ${activeBooking.carName}. Please complete or cancel it before creating a new one.`,
+            `You already have an active booking. Please complete or cancel it before creating a new one.`,
             {
               type: 'booking_exists',
               bookingId: activeBooking._id.toString(),
@@ -165,13 +331,12 @@ router.post('/',
           data: {
             existingBookingId: activeBooking._id,
             existingStatus: activeBooking.bookingStatus,
-            existingCar: activeBooking.carName,
             message: 'Please complete or cancel your existing booking before creating a new one'
           }
         });
       }
 
-      // Parse passengerNames
+      // ========== PARSE PASSENGER NAMES ==========
       let parsedPassengerNames = [];
       if (passengerNames && isValidValue(passengerNames)) {
         if (typeof passengerNames === 'string') {
@@ -189,22 +354,17 @@ router.post('/',
         }
       }
 
-      // Handle car image (OPTIONAL - can be from file upload or URL)
+      // ========== HANDLE CAR IMAGE (OPTIONAL) ==========
       let carImageUrl = null;
-
-      // Check for uploaded file
       if (req.files && req.files.carImage && req.files.carImage.length > 0) {
         carImageUrl = getS3Url(req.files.carImage[0].key);
         console.log('Using uploaded car image:', carImageUrl);
-      }
-      // Check for image URL in body
-      else if (req.body.carImage && isValidValue(req.body.carImage)) {
+      } else if (req.body.carImage && isValidValue(req.body.carImage)) {
         carImageUrl = String(req.body.carImage).trim();
         console.log('Using car image URL from body:', carImageUrl);
       }
-      // If no image provided, it will remain null (optional)
 
-      // Handle audio (optional)
+      // ========== HANDLE AUDIO (OPTIONAL) ==========
       let audioUrl = null;
       if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio.length > 0) {
         audioUrl = getS3Url(req.files.specialRequestAudio[0].key);
@@ -214,7 +374,7 @@ router.post('/',
         console.log('Using audio URL from body:', audioUrl);
       }
 
-      // Parse numeric values
+      // ========== PARSE NUMERIC VALUES ==========
       const parsedHours = parseInt(hours);
       const parsedPickupLat = parseFloat(pickupLat);
       const parsedPickuplong = parseFloat(pickuplong);
@@ -222,18 +382,6 @@ router.post('/',
       const parsedPassengersCount = parseInt(passsenrgersCount);
       const parsedExtraHours = extraHours && isValidValue(extraHours) ? parseInt(extraHours) : 0;
       const parsedDiscountPercentage = discountPercentage && isValidValue(discountPercentage) ? parseFloat(discountPercentage) : 0;
-
-
-
-
-
-
-
-
-
-
-
-
 
       // Validate numeric values
       if (isNaN(parsedHours) || parsedHours <= 0) {
@@ -280,10 +428,7 @@ router.post('/',
         });
       }
 
-
-
-
-
+      // ========== PARSE OPTIONAL FIELDS ==========
       let parsedExtraPayment = 0;
       if (extraPayment && isValidValue(extraPayment)) {
         parsedExtraPayment = parseFloat(extraPayment);
@@ -315,7 +460,6 @@ router.post('/',
         if (isNaN(parsedStoppedAt.getTime())) parsedStoppedAt = null;
       }
 
-      // Handle extraTransactionID and extraOrderID as strings
       let parsedExtraTransactionID = null;
       if (extraTransactionID && isValidValue(extraTransactionID) &&
         extraTransactionID !== 'null' && extraTransactionID !== 'undefined') {
@@ -328,16 +472,27 @@ router.post('/',
         parsedExtraOrderID = String(extraOrderID).trim();
       }
 
-
-
-      // Create booking object
-
+      // ========== CREATE BOOKING OBJECT ==========
       const bookingData = {
         hours: parsedHours,
         pickupLat: parsedPickupLat,
         pickuplong: parsedPickuplong,
-      
-        // Add the parsed optional fields:
+        pickupAdddress: String(pickupAdddress).trim(),
+        pickupDateTime: new Date(pickupDateTime),
+        extraHours: parsedExtraHours,
+        model: String(model).trim(),
+        categoryID: categoryID,
+        brandID: brandID,
+        carID: carID,
+        cityID: cityID,
+        charge: parsedCharge,
+        customerID: customerID,
+        passsenrgersCount: parsedPassengersCount,
+        passengerMobile: String(passengerMobile).trim(),
+        carClass: String(carClass).trim(),
+        transactionID: String(transactionID).trim(),
+        orderID: String(orderID).trim(),
+        discountPercentage: parsedDiscountPercentage,
         extraPayment: parsedExtraPayment,
         extraTransactionID: parsedExtraTransactionID,
         extraOrderID: parsedExtraOrderID,
@@ -345,50 +500,21 @@ router.post('/',
         extraPaymentCompleted: parsedExtraPaymentCompleted,
         startedAt: parsedStartedAt,
         stoppedAt: parsedStoppedAt,
-
-
-        pickupAdddress: String(pickupAdddress).trim(),
-        category: String(category).trim(),
-        pickupDateTime: pickupDateTime,
-        model: String(model).trim(),
-        brand: String(brand).trim(),
-        carName: String(carName).trim(),
-        charge: parsedCharge,
-        customerID: String(customerID).trim(),
-        passsenrgersCount: parsedPassengersCount,
-        passengerMobile: String(passengerMobile).trim(),
-        carClass: String(carClass).trim(),
-        extraHours: parsedExtraHours,
         bookingStatus: bookingStatus && isValidValue(bookingStatus) ? String(bookingStatus).trim().toLowerCase() : 'pending',
         isActive: isActive === 'true' || isActive === true,
         passengerNames: parsedPassengerNames,
-        specialRequestText: specialRequestText && isValidValue(specialRequestText) ? String(specialRequestText).trim() : '',
-        discountPercentage: parsedDiscountPercentage
+        specialRequestText: specialRequestText && isValidValue(specialRequestText) ? String(specialRequestText).trim() : ''
       };
 
-
-      // Add optional fields only if they exist
+      // Add optional fields
       if (carImageUrl) {
         bookingData.carImage = carImageUrl;
       }
-
       if (audioUrl) {
         bookingData.specialRequestAudio = audioUrl;
       }
-
-      // Handle driverID (optional)
       if (driverID && isValidValue(driverID) && driverID !== 'null' && driverID !== 'undefined') {
-        if (mongoose.Types.ObjectId.isValid(driverID)) {
-          bookingData.driverID = driverID;
-        }
-      }
-
-      // Handle transaction and order IDs
-      if (transactionID && isValidValue(transactionID)) {
-        bookingData.transactionID = String(transactionID).trim();
-      }
-      if (orderID && isValidValue(orderID)) {
-        bookingData.orderID = String(orderID).trim();
+        bookingData.driverID = driverID;
       }
 
       console.log('Final booking data:', JSON.stringify(bookingData, null, 2));
@@ -402,7 +528,7 @@ router.post('/',
         await notifyUser(
           savedBooking.customerID,
           '📅 Booking Created',
-          `Your hourly booking for ${savedBooking.carName} has been created successfully.`,
+          `Your hourly booking for ${savedBooking.model} has been created successfully.`,
           {
             type: 'booking_created',
             bookingId: savedBooking._id.toString(),
@@ -461,8 +587,6 @@ router.post('/',
 
 
 
-
-
 // PUT /api/hourly-bookings/:id - Update hourly booking
 router.put('/:id',
   authenticateCustomer,
@@ -498,7 +622,6 @@ router.put('/:id',
 
       // Validate booking ID
       if (!mongoose.Types.ObjectId.isValid(id)) {
-        // Delete uploaded files if validation fails
         if (req.files) {
           if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
@@ -521,7 +644,6 @@ router.put('/:id',
       // Check if booking exists
       const existingBooking = await HourlyBooking.findById(id);
       if (!existingBooking) {
-        // Delete uploaded files if booking not found
         if (req.files) {
           if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
@@ -535,7 +657,7 @@ router.put('/:id',
       // Extract fields from request body
       const {
         hours, pickupLat, pickuplong, pickupAdddress,
-        extraHours, category, model, brand, carName,
+        extraHours, model, categoryID, brandID, carID, cityID,
         charge, customerID, driverID, passsenrgersCount,
         passengerMobile, carClass, specialRequestText,
         bookingStatus, passengerNames, isActive,
@@ -547,73 +669,104 @@ router.put('/:id',
       // Build update object
       const updateData = {};
 
-      // Handle regular fields (only update if provided)
+      // ========== VALIDATE AND UPDATE REGULAR FIELDS ==========
+      
+      // Handle hours
       if (isValidValue(hours)) {
         const parsedHours = parseInt(hours);
         if (!isNaN(parsedHours) && parsedHours > 0) {
           updateData.hours = parsedHours;
+        } else {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid hours value. Must be a positive number'
+          });
         }
       }
 
+      // Handle pickup coordinates
       if (isValidValue(pickupLat) && isValidValue(pickuplong)) {
         const parsedPickupLat = parseFloat(pickupLat);
         const parsedPickuplong = parseFloat(pickuplong);
         if (!isNaN(parsedPickupLat) && !isNaN(parsedPickuplong)) {
           updateData.pickupLat = parsedPickupLat;
           updateData.pickuplong = parsedPickuplong;
+        } else {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid coordinates. Pickup latitude and longitude must be valid numbers'
+          });
         }
       }
 
+      // Handle pickup address
       if (isValidValue(pickupAdddress)) {
         updateData.pickupAdddress = String(pickupAdddress).trim();
       }
 
+      // Handle pickup date time
       if (isValidValue(pickupDateTime)) {
-        updateData.pickupDateTime = pickupDateTime;
+        updateData.pickupDateTime = new Date(pickupDateTime);
       }
 
-      if (isValidValue(category)) {
-        updateData.category = String(category).trim();
-      }
-
+      // Handle model
       if (isValidValue(model)) {
         updateData.model = String(model).trim();
       }
 
-      if (isValidValue(brand)) {
-        updateData.brand = String(brand).trim();
-      }
-
-      if (isValidValue(carName)) {
-        updateData.carName = String(carName).trim();
-      }
-
+      // Handle charge
       if (isValidValue(charge)) {
         const parsedCharge = parseFloat(charge);
         if (!isNaN(parsedCharge) && parsedCharge > 0) {
           updateData.charge = parsedCharge;
+        } else {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid charge value. Must be a positive number'
+          });
         }
       }
 
-      if (isValidValue(customerID)) {
-        updateData.customerID = String(customerID).trim();
-      }
-
+      // Handle passenger count
       if (isValidValue(passsenrgersCount)) {
         const parsedPassengersCount = parseInt(passsenrgersCount);
         if (!isNaN(parsedPassengersCount) && parsedPassengersCount >= 1) {
           updateData.passsenrgersCount = parsedPassengersCount;
+        } else {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid passenger count. Must be at least 1'
+          });
         }
       }
 
+      // Handle passenger mobile
       if (isValidValue(passengerMobile)) {
         updateData.passengerMobile = String(passengerMobile).trim();
       }
 
+      // Handle car class
       if (isValidValue(carClass)) {
         updateData.carClass = String(carClass).trim();
       }
 
+      // Handle extra hours
       if (isValidValue(extraHours)) {
         const parsedExtraHours = parseInt(extraHours);
         if (!isNaN(parsedExtraHours)) {
@@ -621,22 +774,45 @@ router.put('/:id',
         }
       }
 
+      // Handle transaction and order IDs
+      if (isValidValue(transactionID)) {
+        updateData.transactionID = String(transactionID).trim();
+      }
+      if (isValidValue(orderID)) {
+        updateData.orderID = String(orderID).trim();
+      }
+
+      // Handle booking status
       if (isValidValue(bookingStatus)) {
-        const validStatuses = ['pending', 'confirmed', 'in-progress', 'completed', 'cancelled'];
+           const validStatuses = ['pending', 'assigned', 'starttrack','stoptrack', 'completed',
+        'paymentPending', 'reviewed', 'cancelled'];
         const status = String(bookingStatus).trim().toLowerCase();
         if (validStatuses.includes(status)) {
           updateData.bookingStatus = status;
+        } else {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid booking status. Must be one of:pending, assigned, started, stopped, completed, paymentPending, reviewed, cancelled'
+          });
         }
       }
 
+
+      // Handle isActive
       if (isValidValue(isActive)) {
         updateData.isActive = isActive === 'true' || isActive === true;
       }
 
+      // Handle special request text
       if (isValidValue(specialRequestText)) {
         updateData.specialRequestText = String(specialRequestText).trim();
       }
 
+      // Handle discount percentage
       if (isValidValue(discountPercentage)) {
         const parsedDiscount = parseFloat(discountPercentage);
         if (!isNaN(parsedDiscount)) {
@@ -644,7 +820,171 @@ router.put('/:id',
         }
       }
 
-      // Handle passengerNames
+      // ========== VALIDATE AND UPDATE REFERENCE IDs ==========
+      
+      // Handle categoryID
+      if (isValidValue(categoryID)) {
+        if (!mongoose.Types.ObjectId.isValid(categoryID)) {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(400).json({ 
+            success: false, 
+            message: 'Invalid categoryID format. Must be a valid ObjectId.' 
+          });
+        }
+        
+        const categoryExists = await Category.findById(categoryID);
+        if (!categoryExists) {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(404).json({
+            success: false,
+            message: 'Category not found with the provided categoryID'
+          });
+        }
+        updateData.categoryID = categoryID;
+      }
+
+      // Handle brandID
+      if (isValidValue(brandID)) {
+        if (!mongoose.Types.ObjectId.isValid(brandID)) {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(400).json({ 
+            success: false, 
+            message: 'Invalid brandID format. Must be a valid ObjectId.' 
+          });
+        }
+        
+        const brandExists = await Brand.findById(brandID);
+        if (!brandExists) {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(404).json({
+            success: false,
+            message: 'Brand not found with the provided brandID'
+          });
+        }
+        updateData.brandID = brandID;
+      }
+
+      // Handle carID
+      if (isValidValue(carID)) {
+        if (!mongoose.Types.ObjectId.isValid(carID)) {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(400).json({ 
+            success: false, 
+            message: 'Invalid carID format. Must be a valid ObjectId.' 
+          });
+        }
+        
+        const carExists = await Car.findById(carID);
+        if (!carExists) {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(404).json({
+            success: false,
+            message: 'Car not found with the provided carID'
+          });
+        }
+        updateData.carID = carID;
+      }
+
+      // Handle cityID
+      if (isValidValue(cityID)) {
+        if (!mongoose.Types.ObjectId.isValid(cityID)) {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(400).json({ 
+            success: false, 
+            message: 'Invalid cityID format. Must be a valid ObjectId.' 
+          });
+        }
+        
+        const cityExists = await City.findById(cityID);
+        if (!cityExists) {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(404).json({
+            success: false,
+            message: 'City not found with the provided cityID'
+          });
+        }
+        updateData.cityID = cityID;
+      }
+
+      // Handle customerID
+      if (isValidValue(customerID)) {
+        if (!mongoose.Types.ObjectId.isValid(customerID)) {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(400).json({ 
+            success: false, 
+            message: 'Invalid customerID format. Must be a valid ObjectId.' 
+          });
+        }
+        
+        const customerExists = await User.findById(customerID);
+        if (!customerExists) {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(404).json({
+            success: false,
+            message: 'Customer not found with the provided customerID'
+          });
+        }
+        updateData.customerID = customerID;
+      }
+
+      // Handle driverID (optional)
+      if (isValidValue(driverID) && driverID !== 'null' && driverID !== 'undefined') {
+        if (!mongoose.Types.ObjectId.isValid(driverID)) {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(400).json({ 
+            success: false, 
+            message: 'Invalid driverID format. Must be a valid ObjectId.' 
+          });
+        }
+        
+        const driverExists = await Driver.findById(driverID);
+        if (!driverExists) {
+          if (req.files) {
+            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+          }
+          return res.status(404).json({
+            success: false,
+            message: 'Driver not found with the provided driverID'
+          });
+        }
+        updateData.driverID = driverID;
+      }
+
+      // ========== HANDLE PASSENGER NAMES ==========
       if (isValidValue(passengerNames)) {
         let parsedPassengerNames = [];
         if (typeof passengerNames === 'string') {
@@ -663,7 +1003,7 @@ router.put('/:id',
         updateData.passengerNames = parsedPassengerNames;
       }
 
-      // Handle car image (delete old one if new one is uploaded)
+      // ========== HANDLE CAR IMAGE ==========
       if (req.files && req.files.carImage && req.files.carImage.length > 0) {
         // Delete old image from S3 if exists
         if (existingBooking.carImage) {
@@ -677,7 +1017,7 @@ router.put('/:id',
         console.log('Updated car image URL from body:', updateData.carImage);
       }
 
-      // Handle audio file
+      // ========== HANDLE AUDIO FILE ==========
       if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio.length > 0) {
         // Delete old audio from S3 if exists
         if (existingBooking.specialRequestAudio) {
@@ -691,22 +1031,7 @@ router.put('/:id',
         console.log('Updated audio URL from body:', updateData.specialRequestAudio);
       }
 
-      // Handle driverID
-      if (isValidValue(driverID) && driverID !== 'null' && driverID !== 'undefined') {
-        if (mongoose.Types.ObjectId.isValid(driverID)) {
-          updateData.driverID = driverID;
-        }
-      }
-
-      // Handle transaction and order IDs
-      if (isValidValue(transactionID)) {
-        updateData.transactionID = String(transactionID).trim();
-      }
-      if (isValidValue(orderID)) {
-        updateData.orderID = String(orderID).trim();
-      }
-
-      // Handle extra payment fields
+      // ========== HANDLE EXTRA PAYMENT FIELDS ==========
       if (isValidValue(extraPayment)) {
         const parsedExtraPayment = parseFloat(extraPayment);
         updateData.extraPayment = !isNaN(parsedExtraPayment) ? parsedExtraPayment : 0;
@@ -731,7 +1056,7 @@ router.put('/:id',
         updateData.extraOrderID = String(extraOrderID).trim();
       }
 
-      // Handle startedAt and stoppedAt
+      // ========== HANDLE STARTED AT AND STOPPED AT ==========
       if (isValidValue(startedAt) && startedAt !== 'null' && startedAt !== 'undefined') {
         const parsedStartedAt = new Date(startedAt);
         if (!isNaN(parsedStartedAt.getTime())) {
@@ -744,6 +1069,18 @@ router.put('/:id',
         if (!isNaN(parsedStoppedAt.getTime())) {
           updateData.stoppedAt = parsedStoppedAt;
         }
+      }
+
+      // Check if there's anything to update
+      if (Object.keys(updateData).length === 0) {
+        if (req.files) {
+          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
+          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
+        }
+        return res.status(400).json({
+          success: false,
+          message: 'No valid fields provided for update'
+        });
       }
 
       // Add updated timestamp
@@ -770,10 +1107,10 @@ router.put('/:id',
         try {
           let statusMessage = '';
           switch (updateData.bookingStatus) {
-            case 'confirmed':
-              statusMessage = 'Your booking has been confirmed!';
+            case 'stoptrack':
+              statusMessage = 'Your booking has been stopped!';
               break;
-            case 'in-progress':
+            case 'starttrack':
               statusMessage = 'Your ride has started!';
               break;
             case 'completed':
@@ -1351,283 +1688,18 @@ router.put('/:id',
 //   });
 
 
-
-// ============= GET HOURLY BOOKINGS BY CUSTOMER ID =============
-// GET /api/hourly-bookings/customer/:customerId
-// @desc    Get all bookings for a specific customer
-router.get('/customer/:customerId', async (req, res) => {
-  try {
-    const { customerId } = req.params;
-    const {
-      status,
-      startDate,
-      endDate,
-      page = 1,
-      limit = 10,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = req.query;
-
-    // Validate customer ID
-    if (!customerId || customerId === 'null' || customerId === 'undefined') {
-      return res.status(400).json({
-        success: false,
-        message: 'Customer ID is required'
-      });
-    }
-
-    // Build query
-    const query = {
-      customerID: String(customerId).trim()
-    };
-
-    // Filter by status if provided
-    if (status) {
-      const validStatuses = ['pending', 'confirmed', 'in-progress', 'completed', 'cancelled'];
-      const cleanStatus = status.toLowerCase().trim();
-      if (validStatuses.includes(cleanStatus)) {
-        query.bookingStatus = cleanStatus;
-      } else {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid status value',
-          validStatuses: validStatuses
-        });
-      }
-    }
-
-    // Date range filter
-    if (startDate || endDate) {
-      query.createdAt = {};
-      if (startDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        query.createdAt.$gte = start;
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        query.createdAt.$lte = end;
-      }
-    }
-
-    // Pagination
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 10;
-    const skip = (pageNum - 1) * limitNum;
-
-    // Sort
-    const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-    // Get bookings
-    const bookings = await HourlyBooking.find(query)
-      .sort(sort)
-      .skip(skip)
-      .limit(limitNum);
-
-    // Get total count
-    const total = await HourlyBooking.countDocuments(query);
-
-    // Calculate summary statistics
-    const summary = {
-      total: total,
-      pending: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'pending' }),
-      confirmed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'confirmed' }),
-      inProgress: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'in-progress' }),
-      completed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'completed' }),
-      cancelled: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'cancelled' }),
-      active: await HourlyBooking.countDocuments({
-        ...query,
-        bookingStatus: { $in: ['pending', 'confirmed', 'in-progress'] },
-        isActive: true
-      })
-    };
-
-    // Calculate total spending (for completed bookings)
-    const completedBookings = await HourlyBooking.find({
-      ...query,
-      bookingStatus: 'completed'
-    }).select('charge hours');
-
-    const totalSpent = completedBookings.reduce((sum, booking) => {
-      return sum + (booking.charge * booking.hours);
-    }, 0);
-
-    res.status(200).json({
-      success: true,
-      message: 'Customer bookings fetched successfully',
-      data: bookings,
-      summary: {
-        ...summary,
-        totalSpent: totalSpent
-      },
-      pagination: {
-        currentPage: pageNum,
-        totalPages: Math.ceil(total / limitNum),
-        totalItems: total,
-        itemsPerPage: limitNum,
-        hasNextPage: pageNum < Math.ceil(total / limitNum),
-        hasPrevPage: pageNum > 1
-      }
-    });
-
-  } catch (error) {
-    console.error('Get customer bookings error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching customer bookings',
-      error: error.message
-    });
-  }
-});
-
-// ============= GET HOURLY BOOKINGS BY DRIVER ID =============
-// GET /api/hourly-bookings/driver/:driverId
-// @desc    Get all bookings for a specific driver
-router.get('/driver/:driverId', async (req, res) => {
-  try {
-    const { driverId } = req.params;
-    const {
-      status,
-      startDate,
-      endDate,
-      page = 1,
-      limit = 10,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = req.query;
-
-    // Validate driver ID
-    if (!driverId || driverId === 'null' || driverId === 'undefined') {
-      return res.status(400).json({
-        success: false,
-        message: 'Driver ID is required'
-      });
-    }
-
-    // Build query
-    const query = {
-      driverID: String(driverId).trim()
-    };
-
-    // Filter by status if provided
-    if (status) {
-      const validStatuses = ['pending', 'confirmed', 'in-progress', 'completed', 'cancelled'];
-      const cleanStatus = status.toLowerCase().trim();
-      if (validStatuses.includes(cleanStatus)) {
-        query.bookingStatus = cleanStatus;
-      } else {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid status value',
-          validStatuses: validStatuses
-        });
-      }
-    }
-
-    // Date range filter
-    if (startDate || endDate) {
-      query.createdAt = {};
-      if (startDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        query.createdAt.$gte = start;
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        query.createdAt.$lte = end;
-      }
-    }
-
-    // Pagination
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 10;
-    const skip = (pageNum - 1) * limitNum;
-
-    // Sort
-    const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-    // Get bookings
-    const bookings = await HourlyBooking.find(query)
-      .sort(sort)
-      .skip(skip)
-      .limit(limitNum);
-
-    // Get total count
-    const total = await HourlyBooking.countDocuments(query);
-
-    // Calculate summary statistics
-    const summary = {
-      total: total,
-      pending: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'pending' }),
-      confirmed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'confirmed' }),
-      inProgress: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'in-progress' }),
-      completed: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'completed' }),
-      cancelled: await HourlyBooking.countDocuments({ ...query, bookingStatus: 'cancelled' }),
-      active: await HourlyBooking.countDocuments({
-        ...query,
-        bookingStatus: { $in: ['confirmed', 'in-progress'] },
-        isActive: true
-      })
-    };
-
-    // Calculate total earnings (for completed bookings)
-    const completedBookings = await HourlyBooking.find({
-      ...query,
-      bookingStatus: 'completed'
-    }).select('charge hours');
-
-    const totalEarnings = completedBookings.reduce((sum, booking) => {
-      return sum + (booking.charge * booking.hours);
-    }, 0);
-
-    res.status(200).json({
-      success: true,
-      message: 'Driver bookings fetched successfully',
-      data: bookings,
-      summary: {
-        ...summary,
-        totalEarnings: totalEarnings
-      },
-      pagination: {
-        currentPage: pageNum,
-        totalPages: Math.ceil(total / limitNum),
-        totalItems: total,
-        itemsPerPage: limitNum,
-        hasNextPage: pageNum < Math.ceil(total / limitNum),
-        hasPrevPage: pageNum > 1
-      }
-    });
-
-  } catch (error) {
-    console.error('Get driver bookings error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching driver bookings',
-      error: error.message
-    });
-  }
-});
-
-
-
-
-
-
-
-
-
-
-
-
-
-// READ - Get all bookings
+// READ - Get all bookings with populated references
 router.get('/', async (req, res) => {
   try {
-    const bookings = await HourlyBooking.find().sort({ createdAt: -1 });
+    const bookings = await HourlyBooking.find()
+      .populate('categoryID', 'name description')
+      .populate('brandID', 'name logo')
+      .populate('carID', 'name model year licensePlate')
+      .populate('cityID', 'name country')
+      .populate('customerID', 'name email phone')
+      .populate('driverID', 'name email phone licenseNumber')
+      .sort({ createdAt: -1 });
+    
     res.status(200).json({
       success: true,
       count: bookings.length,
@@ -1641,16 +1713,34 @@ router.get('/', async (req, res) => {
   }
 });
 
-// READ - Get single booking by ID
+// READ - Get single booking by ID with populated references
 router.get('/:id', async (req, res) => {
   try {
-    const booking = await HourlyBooking.findById(req.params.id);
+    const { id } = req.params;
+    
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid booking ID format'
+      });
+    }
+    
+    const booking = await HourlyBooking.findById(id)
+      .populate('categoryID', 'name description')
+      .populate('brandID', 'name logo')
+      .populate('carID', 'name model year licensePlate')
+      .populate('cityID', 'name country')
+      .populate('customerID', 'name email phone')
+      .populate('driverID', 'name email phone licenseNumber');
+      
     if (!booking) {
       return res.status(404).json({
         success: false,
         message: 'Booking not found'
       });
     }
+    
     res.status(200).json({
       success: true,
       data: booking
@@ -1666,9 +1756,32 @@ router.get('/:id', async (req, res) => {
 // READ - Get bookings by customer ID
 router.get('/customer/:customerId', async (req, res) => {
   try {
-    const bookings = await HourlyBooking.find({
-      customerID: req.params.customerId
-    }).sort({ createdAt: -1 });
+    const { customerId } = req.params;
+    
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(customerId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid customer ID format'
+      });
+    }
+    
+    // Check if customer exists
+    const customerExists = await User.findById(customerId);
+    if (!customerExists) {
+      return res.status(404).json({
+        success: false,
+        message: 'Customer not found'
+      });
+    }
+    
+    const bookings = await HourlyBooking.find({ customerID: customerId })
+      .populate('categoryID', 'name description')
+      .populate('brandID', 'name logo')
+      .populate('carID', 'name model year licensePlate')
+      .populate('cityID', 'name country')
+      .populate('driverID', 'name email phone licenseNumber')
+      .sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
@@ -1686,9 +1799,32 @@ router.get('/customer/:customerId', async (req, res) => {
 // READ - Get bookings by driver ID
 router.get('/driver/:driverId', async (req, res) => {
   try {
-    const bookings = await HourlyBooking.find({
-      driverID: req.params.driverId
-    }).sort({ createdAt: -1 });
+    const { driverId } = req.params;
+    
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(driverId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid driver ID format'
+      });
+    }
+    
+    // Check if driver exists
+    const driverExists = await Driver.findById(driverId);
+    if (!driverExists) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found'
+      });
+    }
+    
+    const bookings = await HourlyBooking.find({ driverID: driverId })
+      .populate('categoryID', 'name description')
+      .populate('brandID', 'name logo')
+      .populate('carID', 'name model year licensePlate')
+      .populate('cityID', 'name country')
+      .populate('customerID', 'name email phone')
+      .sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
@@ -1703,12 +1839,29 @@ router.get('/driver/:driverId', async (req, res) => {
   }
 });
 
+
 // READ - Get bookings by status
 router.get('/status/:status', async (req, res) => {
   try {
-    const bookings = await HourlyBooking.find({
-      bookingStatus: req.params.status
-    }).sort({ createdAt: -1 });
+    const { status } = req.params;
+  const validStatuses = ['pending', 'assigned', 'starttrack','stoptrack', 'completed',
+        'paymentPending', 'reviewed', 'cancelled'];
+    
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be one of: pending, assigned, started, stopped, completed, paymentPending, reviewed, cancelled'
+      });
+    }
+    
+    const bookings = await HourlyBooking.find({ bookingStatus: status })
+      .populate('categoryID', 'name description')
+      .populate('brandID', 'name logo')
+      .populate('carID', 'name model year licensePlate')
+      .populate('cityID', 'name country')
+      .populate('customerID', 'name email phone')
+      .populate('driverID', 'name email phone licenseNumber')
+      .sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
@@ -1728,19 +1881,84 @@ router.get('/status/:status', async (req, res) => {
 // UPDATE - Update booking status only
 router.patch('/:id/status', async (req, res) => {
   try {
+    const { id } = req.params;
     const { bookingStatus } = req.body;
+    
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid booking ID format'
+      });
+    }
+    
+    // Validate status
+  const validStatuses = ['pending', 'assigned', 'starttrack','stoptrack', 'completed',
+        'paymentPending', 'reviewed', 'cancelled'];
+    if (!bookingStatus || !validStatuses.includes(bookingStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid booking status. Must be one of: pending, assigned, started, stopped, completed, paymentPending, reviewed, cancelled'
+      });
+    }
 
-    const updatedBooking = await HourlyBooking.findByIdAndUpdate(
-      req.params.id,
-      { bookingStatus },
-      { new: true }
-    );
-
-    if (!updatedBooking) {
+    
+    // Check if booking exists
+    const existingBooking = await HourlyBooking.findById(id);
+    if (!existingBooking) {
       return res.status(404).json({
         success: false,
         message: 'Booking not found'
       });
+    }
+    
+    const updatedBooking = await HourlyBooking.findByIdAndUpdate(
+      id,
+      { 
+        bookingStatus,
+        updatedAt: new Date()
+      },
+      { new: true, runValidators: true }
+    ).populate('categoryID', 'name description')
+     .populate('brandID', 'name logo')
+     .populate('carID', 'name model year licensePlate')
+     .populate('cityID', 'name country')
+     .populate('customerID', 'name email phone')
+     .populate('driverID', 'name email phone licenseNumber');
+
+    // Send notification
+    try {
+      let statusMessage = '';
+      switch (bookingStatus) {
+        case 'confirmed':
+          statusMessage = 'Your booking has been confirmed!';
+          break;
+        case 'in-progress':
+          statusMessage = 'Your ride has started!';
+          break;
+        case 'completed':
+          statusMessage = 'Your ride is complete. Thank you for booking with us!';
+          break;
+        case 'cancelled':
+          statusMessage = 'Your booking has been cancelled.';
+          break;
+        default:
+          statusMessage = `Your booking status has been updated to ${bookingStatus}`;
+      }
+      
+      await notifyUser(
+        updatedBooking.customerID,
+        '📅 Booking Updated',
+        statusMessage,
+        {
+          type: 'booking_updated',
+          bookingId: updatedBooking._id.toString(),
+          oldStatus: existingBooking.bookingStatus,
+          newStatus: bookingStatus
+        }
+      );
+    } catch (notifyError) {
+      console.error('Notification error:', notifyError);
     }
 
     res.status(200).json({
@@ -1759,8 +1977,17 @@ router.patch('/:id/status', async (req, res) => {
 // UPDATE - Toggle isActive status
 router.patch('/:id/toggle-active', async (req, res) => {
   try {
-    const booking = await HourlyBooking.findById(req.params.id);
-
+    const { id } = req.params;
+    
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid booking ID format'
+      });
+    }
+    
+    const booking = await HourlyBooking.findById(id);
     if (!booking) {
       return res.status(404).json({
         success: false,
@@ -1769,6 +1996,7 @@ router.patch('/:id/toggle-active', async (req, res) => {
     }
 
     booking.isActive = !booking.isActive;
+    booking.updatedAt = new Date();
     await booking.save();
 
     res.status(200).json({
@@ -1784,29 +2012,7 @@ router.patch('/:id/toggle-active', async (req, res) => {
   }
 });
 
-// // DELETE - Delete booking by ID
-// router.delete('/:id', async (req, res) => {
-//   try {
-//     const deletedBooking = await HourlyBooking.findByIdAndDelete(req.params.id);
 
-//     if (!deletedBooking) {
-//       return res.status(404).json({
-//         success: false,
-//         message: 'Booking not found'
-//       });
-//     }
-
-//     res.status(200).json({
-//       success: true,
-//       message: 'Booking deleted successfully'
-//     });
-//   } catch (error) {
-//     res.status(500).json({
-//       success: false,
-//       message: error.message
-//     });
-//   }
-// });
 
 
 // DELETE /api/hourly-bookings/:id - Delete booking and associated files from S3
@@ -1991,6 +2197,7 @@ router.delete('/:id',
           message: 'Invalid booking ID format'
         });
       }
+
 
       res.status(500).json({
         success: false,

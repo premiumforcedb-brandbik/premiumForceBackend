@@ -84,25 +84,25 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
     
     console.log('Booking status:', booking.bookingStatus);
     
-    // Check if booking is already assigned or completed
-    if (booking.bookingStatus !== 'pending' && booking.bookingStatus !== 'completed') {
-      return res.status(400).json({
-        success: false,
-        message: `Booking is already ${booking.bookingStatus}. Cannot assign driver.`
-      });
-    }
+    // // Check if booking is already assigned or completed
+    // if (booking.bookingStatus !== 'pending' && booking.bookingStatus !== 'completed') {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: `Booking is already ${booking.bookingStatus}. Cannot assign driver.`
+    //   });
+    // }
    
     // conosle.log(booking.bookingStatus);
     // Check if booking is already assigned or in progress
-    if (booking.bookingStatus !== 'pending' ) {
-      if(booking.bookingStatus !== 'completed'){
-   return res.status(400).json({
-        success: false,
-        message: `Booking is already ${booking.bookingStatus}. Cannot assign driver.`
-      });
+  //   if (booking.bookingStatus !== 'pending' ) {
+  //     if(booking.bookingStatus !== 'completed'){
+  //  return res.status(400).json({
+  //       success: false,
+  //       message: `Booking is already ${booking.bookingStatus}. Cannot assign driver.`
+  //     });
 
-      }
-    }
+  //     }
+  //   }
        console.log("The booking 108",booking.bookingStatus);
   
     console.log(booking.bookingStatus);

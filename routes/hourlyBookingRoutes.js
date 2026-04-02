@@ -33,7 +33,7 @@ const { authenticateCustomer
 
 // POST /api/hourly-bookings - Create hourly booking
 router.post('/',
-  // authenticateCustomer,
+  authenticateCustomer,
   (req, res, next) => {
     console.log('POST request received');
     console.log('Content-Type:', req.headers['content-type']);
@@ -2226,7 +2226,7 @@ router.get('/customer/:customerId', async (req, res) => {
       .populate('brandID', 'brandName logo')
       .populate('carID', 'name model year licensePlate')
       .populate('cityID', 'cityName cityNameAr country')
-      .populate('driverID', 'name email phone licenseNumber')
+      .populate('driverID', 'driverName email phoneNumber countryCode rating licenseNumber')
       .sort({ createdAt: -1 });
 
 

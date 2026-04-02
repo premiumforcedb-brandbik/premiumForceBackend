@@ -2271,10 +2271,11 @@ router.get('/driver/:driverId', async (req, res) => {
       .populate('brandID', 'brandName logo')
       .populate('carID', 'name model year licensePlate')
       .populate('cityID', 'cityName cityNameAr country')
-      .populate('driverID', 'name email phone licenseNumber')
-      // .populate('customerID', 'name email phone')
+      .populate('driverID', 'driverName email phoneNumber countryCode rating licenseNumber')
+      .populate('customerID', 'username email phoneNumber countryCode profileImage')
       .sort({ createdAt: -1 });
 
+      
     res.status(200).json({
       success: true,
       count: bookings.length,

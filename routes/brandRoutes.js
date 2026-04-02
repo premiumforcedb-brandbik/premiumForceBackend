@@ -3,8 +3,10 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const Brand = require('../models/brandModel');
 const Category = require('../models/categoryModel');
-const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
+// const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
 const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddleware');
+
+const { upload, deleteFromS3, formatBrandFile, handleBrandUploadError } = require('../config/brandS3');
 
 // Helper: Format file data
 const formatFile = (file) => ({
@@ -83,293 +85,258 @@ const formatFile = (file) => ({
 
 
 
-// ============= CREATE BRAND WITH FULL CATEGORY DETAILS =============
-// POST /api/brands
-router.post('/', upload.single('brandIcon'), async (req, res) => {
-  try {
-    const { brandName, isActive = true, categories } = req.body;
-
-    console.log('Create brand - body:', req.body);
-    console.log('Create brand - file:', req.file);
-    console.log('Create brand - categories:', categories);
-
-    // Validate required fields
-    if (!brandName) {
-      if (req.file) await deleteFromS3(req.file.key);
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Brand name is required' 
-      });
-    }
-
-    // Check for duplicate brand name
-    const existingBrand = await Brand.findOne({ 
-      brandName: { $regex: new RegExp(`^${brandName.trim()}$`, 'i') } 
+// ============= CREATE BRAND =============
+router.post('/', 
+  authenticateToken,
+  authorizeAdmin,
+  (req, res, next) => {
+    upload.single('brandIcon')(req, res, (err) => {
+      if (err) {
+        return handleBrandUploadError(err, req, res, next);
+      }
+      next();
     });
+  },
+  async (req, res) => {
+    try {
+      const { brandName, brandNameAr, isActive = true, categories } = req.body;
 
-    if (existingBrand) {
-      if (req.file) await deleteFromS3(req.file.key);
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Brand with this name already exists' 
-      });
-    }
+      console.log('Create brand - body:', req.body);
+      console.log('Create brand - file:', req.file);
 
-    // Process categories if provided
-    let categoryIds = [];
-    let categoryDetails = [];
-    
-    if (categories) {
-      // Handle both single category and array of categories
-      const categoryArray = Array.isArray(categories) ? categories : [categories];
-      
-      // Fetch all categories in one query for better performance
-      const existingCategories = await Category.find({
-        _id: { $in: categoryArray }
-      }).select('-__v -createdBy -updatedBy');
-      
-      // Check if all categories exist
-      if (existingCategories.length !== categoryArray.length) {
-        const foundIds = existingCategories.map(c => c._id.toString());
-        const missingIds = categoryArray.filter(id => !foundIds.includes(id.toString()));
-        
+      // Validate required fields
+      if (!brandName || !brandName.trim()) {
         if (req.file) await deleteFromS3(req.file.key);
-        return res.status(400).json({
-          success: false,
-          message: `Categories not found: ${missingIds.join(', ')}`
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Brand name is required',
+          messageAr: 'اسم العلامة التجارية مطلوب'
         });
       }
-      
-      // Get category IDs and details
-      categoryIds = existingCategories.map(c => c._id);
-      categoryDetails = existingCategories.map(c => 
-        c.getPublicCategory ? c.getPublicCategory() : c.toObject()
-      );
-    }
 
-    // Prepare brand data
-    const brandData = {
-      brandName: brandName.trim(),
-      isActive: isActive === 'true' || isActive === true,
-      brandIcon: req.file ? formatFile(req.file) : null,
-      categories: categoryIds
-    };
-
-    // Create brand
-    const brand = await Brand.create(brandData);
-
-    // Get complete brand with populated categories
-    const completeBrand = await Brand.findById(brand._id)
-      .populate({
-        path: 'categories',
-        select: 'name image isActive priority description createdAt updatedAt',
-        options: { sort: { priority: -1, name: 1 } }
-      });
-
-    // Format the response
-    const responseData = {
-      _id: completeBrand._id,
-      brandName: completeBrand.brandName,
-      brandIcon: completeBrand.brandIcon,
-      isActive: completeBrand.isActive,
-      categories: completeBrand.categories.map(cat => ({
-        _id: cat._id,
-        name: cat.name,
-        image: cat.image,
-        isActive: cat.isActive,
-        description: cat.description,
-        priority: cat.priority,
-        createdAt: cat.createdAt,
-        updatedAt: cat.updatedAt
-      })),
-      createdAt: completeBrand.createdAt,
-      updatedAt: completeBrand.updatedAt
-    };
-
-    res.status(201).json({
-      success: true,
-      message: 'Brand created successfully',
-      data: responseData,
-      summary: {
-        totalCategories: responseData.categories.length,
-        activeCategories: responseData.categories.filter(c => c.isActive).length
-      }
-    });
-
-  } catch (error) {
-    if (req.file) await deleteFromS3(req.file.key);
-    
-    console.error('Create brand error:', error);
-    
-    if (error.code === 11000) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Brand name already exists' 
-      });
-    }
-    
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
-    });
-  }
-});
-
-
-
-
-
-// ============= UPDATE BRAND WITH FULL CATEGORY DETAILS =============
-// PUT /api/brands/:id
-router.put('/:id', upload.single('brandIcon'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { brandName, isActive, categories } = req.body;
-
-    console.log('Update brand - ID:', id);
-    console.log('Update brand - body:', req.body);
-    console.log('Update brand - file:', req.file);
-    console.log('Update brand - categories:', categories);
-
-    // Find existing brand
-    const existingBrand = await Brand.findById(id);
-    if (!existingBrand) {
-      if (req.file) await deleteFromS3(req.file.key);
-      return res.status(404).json({
-        success: false,
-        message: 'Brand not found'
-      });
-    }
-
-    // Validate brand name if being updated
-    if (brandName && brandName.trim() !== existingBrand.brandName) {
-      const duplicateBrand = await Brand.findOne({
-        brandName: { $regex: new RegExp(`^${brandName.trim()}$`, 'i') },
-        _id: { $ne: id }
-      });
-
-      if (duplicateBrand) {
-        if (req.file) await deleteFromS3(req.file.key);
+      // Check if brand icon is uploaded
+      if (!req.file) {
         return res.status(400).json({
           success: false,
-          message: 'Brand with this name already exists'
+          message: 'Brand icon is required',
+          messageAr: 'أيقونة العلامة التجارية مطلوبة'
         });
       }
-    }
 
-    // Handle brand icon update
-    let brandIconData = existingBrand.brandIcon;
-    if (req.file) {
-      // Delete old icon from S3 if exists
-      if (existingBrand.brandIcon?.key) {
-        await deleteFromS3(existingBrand.brandIcon.key);
+      // Check for duplicate brand name
+      const existingBrand = await Brand.findOne({ 
+        brandName: { $regex: new RegExp(`^${brandName.trim()}$`, 'i') } 
+      });
+
+      if (existingBrand) {
+        if (req.file) await deleteFromS3(req.file.key);
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Brand with this name already exists',
+          messageAr: 'العلامة التجارية بهذا الاسم موجودة بالفعل'
+        });
       }
-      brandIconData = formatFile(req.file);
-    }
 
-    // Process categories if provided
-    let categoryIds = [];
-    let categoryDetails = [];
-    
-    if (categories !== undefined) {
-      // Handle both single category and array of categories
-      const categoryArray = Array.isArray(categories) ? categories : 
-                           (categories ? [categories] : []);
-      
-      if (categoryArray.length > 0) {
-        // Fetch all categories in one query
-        const existingCategories = await Category.find({
-          _id: { $in: categoryArray }
-        }).select('-__v -createdBy -updatedBy');
+      // Process categories if provided
+      let categoryIds = [];
+      if (categories) {
+        const categoryArray = Array.isArray(categories) ? categories : [categories];
         
-        // Check if all categories exist
-        if (existingCategories.length !== categoryArray.length) {
-          const foundIds = existingCategories.map(c => c._id.toString());
-          const missingIds = categoryArray.filter(id => !foundIds.includes(id.toString()));
-          
+        // Validate category IDs
+        const validCategories = categoryArray.filter(id => mongoose.Types.ObjectId.isValid(id));
+        
+        if (validCategories.length !== categoryArray.length) {
           if (req.file) await deleteFromS3(req.file.key);
           return res.status(400).json({
             success: false,
-            message: `Categories not found: ${missingIds.join(', ')}`
+            message: 'Invalid category IDs provided',
+            messageAr: 'معرفات الفئات غير صالحة'
+          });
+        }
+        
+        // Check if categories exist
+        const existingCategories = await Category.find({
+          _id: { $in: validCategories }
+        });
+        
+        if (existingCategories.length !== validCategories.length) {
+          if (req.file) await deleteFromS3(req.file.key);
+          return res.status(400).json({
+            success: false,
+            message: 'One or more categories not found',
+            messageAr: 'واحدة أو أكثر من الفئات غير موجودة'
           });
         }
         
         categoryIds = existingCategories.map(c => c._id);
-        categoryDetails = existingCategories.map(c => 
-          c.getPublicCategory ? c.getPublicCategory() : c.toObject()
-        );
       }
-    } else {
-      // Keep existing categories if not provided
-      categoryIds = existingBrand.categories;
-    }
 
-    // Prepare update data
-    const updateData = {
-      brandName: brandName ? brandName.trim() : existingBrand.brandName,
-      isActive: isActive !== undefined ? (isActive === 'true' || isActive === true) : existingBrand.isActive,
-      brandIcon: brandIconData,
-      categories: categoryIds
-    };
+      // Create brand
+      const brand = new Brand({
+        brandName: brandName.trim(),
+        brandNameAr: brandNameAr ? brandNameAr.trim() : brandName.trim(),
+        brandIcon: formatBrandFile(req.file),
+        isActive: isActive === 'true' || isActive === true,
+        categories: categoryIds
+      });
 
-    // Update brand
-    const updatedBrand = await Brand.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    ).populate({
-      path: 'categories',
-      select: 'name image isActive priority description createdAt updatedAt',
-      options: { sort: { priority: -1, name: 1 } }
-    });
+      await brand.save();
 
-    // Format the response
-    const responseData = {
-      _id: updatedBrand._id,
-      brandName: updatedBrand.brandName,
-      brandIcon: updatedBrand.brandIcon,
-      isActive: updatedBrand.isActive,
-      categories: updatedBrand.categories.map(cat => ({
-        _id: cat._id,
-        name: cat.name,
-        image: cat.image,
-        isActive: cat.isActive,
-        description: cat.description,
-        priority: cat.priority,
-        createdAt: cat.createdAt,
-        updatedAt: cat.updatedAt
-      })),
-      createdAt: updatedBrand.createdAt,
-      updatedAt: updatedBrand.updatedAt
-    };
+      // Get complete brand with populated categories
+      const completeBrand = await Brand.findById(brand._id)
+        .populate({
+          path: 'categories',
+          select: 'name nameAr image isActive description'
+        });
 
-    res.status(200).json({
-      success: true,
-      message: 'Brand updated successfully',
-      data: responseData,
-      summary: {
-        totalCategories: responseData.categories.length,
-        activeCategories: responseData.categories.filter(c => c.isActive).length
+      res.status(201).json({
+        success: true,
+        message: 'Brand created successfully',
+        messageAr: 'تم إنشاء العلامة التجارية بنجاح',
+        data: completeBrand
+      });
+
+    } catch (error) {
+      if (req.file) await deleteFromS3(req.file.key);
+      console.error('Create brand error:', error);
+      
+      if (error.code === 11000) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Brand name already exists',
+          messageAr: 'اسم العلامة التجارية موجود بالفعل'
+        });
       }
-    });
-
-  } catch (error) {
-    if (req.file) await deleteFromS3(req.file.key);
-    
-    console.error('Update brand error:', error);
-    
-    if (error.code === 11000) {
-      return res.status(400).json({ 
+      
+      res.status(500).json({ 
         success: false, 
-        message: 'Brand name already exists' 
+        message: error.message,
+        messageAr: 'خطأ في إنشاء العلامة التجارية'
       });
     }
-    
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
+});
+
+
+// ============= UPDATE BRAND =============
+router.put('/:id', 
+  authenticateToken,
+  authorizeAdmin,
+  (req, res, next) => {
+    upload.single('brandIcon')(req, res, (err) => {
+      if (err) {
+        return handleBrandUploadError(err, req, res, next);
+      }
+      next();
     });
-  }
+  },
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { brandName, brandNameAr, isActive, categories } = req.body;
+
+      console.log('Update brand - ID:', id);
+      console.log('Update brand - body:', req.body);
+      console.log('Update brand - file:', req.file);
+
+      // Find existing brand
+      const existingBrand = await Brand.findById(id);
+      if (!existingBrand) {
+        if (req.file) await deleteFromS3(req.file.key);
+        return res.status(404).json({
+          success: false,
+          message: 'Brand not found',
+          messageAr: 'العلامة التجارية غير موجودة'
+        });
+      }
+
+      // Check for duplicate brand name
+      if (brandName && brandName.trim() !== existingBrand.brandName) {
+        const duplicateBrand = await Brand.findOne({
+          brandName: { $regex: new RegExp(`^${brandName.trim()}$`, 'i') },
+          _id: { $ne: id }
+        });
+
+        if (duplicateBrand) {
+          if (req.file) await deleteFromS3(req.file.key);
+          return res.status(400).json({
+            success: false,
+            message: 'Brand with this name already exists',
+            messageAr: 'العلامة التجارية بهذا الاسم موجودة بالفعل'
+          });
+        }
+      }
+
+      // Handle brand icon update
+      let brandIconData = existingBrand.brandIcon;
+      if (req.file) {
+        // Delete old icon from S3
+        if (existingBrand.brandIcon?.key) {
+          await deleteFromS3(existingBrand.brandIcon.key);
+        }
+        brandIconData = formatBrandFile(req.file);
+      }
+
+      // Process categories if provided
+      let categoryIds = existingBrand.categories;
+      if (categories !== undefined) {
+        const categoryArray = Array.isArray(categories) ? categories : 
+                             (categories ? [categories] : []);
+        
+        if (categoryArray.length > 0) {
+          const validCategories = categoryArray.filter(id => mongoose.Types.ObjectId.isValid(id));
+          
+          if (validCategories.length !== categoryArray.length) {
+            if (req.file) await deleteFromS3(req.file.key);
+            return res.status(400).json({
+              success: false,
+              message: 'Invalid category IDs provided',
+              messageAr: 'معرفات الفئات غير صالحة'
+            });
+          }
+          
+          const existingCategories = await Category.find({
+            _id: { $in: validCategories }
+          });
+          
+          categoryIds = existingCategories.map(c => c._id);
+        } else {
+          categoryIds = [];
+        }
+      }
+
+      // Update brand
+      const updatedBrand = await Brand.findByIdAndUpdate(
+        id,
+        {
+          brandName: brandName ? brandName.trim() : existingBrand.brandName,
+          brandNameAr: brandNameAr ? brandNameAr.trim() : (brandName ? brandName.trim() : existingBrand.brandNameAr),
+          brandIcon: brandIconData,
+          isActive: isActive !== undefined ? (isActive === 'true' || isActive === true) : existingBrand.isActive,
+          categories: categoryIds
+        },
+        { new: true, runValidators: true }
+      ).populate({
+        path: 'categories',
+        select: 'name nameAr image isActive description'
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Brand updated successfully',
+        messageAr: 'تم تحديث العلامة التجارية بنجاح',
+        data: updatedBrand
+      });
+
+    } catch (error) {
+      if (req.file) await deleteFromS3(req.file.key);
+      console.error('Update brand error:', error);
+      
+      res.status(500).json({ 
+        success: false, 
+        message: error.message,
+        messageAr: 'خطأ في تحديث العلامة التجارية'
+      });
+    }
 });
 
 

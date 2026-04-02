@@ -207,7 +207,7 @@ const generateFileName = (originalname, fieldName) => {
   return `${folder}/${timestamp}-${randomString}${extension}`;
 };
 
-// Configure multer for S3 upload
+// Configure multer for S3 upload with 12MB limit
 console.log('Creating multer S3 storage with bucket:', process.env.AWS_S3_BUCKET_NAME);
 
 const upload = multer({
@@ -232,7 +232,7 @@ const upload = multer({
   }),
   fileFilter: fileFilter,
   limits: {
-    fileSize: 50 * 1024 * 1024 // 50MB limit for audio files
+    fileSize: 50 * 1024 * 1024 // 12MB limit for all files (images and audio)
   }
 });
 

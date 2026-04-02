@@ -343,6 +343,7 @@ router.put('/:id',
 
 
 
+
 // // ============= UPDATE BRAND =============
 // // PUT /api/brands/:id
 // router.put('/:id', authenticateToken, authorizeAdmin, upload.single('brandIcon'), async (req, res) => {

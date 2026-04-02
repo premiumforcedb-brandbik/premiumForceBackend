@@ -12,8 +12,8 @@ const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
 // ============= CREATE AIRPORT =============
 // POST /api/airports - Create a new airport (image optional)
 router.post('/', 
-  authenticateToken,
-  authorizeAdmin,
+  // authenticateToken,
+  // authorizeAdmin,
   upload.single('image'), 
   async (req, res) => {
     try {

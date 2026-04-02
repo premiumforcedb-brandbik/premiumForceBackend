@@ -33,7 +33,7 @@ const { authenticateCustomer
 
 // POST /api/hourly-bookings - Create hourly booking
 router.post('/',
-  authenticateCustomer,
+  // authenticateCustomer,
   (req, res, next) => {
     console.log('POST request received');
     console.log('Content-Type:', req.headers['content-type']);

@@ -105,7 +105,7 @@ router.get('/terminals/:airportId', async (req, res) => {
 
 // ============= CREATE TERMINAL =============
 router.post('/', 
-  // authenticateToken, authorizeAdmin,
+  authenticateToken, authorizeAdmin,
   upload.single('image'), 
   async (req, res) => {
     try {

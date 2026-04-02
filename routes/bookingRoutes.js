@@ -583,8 +583,7 @@ router.post('/',
         type: 'new_booking',
         bookingId: booking._id.toString(),
         customerId: customerID.toString(),
-        customerName: customerName,
-        arrival: parsedDate.toISOString(),
+              arrival: parsedDate.toISOString(),
         pickupAddress: bookingData.pickupAddress,
         dropOffAddress: bookingData.dropOffAddress,
         charge: chargeStr,
@@ -595,11 +594,11 @@ router.post('/',
       };
 
 
-    await  notifyUserAdmin(
-        'New Booking Alert!',
-       `Review and assign a driver`,
-        ""
-      );
+    // await  notifyUserAdmin(
+    //     'New Booking Alert!',
+    //    `Review and assign a driver`,
+    //     ""
+    //   );
 
       await notifyAllAdmins(
         'New Booking Alert!',

@@ -40,6 +40,7 @@ const cleanupUploadedFiles = async (files) => {
 router.post('/', 
   authenticateToken, 
   authorizeAdmin,
+  
   upload.fields([{ name: 'image', maxCount: 1 }]), 
   async (req, res) => {
     try {

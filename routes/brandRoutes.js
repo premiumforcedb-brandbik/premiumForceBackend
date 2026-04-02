@@ -114,14 +114,14 @@ router.post('/',
         });
       }
 
-      // Check if brand icon is uploaded
-      if (!req.file) {
-        return res.status(400).json({
-          success: false,
-          message: 'Brand icon is required',
-          messageAr: 'أيقونة العلامة التجارية مطلوبة'
-        });
-      }
+      // // Check if brand icon is uploaded
+      // if (!req.file) {
+      //   return res.status(400).json({
+      //     success: false,
+      //     message: 'Brand icon is required',
+      //     messageAr: 'أيقونة العلامة التجارية مطلوبة'
+      //   });
+      // }
 
       // Check for duplicate brand name
       const existingBrand = await Brand.findOne({ 

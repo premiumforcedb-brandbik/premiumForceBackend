@@ -213,7 +213,7 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
     console.log('========== ASSIGN DRIVER DEBUG ==========');
     console.log('1. Request body:', req.body);
     
-    const { driverID, bookingID, assignedAt } = req.body;
+    const { driverID, bookingID } = req.body;
 
     // Validate required fields
     if (!driverID || !bookingID) {
@@ -308,7 +308,6 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
       driverID: driverID,
       bookingID: bookingID,
       bookingType: 'hourly', // Specify booking type
-      assignedAt: assignedAt || new Date(),
       status: 'active'
     });
 
@@ -320,7 +319,6 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
       {
         driverID: driverID,
         bookingStatus: 'assigned', // Change status to assigned when driver assigned
-        driverAssignedAt: new Date(),
         updatedAt: new Date()
       },
       { new: true }

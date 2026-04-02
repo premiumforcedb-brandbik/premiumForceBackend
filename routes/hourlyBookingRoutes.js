@@ -1688,32 +1688,278 @@ router.put('/:id',
 //   });
 
 
-// READ - Get all bookings with populated references
+// READ - Get all hourly bookings with populated references and pagination
 router.get('/', async (req, res) => {
   try {
-    const bookings = await HourlyBooking.find()
-      .populate('categoryID', 'name description')
-      .populate('brandID', 'name logo')
-      .populate('carID', 'name model year licensePlate')
-      .populate('cityID', 'name country')
-      .populate('customerID', 'name email phone')
-      .populate('driverID', 'name email phone licenseNumber')
-      .sort({ createdAt: -1 });
+    const { 
+      page = 1, 
+      limit = 10, 
+      sort = '-createdAt',
+      status,
+      customerID,
+      driverID,
+      cityID,
+      fromDate,
+      toDate
+    } = req.query;
+
+    // Build query filters
+    const query = {};
     
+    if (status) query.bookingStatus = status;
+    if (customerID && mongoose.Types.ObjectId.isValid(customerID)) {
+      query.customerID = new mongoose.Types.ObjectId(customerID);
+    }
+    if (driverID && mongoose.Types.ObjectId.isValid(driverID)) {
+      query.driverID = new mongoose.Types.ObjectId(driverID);
+    }
+    if (cityID && mongoose.Types.ObjectId.isValid(cityID)) {
+      query.cityID = new mongoose.Types.ObjectId(cityID);
+    }
+    if (fromDate || toDate) {
+      query.createdAt = {};
+      if (fromDate) query.createdAt.$gte = new Date(fromDate);
+      if (toDate) query.createdAt.$lte = new Date(toDate);
+    }
+
+    // Pagination
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Get total count for pagination
+    const total = await HourlyBooking.countDocuments(query);
+
+    // Get bookings with full population
+    const bookings = await HourlyBooking.find(query)
+      .populate({
+        path: 'categoryID',
+        model: 'Category',
+        select: '_id name  description descriptionAr image isActive'
+      })
+      .populate({
+        path: 'brandID',
+        model: 'Brand',
+        select: '_id brandName brandNameAr logo isActive'
+      })
+      .populate({
+        path: 'carID',
+        model: 'Car',
+        populate: [
+          {
+            path: 'categoryID',
+            model: 'Category',
+            select: '_id name nameAr'
+          },
+          {
+            path: 'brandID',
+            model: 'Brand',
+            select: '_id brandName brandNameAr'
+          }
+        ],
+        select: '_id categoryID brandID carName model numberOfPassengers carImage minimumChargeDistance hourlyRate isActive'
+      })
+      .populate({
+        path: 'cityID',
+        model: 'City',
+        select: '_id cityName cityNameAr image isActive'
+      })
+      .populate({
+        path: 'customerID',
+        model: 'User',
+        select: '_id username email phoneNumber countryCode profileImage fullPhoneNumber isActive'
+      })
+      .populate({
+        path: 'driverID',
+        model: 'Driver',
+        select: '_id driverName countryCode phoneNumber licenseNumber profileImage rating totalTrips isActive isVerified'
+      })
+      .sort(sort)
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
+
+    // Format the response with full field mapping
+    const formattedBookings = bookings.map(booking => ({
+      _id: booking._id,
+      
+      // Basic Information
+      bookingType: 'hourly',
+      bookingNumber: booking.bookingNumber || `HB${booking._id.toString().slice(-8)}`,
+      
+      // Category Details
+      category: booking.categoryID ? {
+        _id: booking.categoryID._id,
+        name: booking.categoryID.name,
+        nameAr: booking.categoryID.nameAr,
+        description: booking.categoryID.description,
+        descriptionAr: booking.categoryID.descriptionAr,
+        image: booking.categoryID.image,
+        isActive: booking.categoryID.isActive
+      } : null,
+      
+      // Brand Details
+      brand: booking.brandID ? {
+        _id: booking.brandID._id,
+        brandName: booking.brandID.brandName,
+        brandNameAr: booking.brandID.brandNameAr,
+        logo: booking.brandID.logo,
+        isActive: booking.brandID.isActive
+      } : null,
+      
+      // Car Details with nested relations
+      car: booking.carID ? {
+        _id: booking.carID._id,
+        carName: booking.carID.carName,
+        model: booking.carID.model,
+        numberOfPassengers: booking.carID.numberOfPassengers,
+        carImage: booking.carID.carImage,
+        minimumChargeDistance: booking.carID.minimumChargeDistance,
+        hourlyRate: booking.carID.hourlyRate,
+        category: booking.carID.categoryID ? {
+          _id: booking.carID.categoryID._id,
+          name: booking.carID.categoryID.name,
+          nameAr: booking.carID.categoryID.nameAr
+        } : null,
+        brand: booking.carID.brandID ? {
+          _id: booking.carID.brandID._id,
+          brandName: booking.carID.brandID.brandName,
+          brandNameAr: booking.carID.brandID.brandNameAr
+        } : null,
+        isActive: booking.carID.isActive
+      } : null,
+      
+      // City Details
+      city: booking.cityID ? {
+        _id: booking.cityID._id,
+        cityName: booking.cityID.cityName,
+        cityNameAr: booking.cityID.cityNameAr,
+        image: booking.cityID.image,
+        isActive: booking.cityID.isActive
+      } : null,
+      
+      // Customer Details
+      customer: booking.customerID ? {
+        _id: booking.customerID._id,
+        username: booking.customerID.username,
+        email: booking.customerID.email,
+        phoneNumber: booking.customerID.phoneNumber,
+        countryCode: booking.customerID.countryCode,
+        fullPhoneNumber: booking.customerID.fullPhoneNumber || 
+          `${booking.customerID.countryCode || ''}${booking.customerID.phoneNumber || ''}`,
+        profileImage: booking.customerID.profileImage,
+        isActive: booking.customerID.isActive
+      } : null,
+      
+      // Driver Details
+      driver: booking.driverID ? {
+        _id: booking.driverID._id,
+        driverName: booking.driverID.driverName,
+        countryCode: booking.driverID.countryCode,
+        phoneNumber: booking.driverID.phoneNumber,
+        fullPhoneNumber: `${booking.driverID.countryCode || ''}${booking.driverID.phoneNumber || ''}`,
+        licenseNumber: booking.driverID.licenseNumber,
+        profileImage: booking.driverID.profileImage,
+        rating: booking.driverID.rating,
+        totalTrips: booking.driverID.totalTrips,
+        isActive: booking.driverID.isActive,
+        isVerified: booking.driverID.isVerified
+      } : null,
+      
+      // Hourly Booking Specific Fields
+      hours: booking.hours,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+      totalCharge: booking.totalCharge,
+      hourlyRate: booking.hourlyRate,
+      
+      // Location Details
+      pickupLat: booking.pickupLat,
+      pickupLong: booking.pickupLong,
+      pickupAddress: booking.pickupAddress,
+      dropOffLat: booking.dropOffLat,
+      dropOffLong: booking.dropOffLong,
+      dropOffAddress: booking.dropOffAddress,
+      
+      // Car Details from Booking
+      carModel: booking.carModel,
+      carImage: booking.carImage,
+      
+      // Passenger Details
+      passengerCount: booking.passengerCount,
+      passengerNames: booking.passengerNames,
+      passengerMobile: booking.passengerMobile,
+      
+      // Status and Tracking
+      bookingStatus: booking.bookingStatus,
+      trackingTimeline: booking.trackingTimeline || [],
+      paymentStatus: booking.paymentStatus,
+      paymentMethod: booking.paymentMethod,
+      
+      // Ratings
+      customerRating: booking.customerRating,
+      driverRating: booking.driverRating,
+      customerReview: booking.customerReview,
+      driverReview: booking.driverReview,
+      
+      // Special Requests
+      specialRequests: booking.specialRequests,
+      specialRequestAudio: booking.specialRequestAudio,
+      
+      // Transaction Details
+      transactionID: booking.transactionID,
+      orderID: booking.orderID,
+      discountApplied: booking.discountApplied,
+      discountAmount: booking.discountAmount,
+      taxAmount: booking.taxAmount,
+      
+      // Timestamps
+      createdAt: booking.createdAt,
+      updatedAt: booking.updatedAt,
+      startedAt: booking.startedAt,
+      completedAt: booking.completedAt,
+      cancelledAt: booking.cancelledAt,
+      
+      // Additional Metadata
+      metadata: booking.metadata
+    }));
+
+    // Calculate pagination info
+    const totalPages = Math.ceil(total / limitNum);
+    const hasNextPage = pageNum < totalPages;
+    const hasPrevPage = pageNum > 1;
+
     res.status(200).json({
       success: true,
-      count: bookings.length,
-      data: bookings
+      message: 'Hourly bookings fetched successfully',
+      count: formattedBookings.length,
+      total: total,
+      pagination: {
+        currentPage: pageNum,
+        totalPages: totalPages,
+        itemsPerPage: limitNum,
+        totalItems: total,
+        hasNextPage: hasNextPage,
+        hasPrevPage: hasPrevPage,
+        nextPage: hasNextPage ? pageNum + 1 : null,
+        prevPage: hasPrevPage ? pageNum - 1 : null
+      },
+      data: formattedBookings
     });
+
   } catch (error) {
+    console.error('Get hourly bookings error:', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Error fetching hourly bookings',
+      error: error.message
     });
   }
 });
 
-// READ - Get single booking by ID with populated references
+
+
+// READ - Get single booking by ID with populated references and Arabic mapping
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1722,36 +1968,236 @@ router.get('/:id', async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid booking ID format'
+        message: 'صيغة معرف الحجز غير صالحة',
+        message_en: 'Invalid booking ID format'
       });
     }
     
     const booking = await HourlyBooking.findById(id)
-      .populate('categoryID', 'name description')
-      .populate('brandID', 'name logo')
-      .populate('carID', 'name model year licensePlate')
-      .populate('cityID', 'name country')
-      .populate('customerID', 'name email phone')
-      .populate('driverID', 'name email phone licenseNumber');
+      .populate({
+        path: 'categoryID',
+        model: 'Category',
+        select: '_id name nameAr description descriptionAr image'
+      })
+      .populate({
+        path: 'brandID',
+        model: 'Brand',
+        select: '_id brandName brandNameAr logo'
+      })
+      .populate({
+        path: 'carID',
+        model: 'Car',
+        populate: [
+          {
+            path: 'categoryID',
+            model: 'Category',
+            select: '_id name nameAr'
+          },
+          {
+            path: 'brandID',
+            model: 'Brand',
+            select: '_id brandName brandNameAr'
+          }
+        ],
+        select: '_id categoryID brandID carName model numberOfPassengers carImage hourlyRate'
+      })
+      .populate({
+        path: 'cityID',
+        model: 'City',
+        select: '_id cityName cityNameAr image'
+      })
+      .populate({
+        path: 'customerID',
+        model: 'User',
+        select: '_id username email phoneNumber countryCode profileImage'
+      })
+      .populate({
+        path: 'driverID',
+        model: 'Driver',
+        select: '_id driverName countryCode phoneNumber licenseNumber profileImage rating'
+      })
+      .lean();
       
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: 'Booking not found'
+        message: 'الحجز غير موجود',
+        message_en: 'Booking not found'
       });
     }
     
-    res.status(200).json({
+    // Format response with Arabic mapping
+    const formattedBooking = {
       success: true,
-      data: booking
-    });
+      message: 'تم جلب بيانات الحجز بنجاح',
+      message_en: 'Booking fetched successfully',
+      data: {
+        _id: booking._id,
+        
+        // Basic Info
+        bookingType: 'بالساعة',
+        bookingType_en: 'hourly',
+        
+        // Category with Arabic names
+        category: booking.categoryID ? {
+          _id: booking.categoryID._id,
+          name: booking.categoryID.name,
+          nameAr: booking.categoryID.nameAr,
+          name_en: booking.categoryID.name,
+          description: booking.categoryID.description,
+          descriptionAr: booking.categoryID.descriptionAr,
+          image: booking.categoryID.image
+        } : null,
+        
+        // Brand with Arabic names
+        brand: booking.brandID ? {
+          _id: booking.brandID._id,
+          name: booking.brandID.brandName,
+          nameAr: booking.brandID.brandNameAr,
+          name_en: booking.brandID.brandName,
+          logo: booking.brandID.logo
+        } : null,
+        
+        // Car with full details
+        car: booking.carID ? {
+          _id: booking.carID._id,
+          name: booking.carID.carName,
+          nameAr: booking.carID.carName, // You might want to add carNameAr to schema
+          model: booking.carID.model,
+          passengers: booking.carID.numberOfPassengers,
+          image: booking.carID.carImage,
+          hourlyRate: booking.carID.hourlyRate,
+          category: booking.carID.categoryID ? {
+            _id: booking.carID.categoryID._id,
+            name: booking.carID.categoryID.name,
+            nameAr: booking.carID.categoryID.nameAr
+          } : null,
+          brand: booking.carID.brandID ? {
+            _id: booking.carID.brandID._id,
+            name: booking.carID.brandID.brandName,
+            nameAr: booking.carID.brandID.brandNameAr
+          } : null
+        } : null,
+        
+        // City with Arabic name
+        city: booking.cityID ? {
+          _id: booking.cityID._id,
+          name: booking.cityID.cityName,
+          nameAr: booking.cityID.cityNameAr,
+          name_en: booking.cityID.cityName,
+          image: booking.cityID.image
+        } : null,
+        
+        // Customer details
+        customer: booking.customerID ? {
+          _id: booking.customerID._id,
+          name: booking.customerID.username,
+          email: booking.customerID.email,
+          phone: booking.customerID.phoneNumber,
+          countryCode: booking.customerID.countryCode,
+          fullPhone: `${booking.customerID.countryCode || ''}${booking.customerID.phoneNumber || ''}`,
+          profileImage: booking.customerID.profileImage
+        } : null,
+        
+        // Driver details
+        driver: booking.driverID ? {
+          _id: booking.driverID._id,
+          name: booking.driverID.driverName,
+          nameAr: booking.driverID.driverName,
+          phone: booking.driverID.phoneNumber,
+          countryCode: booking.driverID.countryCode,
+          fullPhone: `${booking.driverID.countryCode || ''}${booking.driverID.phoneNumber || ''}`,
+          licenseNumber: booking.driverID.licenseNumber,
+          profileImage: booking.driverID.profileImage,
+          rating: booking.driverID.rating
+        } : null,
+        
+        // Booking Details
+        hours: booking.hours,
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+        totalCharge: booking.totalCharge,
+        
+        // Location Details
+        pickup: {
+          lat: booking.pickupLat,
+          lng: booking.pickupLong,
+          address: booking.pickupAddress,
+          addressAr: booking.pickupAddress, // Add translation if available
+        },
+        dropoff: {
+          lat: booking.dropOffLat,
+          lng: booking.dropOffLong,
+          address: booking.dropOffAddress,
+          addressAr: booking.dropOffAddress, // Add translation if available
+        },
+        
+        // Passenger Details
+        passengers: {
+          count: booking.passengerCount,
+          names: booking.passengerNames,
+          mobile: booking.passengerMobile
+        },
+        
+        // Status
+        status: {
+          code: booking.bookingStatus,
+          label_en: booking.bookingStatus,
+          payment: booking.paymentStatus ? 'مدفوع' : 'غير مدفوع',
+          payment_en: booking.paymentStatus ? 'paid' : 'unpaid'
+        },
+        
+        // Timeline
+        timeline: booking.trackingTimeline || [],
+        
+        // Special Requests
+        specialRequests: {
+          text: booking.specialRequests,
+          audio: booking.specialRequestAudio
+        },
+        
+        // Transaction
+        transaction: {
+          id: booking.transactionID,
+          orderId: booking.orderID,
+          discount: booking.discountApplied,
+          discountAmount: booking.discountAmount,
+          tax: booking.taxAmount
+        },
+        
+        // Ratings
+        ratings: {
+          customer: booking.customerRating,
+          driver: booking.driverRating,
+          customerReview: booking.customerReview,
+          driverReview: booking.driverReview
+        },
+        
+        // Timestamps
+        createdAt: booking.createdAt,
+        updatedAt: booking.updatedAt,
+        startedAt: booking.startedAt,
+        completedAt: booking.completedAt,
+        
+        // Metadata
+        metadata: booking.metadata
+      }
+    };
+
+    
+    res.status(200).json(formattedBooking);
+    
   } catch (error) {
+    console.error('Get booking error:', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'خطأ في جلب بيانات الحجز',
+      message_en: 'Error fetching booking',
+      error: error.message
     });
   }
 });
+
 
 // READ - Get bookings by customer ID
 router.get('/customer/:customerId', async (req, res) => {
@@ -1777,11 +2223,12 @@ router.get('/customer/:customerId', async (req, res) => {
     
     const bookings = await HourlyBooking.find({ customerID: customerId })
       .populate('categoryID', 'name description')
-      .populate('brandID', 'name logo')
+      .populate('brandID', 'brandName logo')
       .populate('carID', 'name model year licensePlate')
-      .populate('cityID', 'name country')
+      .populate('cityID', 'cityName cityNameAr country')
       .populate('driverID', 'name email phone licenseNumber')
       .sort({ createdAt: -1 });
+
 
     res.status(200).json({
       success: true,
@@ -1818,12 +2265,14 @@ router.get('/driver/:driverId', async (req, res) => {
       });
     }
     
+    
     const bookings = await HourlyBooking.find({ driverID: driverId })
       .populate('categoryID', 'name description')
-      .populate('brandID', 'name logo')
+      .populate('brandID', 'brandName logo')
       .populate('carID', 'name model year licensePlate')
-      .populate('cityID', 'name country')
-      .populate('customerID', 'name email phone')
+      .populate('cityID', 'cityName cityNameAr country')
+      .populate('driverID', 'name email phone licenseNumber')
+      // .populate('customerID', 'name email phone')
       .sort({ createdAt: -1 });
 
     res.status(200).json({

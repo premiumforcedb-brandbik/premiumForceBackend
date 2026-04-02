@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const hourlyBookingSchema = new mongoose.Schema({
+    category: {
+    type: String,
+    required: false
+   // customize as needed
+  },
   hours: {
     type: Number,
     required: true

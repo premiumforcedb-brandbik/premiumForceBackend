@@ -70,6 +70,7 @@ router.post('/',
       };
 
       const {
+        category,
         hours, pickupLat, pickuplong, pickupAdddress,
         extraHours, model, categoryID, brandID, carID, cityID,
         charge, customerID, driverID, passsenrgersCount,
@@ -77,11 +78,12 @@ router.post('/',
         bookingStatus, passengerNames, isActive,
         transactionID, orderID, discountPercentage, pickupDateTime,
         stoppedAt, startedAt, extraPayment, extraTransactionID, extraOrderID,
-        extraDiscount, extraPaymentCompleted
+        extraDiscount, extraPaymentCompleted,
       } = req.body;
 
       // ========== REQUIRED FIELDS VALIDATION ==========
       const requiredFields = {
+        // category: category,
         hours: hours,
         pickupLat: pickupLat,
         pickuplong: pickuplong,
@@ -133,6 +135,15 @@ router.post('/',
           received: Object.keys(req.body)
         });
       }
+      // if(!category || category.trim() === ''){
+
+      //     return res.status(400).json({ 
+      //     success: false, 
+      //     message: 'Invalid category Namne' 
+      //   });
+
+      // }
+
 
       // ========== VALIDATE OBJECT ID FORMAT ==========
       if (!mongoose.Types.ObjectId.isValid(categoryID)) {
@@ -296,9 +307,10 @@ router.post('/',
       // ========== EXISTING BOOKING CHECK ==========
       const activeBooking = await HourlyBooking.findOne({
         customerID: String(customerID).trim(),
-        bookingStatus: { $in: ['pending', 'confirmed', 'in-progress'] },
+        bookingStatus: { $in: ['pending', 'completed', 'starttrack'] },
         isActive: true
       });
+
 
       if (activeBooking) {
         if (req.files) {
@@ -474,6 +486,7 @@ router.post('/',
 
       // ========== CREATE BOOKING OBJECT ==========
       const bookingData = {
+        category: String(category).trim(),
         hours: parsedHours,
         pickupLat: parsedPickupLat,
         pickuplong: parsedPickuplong,
@@ -656,6 +669,7 @@ router.put('/:id',
 
       // Extract fields from request body
       const {
+        category,
         hours, pickupLat, pickuplong, pickupAdddress,
         extraHours, model, categoryID, brandID, carID, cityID,
         charge, customerID, driverID, passsenrgersCount,
@@ -706,6 +720,10 @@ router.put('/:id',
           });
         }
       }
+         // Handle pickup address
+      // if (isValidValue(category)) {
+        updateData.category = String(category).trim();
+      // }
 
       // Handle pickup address
       if (isValidValue(pickupAdddress)) {
@@ -2037,6 +2055,7 @@ router.get('/:id', async (req, res) => {
         // Basic Info
         bookingType: 'بالساعة',
         bookingType_en: 'hourly',
+
         
         // Category with Arabic names
         category: booking.categoryID ? {
@@ -2275,7 +2294,7 @@ router.get('/driver/:driverId', async (req, res) => {
       .populate('customerID', 'username email phoneNumber countryCode profileImage')
       .sort({ createdAt: -1 });
 
-      
+
     res.status(200).json({
       success: true,
       count: bookings.length,

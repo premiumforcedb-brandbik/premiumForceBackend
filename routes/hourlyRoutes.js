@@ -1024,6 +1024,74 @@ router.get('/between/:fromCityId/:toCityId',
 
 
 
+// ============= GET VEHICLE DETAILS WITH HOUR AND PRICE =============
+// GET /api/hourly-routes/vehicle/:vehicleId
+// @desc    Get vehicle details with hourly pricing
+router.get('/vehicle/:vehicleId', async (req, res) => {
+  try {
+    const { vehicleId } = req.params;
+
+    // Validate vehicle ID
+    if (!mongoose.Types.ObjectId.isValid(vehicleId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid vehicle ID format'
+      });
+    }
+
+    // Get vehicle details
+    const vehicle = await Cars.findById(vehicleId)
+      .populate('categoryID', 'name description');
+
+    if (!vehicle) {
+      return res.status(404).json({
+        success: false,
+        message: 'Vehicle not found'
+      });
+    }
+
+    // Get all active hourly routes for this vehicle
+    const hourlyRoutes = await HourlyRoute.find({
+      vehicleID: vehicleId,
+      isActive: true
+    }).sort({ hour: 1 });
+
+    if (!hourlyRoutes || hourlyRoutes.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No hourly pricing found for this vehicle'
+      });
+    }
+
+    // Prepare response
+    res.json({
+      success: true,
+      data: {
+        vehicle: {
+          id: vehicle._id,
+          vehicleNumber: vehicle.vehicleNumber,
+          model: vehicle.model,
+          capacity: vehicle.capacity,
+          category: vehicle.categoryID
+        },
+        pricing: hourlyRoutes.map(route => ({
+          hour: route.hour,
+          price: route.charge,
+          isActive: route.isActive
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Get vehicle details error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching vehicle details',
+      error: error.message
+    });
+  }
+});
+
 
 
 

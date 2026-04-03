@@ -909,7 +909,7 @@ router.get('/city/:cityId', authenticateToken, authorizeAdmin, async (req, res) 
 // ============= GET ROUTE BETWEEN TWO CITIES =============
 // GET /api/routes/between/:fromCityId/:toCityId
 router.get('/between/:fromCityId/:toCityId', 
-  // authenticateToken, authorizeAdmin, 
+  authenticateToken, authorizeAdmin, 
   async (req, res) => {
   try {
     const { fromCityId, toCityId } = req.params;
@@ -953,10 +953,7 @@ router.get('/between/:fromCityId/:toCityId',
 
 
 
-
-
-
-// ============= SIMPLER VERSION - JUST CARS WITH BASIC DETAILS =============
+// =============  - JUST CARS WITH BASIC DETAILS =============
 // GET /api/routes/between/:fromCityId/:toCityId/cars
 router.get('/between/:fromCityId/:toCityId/cars', async (req, res) => {
   try {

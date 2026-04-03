@@ -908,7 +908,9 @@ router.get('/city/:cityId', authenticateToken, authorizeAdmin, async (req, res) 
 
 // ============= GET ROUTE BETWEEN TWO CITIES =============
 // GET /api/routes/between/:fromCityId/:toCityId
-router.get('/between/:fromCityId/:toCityId', authenticateToken, authorizeAdmin, async (req, res) => {
+router.get('/between/:fromCityId/:toCityId', 
+  // authenticateToken, authorizeAdmin, 
+  async (req, res) => {
   try {
     const { fromCityId, toCityId } = req.params;
 
@@ -923,7 +925,7 @@ router.get('/between/:fromCityId/:toCityId', authenticateToken, authorizeAdmin, 
     const route = await Route.findOne({
       fromCity: fromCityId,
       toCity: toCityId
-    }).populate('fromCity toCity', 'cityName isActive');
+    }).populate('fromCity toCity', 'cityName vehicleID isActive');
 
     if (!route) {
       return res.status(404).json({
@@ -946,5 +948,85 @@ router.get('/between/:fromCityId/:toCityId', authenticateToken, authorizeAdmin, 
     });
   }
 });
+
+
+
+
+
+
+
+
+// ============= SIMPLER VERSION - JUST CARS WITH BASIC DETAILS =============
+// GET /api/routes/between/:fromCityId/:toCityId/cars
+router.get('/between/:fromCityId/:toCityId/cars', async (req, res) => {
+  try {
+    const { fromCityId, toCityId } = req.params;
+
+    // Validate IDs
+    if (!mongoose.Types.ObjectId.isValid(fromCityId) || !mongoose.Types.ObjectId.isValid(toCityId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid city ID format'
+      });
+    }
+
+    // Find routes with populated vehicle and city details
+    const routes = await Route.find({
+      fromCity: fromCityId,
+      toCity: toCityId,
+      isActive: true
+    }).populate([
+      {
+        path: 'vehicleID',
+        select: 'carName brand model vehicleNumber capacity acAvailable wifiAvailable images amenities driverName driverPhone contactNumber pricePerKm'
+      },
+      {
+        path: 'fromCity',
+        select: 'cityName state'
+      },
+      {
+        path: 'toCity',
+        select: 'cityName state'
+      }
+    ]);
+
+    if (!routes || routes.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No routes found between these cities'
+      });
+    }
+
+    // Extract car information
+    const cars = routes.map(route => ({
+      routeId: route._id,
+      price: route.charge,
+      carDetails: route.vehicleID,
+      fromCity: route.fromCity,
+      toCity: route.toCity
+    }));
+
+    res.json({
+      success: true,
+      message: 'Cars fetched successfully',
+      data: {
+        totalCars: cars.length,
+        cars: cars
+      }
+    });
+
+  } catch (error) {
+    console.error('Get cars error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching cars',
+      error: error.message
+    });
+  }
+});
+
+
+
+
 
 module.exports = router;

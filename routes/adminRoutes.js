@@ -308,6 +308,7 @@ router.get('/dashboard-summary',
   // authenticateToken, authorizeAdmin,
   async (req, res) => {
     try {
+
       const { startDate, endDate } = req.query;
       
       // Date filter
@@ -426,7 +427,7 @@ router.get('/dashboard-summary',
       const totalCancelledBookings = cancelledBookings + hourlyCancelledBookings;
 
 
-      
+
 
       //  res.json({
       //   success: true,
@@ -472,17 +473,9 @@ router.get('/dashboard-summary',
           total: totalUsers
         },
         drivers: {
-          total: totalDrivers
+          total: activeDrivers,
         },
-          // total: totalBookingsCount,
-          //     regular: totalBookings,
-          //     hourly: hourlyBookings,
-          //     completed: totalCompletedBookings,
-          //     pending: totalPendingBookings,
-          //     cancelled: totalCancelledBookings,
-          //     completionRate: totalBookingsCount > 0 
-          //       ? ((totalCompletedBookings / totalBookingsCount) * 100).toFixed(2) 
-          //       : 0
+      
         bookings: {
 
           total: totalBookingsCount,

@@ -843,6 +843,8 @@ router.put('/:id',
         // Define allowed statuses
         const allowedStatuses = ['pending', 'starttracking', 'assigned', 'completed', 'cancelled'];
         
+      
+        
         // Check if the new status is valid
         if (!allowedStatuses.includes(newStatus)) {
           if (req.files) {
@@ -4353,7 +4355,7 @@ router.patch('/:id/status',  async (req, res) => {
     const { status } = req.body;
     const { id } = req.params;
 
-    const validStatuses = ['pending','assigned', 'starttrack', 'completed', 'cancelled','reviewed'];
+    const validStatuses = ['pending','assigned', 'starttracking', 'completed', 'cancelled','reviewed'];
     
     if (!status || !validStatuses.includes(status)) {
       return res.status(400).json({

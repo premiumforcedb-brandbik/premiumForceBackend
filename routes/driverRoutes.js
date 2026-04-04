@@ -1034,16 +1034,16 @@ router.post('/complete-trip', authenticateDriver, async (req, res) => {
       {
         _id: bookingID,
         driverID: driverId,
-        bookingStatus: 'assigned'
+        bookingStatus: 'starttracking'
       },
       {
         $set: {
           bookingStatus: 'completed',
+          completedAt: new Date()
         }
       },
-      
       { new: true }
-    ).select('bookingStatus  pickupLocation dropLocation customerName customerID carName');
+    ).select('bookingStatus completedAt pickupLocation dropLocation customerName customerID carName');
 
     if (!booking) {
       return res.status(404).json({

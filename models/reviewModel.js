@@ -24,17 +24,13 @@ const reviewSchema = new mongoose.Schema({
     min: [1, 'Rating must be at least 1'],
     max: [5, 'Rating cannot exceed 5']
   },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
   isActive: {
     type: Boolean,
     default: true
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now
   }
 }, {
   timestamps: true // This will automatically handle createdAt and updatedAt

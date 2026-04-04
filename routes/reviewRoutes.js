@@ -3,17 +3,20 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const Review = require('../models/reviewModel');
 const Booking = require('../models/booking_model');
+const Driver = require('../models/driver_model');
+const User = require('../models/users_model');
 const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddleware');
+
 
 
 
 // ============= CREATE REVIEW =============
 // POST /api/reviews - Create a new review (simplified)
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const { driverID, bookingID, reviewText, rate, isActive } = req.body;
 
-    
+
     console.log('Request body:', req.body);
 
     // Basic validation
@@ -47,7 +50,8 @@ router.post('/', async (req, res) => {
       bookingID,
       reviewText: reviewText.trim(),
       rate: parseInt(rate),
-      isActive: isActive !== undefined ? isActive : true
+      isActive: isActive !== undefined ? isActive : true,
+      createdBy: req.user.id
     };
 
     console.log('Creating review with data:', reviewData);
@@ -57,8 +61,9 @@ router.post('/', async (req, res) => {
 
     // Fetch the saved review with populated data
     const savedReview = await Review.findById(review._id)
-      .populate('driverID', 'driverName phoneNumber email')
-      .populate('bookingID', 'carName pickupAddress dropOffAddress charge');
+      .populate({ path: 'driverID', select: 'driverName phoneNumber', model: 'Driver' })
+      .populate({ path: 'bookingID', select: 'carmodel pickupAddress dropOffAddress charge', model: 'Booking' })
+      .populate({ path: 'createdBy', select: 'username email', model: 'User' });
 
     res.status(201).json({
       success: true,
@@ -69,7 +74,7 @@ router.post('/', async (req, res) => {
   } catch (error) {
     console.error('Create review error:', error);
     console.error('Error stack:', error.stack);
-    
+
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
@@ -89,14 +94,14 @@ router.post('/', async (req, res) => {
 
 // ============= GET ALL REVIEWS =============
 // GET /api/reviews - Get all reviews with filters
-router.get('/',  async (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const { 
-      driverID, 
-      isActive, 
-      minRate, 
+    const {
+      driverID,
+      isActive,
+      minRate,
       maxRate,
-      page = 1, 
+      page = 1,
       limit = 10,
       sortBy = 'createdAt',
       sortOrder = 'desc'
@@ -128,13 +133,41 @@ router.get('/',  async (req, res) => {
     const sort = {};
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
+    // Debugging model names
+    console.log('Registered Models:', mongoose.modelNames());
+
     const reviews = await Review.find(query)
-      .populate('driverID', 'driverName phoneNumber email')
-      .populate('bookingID', 'carName pickupAddress dropOffAddress charge createdAt')
-      .populate('createdBy', 'username email')
+      .populate({ path: 'driverID', select: 'driverName phoneNumber', model: 'Driver' })
+      .populate({ path: 'bookingID', select: 'carmodel pickupAddress dropOffAddress charge createdAt', model: 'Booking' })
+      .populate({ path: 'createdBy', select: 'username email', model: 'User' })
       .sort(sort)
       .limit(parseInt(limit))
       .skip((parseInt(page) - 1) * parseInt(limit));
+
+
+    // ============= DEBUG CODE START =============
+    if (reviews.length > 0) {
+      const testReview = reviews[0];
+      // Fetch raw data (without population) to see the original IDs
+      const rawReview = await Review.findById(testReview._id).lean();
+      
+      const driverExists = await mongoose.model('Driver').findById(rawReview.driverID);
+      const bookingExists = await mongoose.model('Booking').findById(rawReview.bookingID);
+      const hourlyExists = await mongoose.model('HourlyBooking').findById(rawReview.bookingID);
+      
+      // List all collections
+      const collections = await mongoose.connection.db.listCollections().toArray();
+      
+      console.log('--- DATABASE DEBUG ---');
+      console.log('Registered Models:', mongoose.modelNames());
+      console.log('Actual Collections in DB:', collections.map(c => c.name));
+      console.log('Review ID:', testReview._id);
+      console.log('Raw Driver ID:', rawReview.driverID, 'Found in Drivers:', !!driverExists);
+      console.log('Raw Booking ID:', rawReview.bookingID, 'Found in standard Bookings:', !!bookingExists);
+      console.log('Raw Booking ID:', rawReview.bookingID, 'Found in HourlyBookings:', !!hourlyExists);
+      console.log('-------------------------------');
+    }
+    // ============= DEBUG CODE END =============
 
     const total = await Review.countDocuments(query);
 
@@ -164,9 +197,10 @@ router.get('/',  async (req, res) => {
   }
 });
 
+
 // ============= GET REVIEW BY ID =============
 // GET /api/reviews/:id - Get single review
-router.get('/:id',  async (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -176,9 +210,9 @@ router.get('/:id',  async (req, res) => {
     }
 
     const review = await Review.findById(req.params.id)
-      .populate('driverID', 'driverName phoneNumber email')
-      .populate('bookingID', 'carName pickupAddress dropOffAddress charge createdAt')
-      .populate('createdBy', 'username email');
+      .populate({ path: 'driverID', select: 'driverName phoneNumber', model: 'Driver' })
+      .populate({ path: 'bookingID', select: 'carmodel pickupAddress dropOffAddress charge createdAt', model: 'Booking' })
+      .populate({ path: 'createdBy', select: 'username email', model: 'User' });
 
     if (!review) {
       return res.status(404).json({
@@ -216,14 +250,14 @@ router.get('/driver/:driverId', async (req, res) => {
       });
     }
 
-    const query = { 
+    const query = {
       driverID: driverId,
-      isActive: true 
+      isActive: true
     };
 
     const reviews = await Review.find(query)
-      .populate('bookingID', 'carName pickupAddress dropOffAddress charge')
-      .populate('createdBy', 'username')
+      .populate({ path: 'bookingID', select: 'carmodel pickupAddress dropOffAddress charge', model: 'Booking' })
+      .populate({ path: 'createdBy', select: 'username', model: 'User' })
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
       .skip((parseInt(page) - 1) * parseInt(limit));
@@ -289,8 +323,8 @@ router.get('/booking/:bookingId', async (req, res) => {
     }
 
     const review = await Review.findOne({ bookingID: bookingId })
-      .populate('driverID', 'driverName phoneNumber email')
-      .populate('createdBy', 'username email');
+      .populate({ path: 'driverID', select: 'driverName phoneNumber', model: 'Driver' })
+      .populate({ path: 'createdBy', select: 'username email', model: 'User' });
 
     if (!review) {
       return res.status(404).json({
@@ -316,7 +350,7 @@ router.get('/booking/:bookingId', async (req, res) => {
 
 // ============= UPDATE REVIEW =============
 // PUT /api/reviews/:id - Update review
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const { reviewText, rate, isActive } = req.body;
 
@@ -360,8 +394,8 @@ router.put('/:id', async (req, res) => {
     await review.save();
 
     await review.populate([
-      { path: 'driverID', select: 'driverName phoneNumber email' },
-      { path: 'bookingID', select: 'carName pickupAddress dropOffAddress charge' },
+      { path: 'driverID', select: 'driverName phoneNumber' },
+      { path: 'bookingID', select: 'carmodel pickupAddress dropOffAddress charge' },
       { path: 'createdBy', select: 'username email' }
     ]);
 
@@ -373,7 +407,7 @@ router.put('/:id', async (req, res) => {
 
   } catch (error) {
     console.error('Update review error:', error);
-    
+
     if (error.name === 'ValidationError') {
       const errors = {};
       for (let field in error.errors) {
@@ -396,7 +430,7 @@ router.put('/:id', async (req, res) => {
 
 // ============= PATCH REVIEW (Partial Update) =============
 // PATCH /api/reviews/:id - Partially update review
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', authenticateToken, async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -435,13 +469,13 @@ router.patch('/:id', async (req, res) => {
       review.rate = parseInt(rate);
     }
     if (isActive !== undefined) review.isActive = isActive;
-    
+
     review.updatedAt = Date.now();
     await review.save();
 
     await review.populate([
-      { path: 'driverID', select: 'driverName phoneNumber email' },
-      { path: 'bookingID', select: 'carName pickupAddress dropOffAddress charge' },
+      { path: 'driverID', select: 'driverName phoneNumber' },
+      { path: 'bookingID', select: 'carmodel pickupAddress dropOffAddress charge' },
       { path: 'createdBy', select: 'username email' }
     ]);
 
@@ -463,7 +497,7 @@ router.patch('/:id', async (req, res) => {
 
 // ============= DELETE REVIEW (Soft Delete) =============
 // DELETE /api/reviews/:id - Soft delete (set isActive to false)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -510,7 +544,7 @@ router.delete('/:id', async (req, res) => {
 
 // ============= HARD DELETE REVIEW (Admin only) =============
 // DELETE /api/reviews/:id/hard - Permanently delete review
-router.delete('/:id/hard', async (req, res) => {
+router.delete('/:id/hard', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -557,11 +591,11 @@ router.get('/stats/driver/:driverId', async (req, res) => {
     }
 
     const stats = await Review.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           driverID: new mongoose.Types.ObjectId(driverId),
-          isActive: true 
-        } 
+          isActive: true
+        }
       },
       {
         $group: {

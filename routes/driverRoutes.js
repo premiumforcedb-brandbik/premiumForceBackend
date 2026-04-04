@@ -1545,6 +1545,7 @@ router.get('/profile/me', verifyDriverToken, async (req, res) => {
 
 
 
+
 router.post('/register',
   authenticateToken,
   authorizeAdmin,
@@ -2657,6 +2658,8 @@ router.get('/debug/all-licenses', async (req, res) => {
 //     }
 //   }
 // );
+
+
 
 
 /**

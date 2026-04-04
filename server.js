@@ -210,6 +210,15 @@ const reviewRoutes = require('./routes/reviewRoutes');
 app.use('/api/reviews', reviewRoutes);
 
 
+const zoneRoutes = require('./routes/zoneRoutes');
+app.use('/api/zone', zoneRoutes);
+
+
+
+const zonePrceRoutes = require('./routes/zonePriceRoutes');
+app.use('/api/zonePrice', zonePrceRoutes);
+
+
 const specialIDRoutes = require('./routes/specialIDRoutes');
 app.use('/api/special-content', specialIDRoutes);
 

@@ -3903,12 +3903,7 @@ router.get('/customer/:customerId', async (req, res) => {
     // Format each booking with full details (similar to admin endpoint)
     const formattedBookings = bookings.map(booking => ({
       _id: booking._id,
-      category: {
-
-        _id: booking.category._id,
-        name: booking.category.name,
-        isActive: booking.category.isActive
-      },
+      category: booking.category,
       // City details
       city: booking.cityID && typeof booking.cityID === 'object' ? {
         _id: booking.cityID._id,

@@ -358,8 +358,6 @@ router.patch('/:id/busy-status',
 
 
 
-
-// drivers list specific dates api needed
 /**
  * @route   GET /api/drivers/availability/date-wise
  * @desc    Get drivers with their availability status for specific dates
@@ -372,207 +370,212 @@ router.get('/availability/date-wise', async (req, res) => {
       startDate, 
       endDate, 
       includeDetails = 'true',
-      status // 'busy', 'available', 'all'
+      status,
+      bookingStatus
     } = req.query;
 
     // Validate at least one date parameter
     if (!date && !startDate && !endDate) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide either date or startDate/endDate parameters',
-        example: '/api/drivers/availability/date-wise?date=2024-03-24'
+        message: 'Please provide either date or startDate/endDate parameters'
       });
     }
 
-    // Build date range for filtering
+    // Build date range
     let startDateTime = null;
     let endDateTime = null;
     let dateRange = {};
 
     if (date) {
-      // Single date filter
       startDateTime = new Date(date);
       startDateTime.setHours(0, 0, 0, 0);
       endDateTime = new Date(date);
       endDateTime.setHours(23, 59, 59, 999);
-      
-      dateRange = {
-        start: startDateTime,
-        end: endDateTime,
-        type: 'single',
-        date: date
-      };
-    } else if (startDate || endDate) {
-      // Date range filter
+      dateRange = { start: startDateTime, end: endDateTime, type: 'single', date: date };
+    } else {
       startDateTime = startDate ? new Date(startDate) : new Date(0);
       endDateTime = endDate ? new Date(endDate) : new Date();
       endDateTime.setHours(23, 59, 59, 999);
-      
-      dateRange = {
-        start: startDateTime,
-        end: endDateTime,
-        type: 'range'
-      };
+      dateRange = { start: startDateTime, end: endDateTime, type: 'range' };
     }
 
     // Get all active drivers
-    const driverQuery = { isActive: true };
-    const drivers = await Driver.find(driverQuery)
+    const drivers = await Driver.find({ isActive: true })
       .select('-refreshToken -__v')
       .sort({ driverName: 1 });
 
-    // Get all bookings WITHOUT date filter first to avoid CastError
-    // Then filter in JavaScript to avoid MongoDB casting issues
+    // Get all bookings without filtering by driverID in query to avoid CastError
     let hourlyBookings = [];
     let normalBookings = [];
 
     try {
-      // Get hourly bookings - handle empty driverID separately
-      hourlyBookings = await HourlyBooking.find({
-        driverID: { $ne: null, $ne: '', $exists: true }
-      });
+      // Get all hourly bookings first (no driverID filter in query)
+      hourlyBookings = await HourlyBooking.find({});
       
-      // Filter by date in JavaScript if date range provided
+      // Filter by date if needed
       if (startDateTime && endDateTime) {
         hourlyBookings = hourlyBookings.filter(booking => {
           const bookingDate = booking.pickupDateTime || booking.createdAt;
-          if (!bookingDate) return false;
-          return bookingDate >= startDateTime && bookingDate <= endDateTime;
+          return bookingDate && bookingDate >= startDateTime && bookingDate <= endDateTime;
         });
+      }
+
+      // Filter by bookingStatus if needed
+      if (bookingStatus && bookingStatus !== 'all') {
+        hourlyBookings = hourlyBookings.filter(booking => 
+          booking.bookingStatus === bookingStatus
+        );
       }
     } catch (err) {
       console.error('Error fetching hourly bookings:', err);
-      hourlyBookings = [];
     }
 
     try {
-      // Get normal bookings - handle empty driverID separately
-      normalBookings = await Booking.find({
-        driverID: { $ne: null, $ne: '', $exists: true }
-      });
+      // Get all normal bookings first (no driverID filter in query)
+      normalBookings = await Booking.find({});
       
-      // Filter by date in JavaScript if date range provided
+      // Filter by date if needed
       if (startDateTime && endDateTime) {
         normalBookings = normalBookings.filter(booking => {
           const bookingDate = booking.arrival || booking.createdAt;
-          if (!bookingDate) return false;
-          return bookingDate >= startDateTime && bookingDate <= endDateTime;
+          return bookingDate && bookingDate >= startDateTime && bookingDate <= endDateTime;
         });
+      }
+
+      // Filter by bookingStatus if needed
+      if (bookingStatus && bookingStatus !== 'all') {
+        normalBookings = normalBookings.filter(booking => 
+          booking.bookingStatus === bookingStatus
+        );
       }
     } catch (err) {
       console.error('Error fetching normal bookings:', err);
-      normalBookings = [];
     }
 
     // Map driver availability
     const driverAvailability = drivers.map((driver) => {
       const driverIdStr = driver._id.toString();
       
-      // Find bookings for this driver
-      const driverHourlyBookings = hourlyBookings.filter(b => {
-        if (!b.driverID) return false;
-        const bookingDriverId = b.driverID.toString();
-        return bookingDriverId === driverIdStr;
-      });
+      // Find bookings for this driver (filter in JavaScript)
+      const driverHourlyBookings = hourlyBookings.filter(b => 
+        b.driverID && b.driverID.toString() === driverIdStr
+      );
       
-      const driverNormalBookings = normalBookings.filter(b => {
-        if (!b.driverID) return false;
-        const bookingDriverId = b.driverID.toString();
-        return bookingDriverId === driverIdStr;
-      });
+      const driverNormalBookings = normalBookings.filter(b => 
+        b.driverID && b.driverID.toString() === driverIdStr
+      );
       
       const allDriverBookings = [...driverHourlyBookings, ...driverNormalBookings];
       
-      // Calculate availability status
+      // Separate completed and pending bookings
+      const completedBookingsList = allDriverBookings.filter(b => 
+        b.bookingStatus === 'completed'
+      );
+      
+      const pendingBookingsList = allDriverBookings.filter(b => 
+        b.bookingStatus === 'pending'
+      );
+      
+      // Check if driver has active booking
       const hasActiveBooking = allDriverBookings.some(booking => 
-        booking.bookingStatus === 'assigned' ||
-        booking.bookingStatus === 'starttrack' ||
-        booking.bookingStatus === 'stoptrack' ||
-        booking.bookingStatus === 'in-progress' ||
-        booking.bookingStatus === 'confirmed'
+        ['assigned', 'starttrack', 'stoptrack', 'in-progress', 'confirmed'].includes(booking.bookingStatus)
       );
       
       const isBusy = driver.isBusy || hasActiveBooking;
       
       // Get active booking details
       const activeBooking = allDriverBookings.find(booking => 
-        booking.bookingStatus === 'assigned' ||
-        booking.bookingStatus === 'starttrack' ||
-        booking.bookingStatus === 'stoptrack' ||
-        booking.bookingStatus === 'in-progress' ||
-        booking.bookingStatus === 'confirmed'
+        ['assigned', 'starttrack', 'stoptrack', 'in-progress', 'confirmed'].includes(booking.bookingStatus)
       );
       
-      // Calculate total bookings count
+      // Calculate stats
       const totalBookings = allDriverBookings.length;
-      const completedBookings = allDriverBookings.filter(b => 
-        b.bookingStatus === 'completed'
-      ).length;
-      
-      // Calculate total earnings
-      const totalEarnings = allDriverBookings.reduce((sum, b) => 
+      const completedBookings = completedBookingsList.length;
+      const pendingBookings = pendingBookingsList.length;
+      const totalEarnings = completedBookingsList.reduce((sum, b) => 
         sum + (parseFloat(b.charge) || 0), 0
       );
-      
-      // Calculate busy hours (for hourly bookings only)
       const busyHours = driverHourlyBookings.reduce((sum, b) => 
         sum + (b.hours || 0), 0
       );
       
-      const availability = {
-        status: isBusy ? 'busy' : 'available',
-        isBusy: isBusy,
-        isActive: driver.isActive,
-        isVerified: driver.isVerified,
-        currentBusyStatus: driver.isBusy,
-        hasActiveBooking: hasActiveBooking
-      };
-      
-      // Build response based on includeDetails flag
-      const driverInfo = {
-        _id: driver._id,
-        driverName: driver.driverName,
-        phoneNumber: driver.phoneNumber,
-        countryCode: driver.countryCode,
-        licenseNumber: driver.licenseNumber,
-        rating: driver.rating,
-        totalTrips: driver.totalTrips,
-        earnings: driver.earnings,
-        profileImage: driver.profileImage
-      };
-      
+      // Build response
       const response = {
-        driver: includeDetails === 'true' ? driverInfo : { 
+        driver: includeDetails === 'true' ? {
+          _id: driver._id,
+          driverName: driver.driverName,
+          phoneNumber: driver.phoneNumber,
+          countryCode: driver.countryCode,
+          licenseNumber: driver.licenseNumber,
+          rating: driver.rating,
+          totalTrips: driver.totalTrips,
+          earnings: driver.earnings,
+          profileImage: driver.profileImage
+        } : { 
           _id: driver._id, 
           driverName: driver.driverName,
           phoneNumber: driver.phoneNumber
         },
-        availability,
+        availability: {
+          status: isBusy ? 'busy' : 'available',
+          isBusy: isBusy,
+          isActive: driver.isActive,
+          isVerified: driver.isVerified,
+          currentBusyStatus: driver.isBusy,
+          hasActiveBooking: hasActiveBooking
+        },
         stats: {
           totalBookings,
           completedBookings,
-          cancelledBookings: allDriverBookings.filter(b => 
-            b.bookingStatus === 'cancelled'
-          ).length,
-          pendingBookings: allDriverBookings.filter(b => 
-            b.bookingStatus === 'pending'
-          ).length,
+          pendingBookings,
+          cancelledBookings: allDriverBookings.filter(b => b.bookingStatus === 'cancelled').length,
           totalEarnings,
-          busyHours: busyHours
+          busyHours
         }
       };
       
-      // Add active booking details if exists and includeDetails is true
+      // Add completed bookings details if requested
+      if (bookingStatus === 'completed' && includeDetails === 'true' && completedBookingsList.length > 0) {
+        response.completedBookings = completedBookingsList.map(booking => ({
+          id: booking._id,
+          type: booking.hours ? 'hourly' : 'normal',
+          status: booking.bookingStatus,
+          charge: booking.charge,
+          hours: booking.hours,
+          pickupAddress: booking.pickupAddress || booking.pickupAdddress,
+          dropOffAddress: booking.dropOffAddress,
+          customerID: booking.customerID,
+          createdAt: booking.createdAt,
+          completedAt: booking.completedAt || booking.updatedAt
+        }));
+      }
+      
+      // Add pending bookings details if requested
+      if (bookingStatus === 'pending' && includeDetails === 'true' && pendingBookingsList.length > 0) {
+        response.pendingBookings = pendingBookingsList.map(booking => ({
+          id: booking._id,
+          type: booking.hours ? 'hourly' : 'normal',
+          status: booking.bookingStatus,
+          charge: booking.charge,
+          hours: booking.hours,
+          pickupAddress: booking.pickupAddress || booking.pickupAdddress,
+          dropOffAddress: booking.dropOffAddress,
+          customerID: booking.customerID,
+          createdAt: booking.createdAt
+        }));
+      }
+      
+      // Add active booking details if exists
       if (activeBooking && includeDetails === 'true') {
         response.activeBooking = {
           id: activeBooking._id,
           type: activeBooking.hours ? 'hourly' : 'normal',
           status: activeBooking.bookingStatus,
           charge: activeBooking.charge,
-          ...(activeBooking.hours && { hours: activeBooking.hours }),
-          ...(activeBooking.pickupAdddress && { pickupAddress: activeBooking.pickupAdddress }),
-          ...(activeBooking.pickupAddress && { pickupAddress: activeBooking.pickupAddress }),
-          ...(activeBooking.dropOffAddress && { dropOffAddress: activeBooking.dropOffAddress }),
+          hours: activeBooking.hours,
+          pickupAddress: activeBooking.pickupAddress || activeBooking.pickupAdddress,
+          dropOffAddress: activeBooking.dropOffAddress,
           customerID: activeBooking.customerID,
           createdAt: activeBooking.createdAt
         };
@@ -581,15 +584,13 @@ router.get('/availability/date-wise', async (req, res) => {
       return response;
     });
     
-    // Filter by status if requested
+    // Apply status filter
     let filteredDrivers = driverAvailability;
     if (status && status !== 'all') {
-      filteredDrivers = driverAvailability.filter(d => 
-        d.availability.status === status
-      );
+      filteredDrivers = driverAvailability.filter(d => d.availability.status === status);
     }
     
-    // Calculate summary statistics
+    // Calculate summary
     const summary = {
       totalDrivers: drivers.length,
       totalBusyDrivers: driverAvailability.filter(d => d.availability.isBusy).length,
@@ -597,22 +598,21 @@ router.get('/availability/date-wise', async (req, res) => {
       totalActiveDrivers: driverAvailability.filter(d => d.availability.isActive).length,
       totalVerifiedDrivers: driverAvailability.filter(d => d.availability.isVerified).length,
       totalBookings: driverAvailability.reduce((sum, d) => sum + d.stats.totalBookings, 0),
+      totalCompletedBookings: driverAvailability.reduce((sum, d) => sum + d.stats.completedBookings, 0),
+      totalPendingBookings: driverAvailability.reduce((sum, d) => sum + d.stats.pendingBookings, 0),
       totalEarnings: driverAvailability.reduce((sum, d) => sum + d.stats.totalEarnings, 0),
       totalBusyHours: driverAvailability.reduce((sum, d) => sum + d.stats.busyHours, 0)
-    };
-    
-    // Group by availability status
-    const groupedByStatus = {
-      busy: driverAvailability.filter(d => d.availability.status === 'busy'),
-      available: driverAvailability.filter(d => d.availability.status === 'available')
     };
     
     res.status(200).json({
       success: true,
       dateRange,
-      filters: { date, startDate, endDate, includeDetails, status },
+      filters: { date, startDate, endDate, includeDetails, status, bookingStatus },
       summary,
-      groupedByStatus,
+      groupedByStatus: {
+        busy: driverAvailability.filter(d => d.availability.status === 'busy'),
+        available: driverAvailability.filter(d => d.availability.status === 'available')
+      },
       data: filteredDrivers
     });
     
@@ -625,6 +625,11 @@ router.get('/availability/date-wise', async (req, res) => {
     });
   }
 });
+
+
+
+
+
 
 // Add this temporary route to clean up empty driverID values
 router.get('/cleanup-empty-drivers', async (req, res) => {

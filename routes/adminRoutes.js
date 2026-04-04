@@ -303,7 +303,6 @@ router.post('/login', async (req, res) => {
 
 
 
-
 // GET /api/analytics/dashboard-summary
 router.get('/dashboard-summary', 
   // authenticateToken, authorizeAdmin,
@@ -425,48 +424,87 @@ router.get('/dashboard-summary',
       const totalCompletedBookings = completedBookings + hourlyCompletedBookings;
       const totalPendingBookings = pendingBookings + hourlyPendingBookings;
       const totalCancelledBookings = cancelledBookings + hourlyCancelledBookings;
+
+
       
-      res.json({
-        success: true,
-        data: {
-          totalRevenue: totalRevenueValue,
-          activeDrivers: activeDrivers,
-          totalUsers: totalUsers,
-          // Additional useful metrics (optional)
-          details: {
-            drivers: {
-              total: totalDrivers,
-              active: activeDrivers,
-              inactive: totalDrivers - activeDrivers
-            },
-            bookings: {
-              total: totalBookingsCount,
-              regular: totalBookings,
-              hourly: hourlyBookings,
-              completed: totalCompletedBookings,
-              pending: totalPendingBookings,
-              cancelled: totalCancelledBookings,
-              completionRate: totalBookingsCount > 0 
-                ? ((totalCompletedBookings / totalBookingsCount) * 100).toFixed(2) 
-                : 0
-            },
-            revenue: {
-              normalBookingCharge: regularRevenue,
-              hourlyCharge: hourlyChargeRevenue,
-              hourlyExtra: hourlyExtraRevenue
-            },
-            users: {
-              total: totalUsers
-            }
-          }
+
+      //  res.json({
+      //   success: true,
+      //   data: {
+      //     totalRevenue: totalRevenueValue,
+      //     activeDrivers: activeDrivers,
+   
+      //     // // Additional useful metrics (optional)
+      //     // details: {
+      //     //   drivers: {
+      //     //     total: totalDrivers,
+      //     //     active: activeDrivers,
+      //     //     inactive: totalDrivers - activeDrivers
+      //     //   },
+      //       bookings: {
+      //         total: totalBookingsCount,
+      //         regular: totalBookings,
+      //         hourly: hourlyBookings,
+      //         completed: totalCompletedBookings,
+      //         pending: totalPendingBookings,
+      //         cancelled: totalCancelledBookings,
+      //         completionRate: totalBookingsCount > 0 
+      //           ? ((totalCompletedBookings / totalBookingsCount) * 100).toFixed(2) 
+      //           : 0
+      //       },
+      //       revenue: {
+      //         normalBookingCharge: regularRevenue,
+      //         hourlyCharge: hourlyChargeRevenue,
+      //         hourlyExtra: hourlyExtraRevenue
+      //       },
+          
+      //     }
+      //   }
+      // });
+
+
+
+
+    res.json({
+      success: true,
+      data: {
+        users: {
+          total: totalUsers
+        },
+        drivers: {
+          total: totalDrivers
+        },
+          // total: totalBookingsCount,
+          //     regular: totalBookings,
+          //     hourly: hourlyBookings,
+          //     completed: totalCompletedBookings,
+          //     pending: totalPendingBookings,
+          //     cancelled: totalCancelledBookings,
+          //     completionRate: totalBookingsCount > 0 
+          //       ? ((totalCompletedBookings / totalBookingsCount) * 100).toFixed(2) 
+          //       : 0
+        bookings: {
+
+          total: totalBookingsCount,
+          completed: totalCompletedBookings,
+          pending: totalPendingBookings,
+          cancelled: totalCancelledBookings,
+          completionRate: totalBookingsCount > 0 
+            ? ((totalCompletedBookings / totalBookingsCount) * 100).toFixed(2) 
+            : 0
+        },
+      
+        earnings: {
+          total: totalRevenueValue
         }
-      });
-    } catch (error) {
-      console.error('Dashboard summary error:', error);
-      res.status(500).json({ success: false, message: error.message });
-    }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
-);
+});
+
+
 
 
 

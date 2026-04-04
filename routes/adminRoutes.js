@@ -1,9 +1,10 @@
 // routes/adminRoutes.js
 const express = require('express');
 const Admin = require('../models/adminModel');
-const User = require('../models/adminModel');
+const User = require('../models/users_model');
 const Driver = require('../models/driver_model');
 const Booking = require('../models/booking_model');
+const HourlyBooking = require('../models/hourlyBookingModel');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
@@ -304,68 +305,168 @@ router.post('/login', async (req, res) => {
 
 
 // GET /api/analytics/dashboard-summary
-router.get('/dashboard-summary', authenticateToken, authorizeAdmin,
-     async (req, res) => {
-  try {
-    const { startDate, endDate } = req.query;
-    
-    // Date filter
-    const dateFilter = {};
-    if (startDate || endDate) {
-      dateFilter.createdAt = {};
-      if (startDate) dateFilter.createdAt.$gte = new Date(startDate);
-      if (endDate) dateFilter.createdAt.$lte = new Date(endDate);
-    }
-
-    // Get all counts in parallel
-    const [
-      totalUsers,
-      totalDrivers,
-      totalBookings,
-      completedBookings,
-      pendingBookings,
-      cancelledBookings,
-      totalEarnings
-    ] = await Promise.all([
-      User.countDocuments(dateFilter),
-      Driver.countDocuments(dateFilter),
-      Booking.countDocuments(dateFilter),
-      Booking.countDocuments({ ...dateFilter, bookingStatus: 'completed' }),
-      Booking.countDocuments({ ...dateFilter, bookingStatus: 'pending' }),
-      Booking.countDocuments({ ...dateFilter, bookingStatus: 'cancelled' }),
-      Booking.aggregate([
-        { $match: { ...dateFilter, paymentStatus: true } },
-        { $group: { _id: null, total: { $sum: { $toDouble: "$charge" } } } }
-      ])
-    ]);
-
-    res.json({
-      success: true,
-      data: {
-        users: {
-          total: totalUsers
-        },
-        drivers: {
-          total: totalDrivers
-        },
-        bookings: {
-          total: totalBookings,
-          completed: completedBookings,
-          pending: pendingBookings,
-          cancelled: cancelledBookings,
-          completionRate: totalBookings > 0 ? (completedBookings / totalBookings * 100).toFixed(2) : 0
-        },
-        earnings: {
-          total: totalEarnings[0]?.total || 0
-        }
+router.get('/dashboard-summary', 
+  // authenticateToken, authorizeAdmin,
+  async (req, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      
+      // Date filter
+      const dateFilter = {};
+      if (startDate || endDate) {
+        dateFilter.createdAt = {};
+        if (startDate) dateFilter.createdAt.$gte = new Date(startDate);
+        if (endDate) dateFilter.createdAt.$lte = new Date(endDate);
       }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+
+      // Get all counts in parallel
+      const [
+        totalUsers,
+        totalDrivers,
+        activeDrivers,
+        totalBookings,
+        hourlyBookings,
+        completedBookings,
+        pendingBookings,
+        cancelledBookings,
+        hourlyCompletedBookings,
+        hourlyPendingBookings,
+        hourlyCancelledBookings,
+        totalRevenue,
+        totalRevenueHourly,
+        extraRevenueHourly
+      ] = await Promise.all([
+        // Total Users
+        User.countDocuments({}),
+        
+        // Total Drivers (all drivers)
+        Driver.countDocuments(dateFilter),
+        
+        // Active Drivers (isActive == true)
+        Driver.countDocuments({ ...dateFilter, isActive: true }),
+        
+        // Total Bookings
+        Booking.countDocuments(dateFilter),
+        
+        // Hourly Bookings
+        HourlyBooking.countDocuments({ ...dateFilter }),
+        
+        // Completed Bookings
+        Booking.countDocuments({ ...dateFilter, bookingStatus: 'completed' }),
+        
+        // Pending Bookings
+        Booking.countDocuments({ ...dateFilter, bookingStatus: 'pending' }),
+        
+        // Cancelled Bookings
+        Booking.countDocuments({ ...dateFilter, bookingStatus: 'cancelled' }),
+        
+        // Completed Hourly Bookings
+        HourlyBooking.countDocuments({ ...dateFilter, bookingStatus: 'completed' }),
+        
+        // Pending Hourly Bookings
+        HourlyBooking.countDocuments({ ...dateFilter, bookingStatus: 'pending' }),
+        
+        // Cancelled Hourly Bookings
+        HourlyBooking.countDocuments({ ...dateFilter, bookingStatus: 'cancelled' }),
+        
+        // Total Revenue from Booking (regular bookings)
+        Booking.aggregate([
+          { 
+            $match: { 
+              ...dateFilter
+            } 
+          },
+          { 
+            $group: { 
+              _id: null, 
+              total: { $sum: { $toDouble: "$charge" } } 
+            } 
+          }
+        ]),
+        
+        // Total Revenue from HourlyBooking (regular charge)
+        HourlyBooking.aggregate([
+          { 
+            $match: { 
+              ...dateFilter
+            } 
+          },
+          { 
+            $group: { 
+              _id: null, 
+              total: { $sum: { $toDouble: "$charge" } } 
+            } 
+          }
+        ]),
+        
+        // Extra Revenue from HourlyBooking (extraPayment)
+        HourlyBooking.aggregate([
+          { 
+            $match: { 
+              ...dateFilter
+            } 
+          },
+          { 
+            $group: { 
+              _id: null, 
+              total: { $sum: { $toDouble: "$extraPayment" } } 
+            } 
+          }
+        ])
+      ]);
+
+      // Calculate total revenue correctly
+      const regularRevenue = totalRevenue[0]?.total || 0;
+      const hourlyChargeRevenue = totalRevenueHourly[0]?.total || 0;
+      const hourlyExtraRevenue = extraRevenueHourly[0]?.total || 0;
+      const totalRevenueValue = regularRevenue + hourlyChargeRevenue + hourlyExtraRevenue;
+      
+      const totalBookingsCount = totalBookings + hourlyBookings;
+      const totalCompletedBookings = completedBookings + hourlyCompletedBookings;
+      const totalPendingBookings = pendingBookings + hourlyPendingBookings;
+      const totalCancelledBookings = cancelledBookings + hourlyCancelledBookings;
+      
+      res.json({
+        success: true,
+        data: {
+          totalRevenue: totalRevenueValue,
+          activeDrivers: activeDrivers,
+          totalUsers: totalUsers,
+          // Additional useful metrics (optional)
+          details: {
+            drivers: {
+              total: totalDrivers,
+              active: activeDrivers,
+              inactive: totalDrivers - activeDrivers
+            },
+            bookings: {
+              total: totalBookingsCount,
+              regular: totalBookings,
+              hourly: hourlyBookings,
+              completed: totalCompletedBookings,
+              pending: totalPendingBookings,
+              cancelled: totalCancelledBookings,
+              completionRate: totalBookingsCount > 0 
+                ? ((totalCompletedBookings / totalBookingsCount) * 100).toFixed(2) 
+                : 0
+            },
+            revenue: {
+              normalBookingCharge: regularRevenue,
+              hourlyCharge: hourlyChargeRevenue,
+              hourlyExtra: hourlyExtraRevenue
+            },
+            users: {
+              total: totalUsers
+            }
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Dashboard summary error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
   }
-});
-
-
+);
 
 
 

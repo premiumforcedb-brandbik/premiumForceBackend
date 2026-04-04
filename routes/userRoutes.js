@@ -793,6 +793,7 @@ router.put('/:id', upload.single('profileImage'), async (req, res) => {
         message: `Duplicate field(s) already exist: ${duplicates.join(', ')}`,
         duplicates: duplicates
       });
+
     }
     
     // Handle profile image if uploaded

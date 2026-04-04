@@ -150,7 +150,7 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
     );
     
     // Update driver as busy
-    await driver.setBusy(bookingID);
+    // await driver.setBusy(bookingID);
 
     // Fetch related data
     const [driverData, bookingData, adminData, customerData] = await Promise.all([
@@ -324,8 +324,9 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
       { new: true }
     );
 
+    
     // Update driver as busy
-    await driver.setBusy(bookingID);
+    // await driver.setBusy(bookingID);
 
     // Fetch related data for response
     const [driverData, adminData] = await Promise.all([

@@ -174,9 +174,6 @@ const bookingSchema = new mongoose.Schema({
 
 
 
-
-
-
 // Method to update booking status with timestamps
 bookingSchema.methods.updateStatus = async function(status) {
   const validStatuses = ['pending', 'assigned', 'starttracking', 'completed', 'cancelled'];

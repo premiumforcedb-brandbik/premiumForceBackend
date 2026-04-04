@@ -784,7 +784,7 @@ router.get('/drivers/hourly-bookings',
 
 
 
-// Mark booking as completed by driver
+// Mark booking as completed by driver, start  tracking veichcle
 router.post('/complete-booking/tracking', authenticateDriver, async (req, res) => {
   try {
     const { bookingID } = req.body;
@@ -832,6 +832,10 @@ router.post('/complete-booking/tracking', authenticateDriver, async (req, res) =
 
     // Get driver details for notification
     const driver = await Driver.findById(driverId).select('driverName phoneNumber');
+
+
+
+    await driver.setBusy(bookingID);
     
     // Get customer details for notification - THIS NOW WORKS BECAUSE Customer IS IMPORTED
     const customer = await Customer.findById(booking.customerID).select('name email phone');
@@ -917,11 +921,12 @@ router.post('/complete-booking/tracking/HourlyBooking', authenticateDriver, asyn
       {
         $set: {
           bookingStatus: 'starttracking',
-          completedAt: new Date()
+          startedAt: new Date()
         }
       },
       { new: true }
-    ).select('bookingStatus completedAt pickupAddress  customerName customerID carName');
+
+    ).select('bookingStatus completedAt startedAt pickupAddress  customerName customerID carName');
 
     if (!booking) {
       return res.status(404).json({
@@ -942,6 +947,9 @@ router.post('/complete-booking/tracking/HourlyBooking', authenticateDriver, asyn
     // Get driver details for notification
     const driver = await Driver.findById(driverId).select('driverName phoneNumber');
     
+
+    await driver.setBusy(bookingID);
+
     // Get customer details for notification - THIS NOW WORKS BECAUSE Customer IS IMPORTED
     const customer = await Customer.findById(booking.customerID).select('name email phone');
 
@@ -1002,7 +1010,7 @@ router.post('/complete-booking/tracking/HourlyBooking', authenticateDriver, asyn
 
 
 
-// Mark booking as completed by driver
+// Mark booking as completed by driver,stop tracking normal booking
 router.post('/complete-trip', authenticateDriver, async (req, res) => {
   try {
     const { bookingID } = req.body;
@@ -1051,6 +1059,8 @@ router.post('/complete-trip', authenticateDriver, async (req, res) => {
     // Get driver details for notification
     const driver = await Driver.findById(driverId).select('driverName phoneNumber');
     
+     
+     // Mark driver as available after trip completion
     // Get customer details for notification - THIS NOW WORKS BECAUSE Customer IS IMPORTED
     const customer = await Customer.findById(booking.customerID).select('name email phone');
 
@@ -1120,7 +1130,7 @@ router.post('/complete-trip', authenticateDriver, async (req, res) => {
 
 
 
-// Mark booking as completed by driver
+// Mark booking as completed by driver, hourly booking stop tracking
 router.post('/complete-trip/HourlyBooking', authenticateDriver, async (req, res) => {
   try {
     const { bookingID } = req.body;
@@ -1139,16 +1149,16 @@ router.post('/complete-trip/HourlyBooking', authenticateDriver, async (req, res)
       {
         _id: bookingID,
         driverID: driverId,
-        bookingStatus: 'assigned'
+        bookingStatus: 'starttracking'
       },
       {
         $set: {
-          bookingStatus: 'completed',
-          completedAt: new Date()
+          bookingStatus: 'stoptracking',
+          stoppedAt: new Date()
         }
       },
       { new: true }
-    ).select('bookingStatus completedAt pickupLocation dropLocation customerName customerID carName');
+    ).select('bookingStatus completedAt stoppedAt startedAt hours extraHours pickupAddress dropOffAddress customerName customerID carName charge');
 
     if (!booking) {
       return res.status(404).json({
@@ -1157,13 +1167,9 @@ router.post('/complete-trip/HourlyBooking', authenticateDriver, async (req, res)
       });
     }
 
-    // Update driver stats
-    await Driver.findByIdAndUpdate(driverId, {
-      $inc: { totalTrips: 1 },
-      $set: { lastTripCompletedAt: new Date() }
-    });
 
-    console.log(`Booking ${bookingID} marked as completed by driver ${driverId}`); 
+
+    console.log(`Booking ${bookingID} marked as stopped tracking by driver ${driverId}`); 
     console.log('Booking details:', booking);
 
     // Get driver details for notification
@@ -1176,12 +1182,116 @@ router.post('/complete-trip/HourlyBooking', authenticateDriver, async (req, res)
     if (typeof notifyUser === 'function') {
 
 
-      await booking.updateStatus('completed');
     
     // Update driver as busy
     await driver.setFree(bookingID);
 
 
+
+    // Calculate actual hours worked
+    if (booking.startedAt && booking.stoppedAt) {
+      const actualMilliseconds = booking.stoppedAt - booking.startedAt;
+      const actualHours = actualMilliseconds / (1000 * 60 * 60); // Convert to hours
+      
+      // Calculate extra hours if actual hours exceed booked hours
+      const extraHours = Math.max(0, actualHours - (booking.hours || 0));
+      
+      // Update extra hours in the booking
+      await HourlyBooking.findByIdAndUpdate(bookingID, {
+        $set: { extraHours: extraHours }
+      });
+      
+      console.log(`Booking ${bookingID}: Booked hours: ${booking.hours}, Actual hours: ${actualHours.toFixed(2)}, Extra hours: ${extraHours.toFixed(2)}`);
+    }
+
+
+  if (!booking.extraHours >0) {
+      // Update extra hours in the booking
+      await HourlyBooking.findByIdAndUpdate(bookingID, {
+        $set: { bookingStatus: 'paymentPending',
+        }
+      })
+
+       res.status(200).json({
+      success: true,
+      message: 'The Payment is pending for extra hours, please proceed to payment to complete the trip',
+      data: {
+        bookingId: booking._id,
+        status: booking.bookingStatus,
+        completedAt: booking.completedAt,
+        bookingDetails: {
+          pickupLocation: booking.pickupAdddress,
+   
+          carName: booking.carName,
+          customerName: customer?.name || booking.customerName
+        },
+        driver: {
+          id: driverId,
+          name: driver?.driverName,
+          phone: driver?.phoneNumber,
+          totalTrips: driver?.totalTrips ? driver.totalTrips + 1 : 1
+        }
+      }
+    });
+
+
+    
+      await notifyUser(
+        booking.customerID,
+        '✅ The Payment is pending for extra hours',
+        'please proceed to payment to complete the trip',
+
+        {
+          type: 'paymentPending',
+          bookingId: bookingID.toString(),
+          status: 'paymentPending',
+          completedAt: booking.completedAt,
+          bookingDetails: {
+            pickupLocation: booking.pickupAdddress,
+        
+            carName: booking.carName,
+            customerName: customer?.name,
+            driverName: driver?.driverName,
+            driverPhone: driver?.phoneNumber
+          }
+        }
+      );
+    } 
+    else
+      {
+
+    // Update driver stats
+    await Driver.findByIdAndUpdate(driverId, {
+      $inc: { totalTrips: 1 },
+      $set: { lastTripCompletedAt: new Date() }
+    });
+
+      await booking.updateStatus('completed');
+
+ res.status(200).json({
+      success: true,
+      message: 'Trip completed successfully',
+      data: {
+        bookingId: booking._id,
+        status: booking.bookingStatus,
+        completedAt: booking.completedAt,
+        bookingDetails: {
+          pickupLocation: booking.pickupAdddress,
+   
+          carName: booking.carName,
+          customerName: customer?.name || booking.customerName
+        },
+        driver: {
+          id: driverId,
+          name: driver?.driverName,
+          phone: driver?.phoneNumber,
+          totalTrips: driver?.totalTrips ? driver.totalTrips + 1 : 1
+        }
+      }
+    });
+
+
+    
       await notifyUser(
         booking.customerID,
         '✅ Trip Completed',
@@ -1203,27 +1313,7 @@ router.post('/complete-trip/HourlyBooking', authenticateDriver, async (req, res)
       );
     }
 
-    res.status(200).json({
-      success: true,
-      message: 'Trip completed successfully',
-      data: {
-        bookingId: booking._id,
-        status: booking.bookingStatus,
-        completedAt: booking.completedAt,
-        bookingDetails: {
-          pickupLocation: booking.pickupAdddress,
-   
-          carName: booking.carName,
-          customerName: customer?.name || booking.customerName
-        },
-        driver: {
-          id: driverId,
-          name: driver?.driverName,
-          phone: driver?.phoneNumber,
-          totalTrips: driver?.totalTrips ? driver.totalTrips + 1 : 1
-        }
-      }
-    });
+    }
 
   } catch (error) {
     console.error('Complete booking error:', error);

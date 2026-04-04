@@ -599,6 +599,8 @@ router.post('/',
   });
 
 
+  
+
 
 // PUT /api/hourly-bookings/:id - Update hourly booking
 router.put('/:id',

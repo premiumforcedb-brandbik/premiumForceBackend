@@ -66,6 +66,28 @@ const fileFilter = (req, file, cb) => {
       cb(new Error('Only image files are allowed for terminal image (jpeg, jpg, png, gif, webp, svg)'), false);
     }
   }
+  // For banner English image
+  else if (fieldName === 'image') {
+    const isImage = allowedImageTypes.includes(extname) && 
+                   (mimetype.startsWith('image/') || allowedImageTypes.includes(extname));
+    
+    if (isImage) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed for banner English image (jpeg, jpg, png, gif, webp, svg)'), false);
+    }
+  }
+  // For banner Arabic image
+  else if (fieldName === 'imageAr') {
+    const isImage = allowedImageTypes.includes(extname) && 
+                   (mimetype.startsWith('image/') || allowedImageTypes.includes(extname));
+    
+    if (isImage) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed for banner Arabic image (jpeg, jpg, png, gif, webp, svg)'), false);
+    }
+  }
   // For model/collection icon
   else if (fieldName === 'icon') {
     const isImage = allowedImageTypes.includes(extname) && 
@@ -184,6 +206,10 @@ const generateFileName = (originalname, fieldName) => {
     folder = 'users/profiles';
   } else if (fieldName === 'image') {
     folder = 'terminals/images';
+  } else if (fieldName === 'bannerImage') {
+    folder = 'banners/english-images';
+  } else if (fieldName === 'bannerImageAr') {
+    folder = 'banners/arabic-images';
   } else if (fieldName === 'icon') {
     folder = 'models/icons';
   } else if (fieldName === 'carImage') {
@@ -207,7 +233,7 @@ const generateFileName = (originalname, fieldName) => {
   return `${folder}/${timestamp}-${randomString}${extension}`;
 };
 
-// Configure multer for S3 upload with 12MB limit
+// Configure multer for S3 upload with 50MB limit
 console.log('Creating multer S3 storage with bucket:', process.env.AWS_S3_BUCKET_NAME);
 
 const upload = multer({
@@ -232,7 +258,7 @@ const upload = multer({
   }),
   fileFilter: fileFilter,
   limits: {
-    fileSize: 50 * 1024 * 1024 // 12MB limit for all files (images and audio)
+    fileSize: 50 * 1024 * 1024 // 50MB limit for all files (images and audio)
   }
 });
 
@@ -315,6 +341,32 @@ const formatUserProfileImage = (file) => {
 
 // Helper function to format terminal image
 const formatTerminalImage = (file) => {
+  if (!file) return null;
+  
+  return {
+    key: file.key,
+    url: getS3Url(file.key),
+    originalName: file.originalname,
+    mimeType: file.mimetype,
+    size: file.size
+  };
+};
+
+// Helper function to format banner English image
+const formatBannerImage = (file) => {
+  if (!file) return null;
+  
+  return {
+    key: file.key,
+    url: getS3Url(file.key),
+    originalName: file.originalname,
+    mimeType: file.mimetype,
+    size: file.size
+  };
+};
+
+// Helper function to format banner Arabic image
+const formatBannerImageAr = (file) => {
   if (!file) return null;
   
   return {
@@ -449,6 +501,8 @@ module.exports = {
   formatFile,
   formatUserProfileImage,
   formatTerminalImage,
+  formatBannerImage,
+  formatBannerImageAr,
   formatModelIcon,
   formatHourlyCarImage,
   formatHourlyAudioFile,

@@ -17,6 +17,17 @@ const bannerSchema = new mongoose.Schema({
     },
     default: null
   },
+
+    imageAr: {
+    type: {
+      key: String,
+      url: String,
+      originalName: String,
+      mimeType: String,
+      size: Number
+    },
+    default: null
+  },
   isActive: {
     type: Boolean,
     default: true

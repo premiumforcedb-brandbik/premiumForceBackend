@@ -1039,7 +1039,7 @@ router.post('/complete-trip', authenticateDriver, async (req, res) => {
       {
         $set: {
           bookingStatus: 'completed',
-          completedAt: new Date()
+          // completedAt: new Date()
         }
       },
       { new: true }

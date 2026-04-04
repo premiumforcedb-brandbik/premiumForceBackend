@@ -35,13 +35,13 @@ const cleanupUploadedFiles = async (files) => {
   await Promise.all(deletePromises);
 };
 
+
 // ============= CREATE BANNER =============
-// POST /api/banners - Create a new banner (image optional)
+// POST /api/banners - Create a new banner (image and imageAr mandatory)
 router.post('/', 
   authenticateToken, 
   authorizeAdmin,
-  
-  upload.fields([{ name: 'image', maxCount: 1 }]), 
+  upload.fields([{ name: 'image', maxCount: 1 }, { name: 'imageAr', maxCount: 1 }]), 
   async (req, res) => {
     try {
       const { 
@@ -57,12 +57,32 @@ router.post('/',
       console.log('Create banner - Body:', req.body);
       console.log('Create banner - Files:', req.files);
 
-      // Validate required fields - removed categoryName
+      // Validate required fields
       if (!name) {
         await cleanupUploadedFiles(req.files);
         return res.status(400).json({
           success: false,
           message: 'Please provide name'
+        });
+      }
+
+      // Validate image is mandatory
+      if (!req.files || !req.files.image || !req.files.image[0]) {
+        await cleanupUploadedFiles(req.files);
+        return res.status(400).json({
+          success: false,
+          message: 'English image (image) is required',
+          field: 'image'
+        });
+      }
+
+      // Validate imageAr is mandatory
+      if (!req.files || !req.files.imageAr || !req.files.imageAr[0]) {
+        await cleanupUploadedFiles(req.files);
+        return res.status(400).json({
+          success: false,
+          message: 'Arabic image (imageAr) is required',
+          field: 'imageAr'
         });
       }
 
@@ -88,7 +108,8 @@ router.post('/',
         link: link || undefined,
         priority: parseInt(priority) || 0,
         createdBy: req.user.userId,
-        image: null // Explicitly set to null
+        image: null,
+        imageAr: null
       };
 
       // Add dates if provided
@@ -100,25 +121,27 @@ router.post('/',
         bannerData.endDate = new Date(endDate);
       }
 
-      // Add image if uploaded (optional) - THIS HANDLES S3 UPLOAD
+      // Add English image (mandatory)
       if (req.files && req.files.image && req.files.image[0]) {
-        console.log('Image uploaded:', req.files.image[0]);
+        console.log('English image uploaded:', req.files.image[0]);
         bannerData.image = formatFileData(req.files.image[0]);
-        console.log('Formatted image data:', bannerData.image);
+        console.log('Formatted English image data:', bannerData.image);
+      }
+
+      // Add Arabic image (mandatory)
+      if (req.files && req.files.imageAr && req.files.imageAr[0]) {
+        console.log('Arabic image uploaded:', req.files.imageAr[0]);
+        bannerData.imageAr = formatFileData(req.files.imageAr[0]);
+        console.log('Formatted Arabic image data:', bannerData.imageAr);
       }
 
       // Create new banner
       const newBanner = new Banner(bannerData);
       const savedBanner = await newBanner.save();
 
-      // Prepare response message
-      const responseMessage = bannerData.image 
-        ? 'Banner created successfully with image'
-        : 'Banner created successfully (without image)';
-
       res.status(201).json({
         success: true,
-        message: responseMessage,
+        message: 'Banner created successfully with both English and Arabic images',
         data: savedBanner.getPublicBanner()
       });
 
@@ -164,7 +187,7 @@ router.post('/',
 router.put('/:id', 
   authenticateToken, 
   authorizeAdmin,
-  upload.fields([{ name: 'image', maxCount: 1 }]), 
+  upload.fields([{ name: 'image', maxCount: 1 }, { name: 'imageAr', maxCount: 1 }]), 
   async (req, res) => {
     try {
       const { id } = req.params;
@@ -206,7 +229,7 @@ router.put('/:id',
       if (name && name.toLowerCase() !== banner.name.toLowerCase()) {
         const existingBannerByName = await Banner.findOne({ 
           name: { $regex: new RegExp(`^${name}$`, 'i') },
-          _id: { $ne: id } // Exclude current banner
+          _id: { $ne: id }
         });
         
         if (existingBannerByName) {
@@ -233,21 +256,54 @@ router.put('/:id',
       if (startDate) updateData.startDate = new Date(startDate);
       if (endDate) updateData.endDate = new Date(endDate);
       
-      // Handle image upload
+      // Handle English image upload (mandatory check)
       if (req.files && req.files.image && req.files.image[0]) {
-        console.log('New image uploaded:', req.files.image[0]);
+        console.log('New English image uploaded:', req.files.image[0]);
         
-        // Delete old image from S3 if exists
+        // Delete old English image from S3 if exists
         if (banner.image && banner.image.key) {
-          console.log('Deleting old image:', banner.image.key);
+          console.log('Deleting old English image:', banner.image.key);
           await deleteFromS3(banner.image.key).catch(err => 
-            console.error('Error deleting old image:', err)
+            console.error('Error deleting old English image:', err)
           );
         }
         
-        // Add new image data
+        // Add new English image data
         updateData.image = formatFileData(req.files.image[0]);
-        console.log('New image data:', updateData.image);
+        console.log('New English image data:', updateData.image);
+      } else if (req.body.requireImage === 'true' && !banner.image) {
+        // If image is required but not provided and no existing image
+        await cleanupUploadedFiles(req.files);
+        return res.status(400).json({
+          success: false,
+          message: 'English image (image) is required',
+          field: 'image'
+        });
+      }
+      
+      // Handle Arabic image upload (mandatory check)
+      if (req.files && req.files.imageAr && req.files.imageAr[0]) {
+        console.log('New Arabic image uploaded:', req.files.imageAr[0]);
+        
+        // Delete old Arabic image from S3 if exists
+        if (banner.imageAr && banner.imageAr.key) {
+          console.log('Deleting old Arabic image:', banner.imageAr.key);
+          await deleteFromS3(banner.imageAr.key).catch(err => 
+            console.error('Error deleting old Arabic image:', err)
+          );
+        }
+        
+        // Add new Arabic image data
+        updateData.imageAr = formatFileData(req.files.imageAr[0]);
+        console.log('New Arabic image data:', updateData.imageAr);
+      } else if (req.body.requireImageAr === 'true' && !banner.imageAr) {
+        // If imageAr is required but not provided and no existing image
+        await cleanupUploadedFiles(req.files);
+        return res.status(400).json({
+          success: false,
+          message: 'Arabic image (imageAr) is required',
+          field: 'imageAr'
+        });
       }
 
       console.log('Update data:', updateData);
@@ -266,9 +322,18 @@ router.put('/:id',
         });
       }
 
+      let successMessage = 'Banner updated successfully';
+      if (updateData.image && updateData.imageAr) {
+        successMessage = 'Banner updated successfully with both English and Arabic images';
+      } else if (updateData.image) {
+        successMessage = 'Banner updated successfully with English image only';
+      } else if (updateData.imageAr) {
+        successMessage = 'Banner updated successfully with Arabic image only';
+      }
+
       res.status(200).json({
         success: true,
-        message: updateData.image ? 'Banner updated successfully with new image' : 'Banner updated successfully',
+        message: successMessage,
         data: updatedBanner.getPublicBanner()
       });
 
@@ -315,6 +380,9 @@ router.put('/:id',
     }
   }
 );
+
+
+
 
 // ============= GET ALL BANNERS =============
 // GET /api/banners - Get all banners with filtering
@@ -645,8 +713,10 @@ router.delete('/:id',
 
 // ============= TRACK BANNER CLICK =============
 // POST /api/banners/:id/click - Track banner click
-router.post('/:id/click',  authenticateToken, 
-  authorizeAdmin, async (req, res) => {
+router.post('/:id/click',  
+  authenticateToken, 
+  authorizeAdmin,
+   async (req, res) => {
   try {
     const { id } = req.params;
 

@@ -150,14 +150,14 @@ router.get('/', async (req, res) => {
       const testReview = reviews[0];
       // Fetch raw data (without population) to see the original IDs
       const rawReview = await Review.findById(testReview._id).lean();
-      
+
       const driverExists = await mongoose.model('Driver').findById(rawReview.driverID);
       const bookingExists = await mongoose.model('Booking').findById(rawReview.bookingID);
       const hourlyExists = await mongoose.model('HourlyBooking').findById(rawReview.bookingID);
-      
+
       // List all collections
       const collections = await mongoose.connection.db.listCollections().toArray();
-      
+
       console.log('--- DATABASE DEBUG ---');
       console.log('Registered Models:', mongoose.modelNames());
       console.log('Actual Collections in DB:', collections.map(c => c.name));
@@ -577,9 +577,9 @@ router.delete('/:id/hard', authenticateToken, authorizeAdmin, async (req, res) =
   }
 });
 
-// ============= GET REVIEW STATS =============
-// GET /api/reviews/stats/driver/:driverId - Get review statistics for a driver
-router.get('/stats/driver/:driverId', async (req, res) => {
+// ============= GET SIMPLIFIED DRIVER STATS =============
+// GET /api/reviews/driver-stats/:driverId - Get simplified rating stats for a driver
+router.get('/driver-stats/:driverId', async (req, res) => {
   try {
     const { driverId } = req.params;
 
@@ -599,49 +599,35 @@ router.get('/stats/driver/:driverId', async (req, res) => {
       },
       {
         $group: {
-          _id: null,
-          averageRating: { $avg: '$rate' },
+          _id: '$driverID',
+          totalRatingPoints: { $sum: '$rate' },
           totalReviews: { $sum: 1 },
-          ratingCounts: {
-            $push: '$rate'
-          }
-        }
-      },
-      {
-        $project: {
-          averageRating: { $round: ['$averageRating', 1] },
-          totalReviews: 1,
-          ratingBreakdown: {
-            fiveStar: { $size: { $filter: { input: '$ratingCounts', cond: { $eq: ['$$this', 5] } } } },
-            fourStar: { $size: { $filter: { input: '$ratingCounts', cond: { $eq: ['$$this', 4] } } } },
-            threeStar: { $size: { $filter: { input: '$ratingCounts', cond: { $eq: ['$$this', 3] } } } },
-            twoStar: { $size: { $filter: { input: '$ratingCounts', cond: { $eq: ['$$this', 2] } } } },
-            oneStar: { $size: { $filter: { input: '$ratingCounts', cond: { $eq: ['$$this', 1] } } } }
-          }
+          averageRating: { $avg: '$rate' }
         }
       }
     ]);
 
+    const data = stats[0] || {
+      totalRatingPoints: 0,
+      totalReviews: 0,
+      averageRating: 0
+    };
+
     res.json({
       success: true,
-      data: stats[0] || {
-        averageRating: 0,
-        totalReviews: 0,
-        ratingBreakdown: {
-          fiveStar: 0,
-          fourStar: 0,
-          threeStar: 0,
-          twoStar: 0,
-          oneStar: 0
-        }
+      data: {
+        driverID: driverId,
+        totalReviews: data.totalReviews,
+        totalRatingPoints: data.totalRatingPoints,
+        averageRating: parseFloat(data.averageRating.toFixed(1))
       }
     });
 
   } catch (error) {
-    console.error('Get review stats error:', error);
+    console.error('Get driver stats error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching review statistics',
+      message: 'Error fetching driver statistics',
       error: error.message
     });
   }

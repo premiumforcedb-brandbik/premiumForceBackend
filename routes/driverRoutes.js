@@ -2015,6 +2015,7 @@ router.put('/:id',
     } catch (error) {
       console.error('❌ Update driver error:', error);
 
+      
       // Delete uploaded files if error occurs
       if (req.files) {
         if (req.files.profileImage && req.files.profileImage[0]) {

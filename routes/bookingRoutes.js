@@ -2595,7 +2595,8 @@ router.get('/:id',
         cityDetails: booking.airportID.cityID && typeof booking.airportID.cityID === 'object' ? {
           _id: booking.airportID.cityID._id,
           cityName: booking.airportID.cityID.cityName,
-          cityNameAr: booking.airportID.cityID.cityNameAr
+          cityNameAr: booking.airportID.cityID.cityNameAr,
+          isActive: booking.airportID.cityID.isActive
         } : null,
         airportName: booking.airportID.airportName,
         airportNameAr: booking.airportID.airportNameAr,
@@ -2612,7 +2613,8 @@ router.get('/:id',
         airportDetails: booking.terminalID.airportID && typeof booking.terminalID.airportID === 'object' ? {
           _id: booking.terminalID.airportID._id,
           airportName: booking.terminalID.airportID.airportName,
-          airportNameAr: booking.terminalID.airportID.airportNameAr
+          airportNameAr: booking.terminalID.airportID.airportNameAr,
+          isActive: booking.terminalID.airportID.isActive
         } : null,
         terminalName: booking.terminalID.terminalName,
         terminalNameAr: booking.terminalID.terminalNameAr,
@@ -2626,11 +2628,14 @@ router.get('/:id',
         _id: booking.carID._id,
         categoryDetails: booking.carID.categoryID && typeof booking.carID.categoryID === 'object' ? {
           _id: booking.carID.categoryID._id,
-          categoryName: booking.carID.categoryID.name
+          categoryName: booking.carID.categoryID.name,
+          isActive: booking.carID.categoryID.isActive
+
         } : null,
         brandDetails: booking.carID.brandID && typeof booking.carID.brandID === 'object' ? {
           _id: booking.carID.brandID._id,
-          brandName: booking.carID.brandID.brandName
+          brandName: booking.carID.brandID.brandName,
+          isActive: booking.carID.brandID.isActive
         } : null,
         carName: booking.carID.carName,
         model: booking.carID.model,
@@ -3650,7 +3655,8 @@ router.get('/',authenticateToken,
           cityDetails: booking.airportID.cityID && typeof booking.airportID.cityID === 'object' ? {
             _id: booking.airportID.cityID._id,
             cityName: booking.airportID.cityID.cityName,
-            cityNameAr: booking.airportID.cityID.cityNameAr
+            cityNameAr: booking.airportID.cityID.cityNameAr,
+            isActive: booking.airportID.cityID.isActive,
           } : null,
           airportName: booking.airportID.airportName,
           airportNameAr: booking.airportID.airportNameAr,
@@ -3667,7 +3673,8 @@ router.get('/',authenticateToken,
           airportID: booking.terminalID.airportID,
           airportDetails: booking.terminalID.airportID && typeof booking.terminalID.airportID === 'object' ? {
             _id: booking.terminalID.airportID._id,
-            airportName: booking.terminalID.airportID.airportName
+            airportName: booking.terminalID.airportID.airportName,
+            isActive: booking.terminalID.airportID.isActive
           } : null,
           terminalName: booking.terminalID.terminalName,
           terminalNameAr: booking.terminalID.terminalNameAr,
@@ -3682,12 +3689,14 @@ router.get('/',authenticateToken,
           // categoryID: booking.carID.categoryID,
           categoryDetails: booking.carID.categoryID && typeof booking.carID.categoryID === 'object' ? {
             _id: booking.carID.categoryID._id,
-            categoryName: booking.carID.categoryID.name
+            categoryName: booking.carID.categoryID.name,
+            isActive: booking.carID.categoryID.isActive
           } : null,
           // brandID: booking.carID.brandID,
           brandDetails: booking.carID.brandID && typeof booking.carID.brandID === 'object' ? {
             _id: booking.carID.brandID._id,
-            brandName: booking.carID.brandID.brandName
+            brandName: booking.carID.brandID.brandName,
+            isActive: booking.carID.brandID.isActive
           } : null,
           carName: booking.carID.carName,
           model: booking.carID.model,
@@ -3845,7 +3854,7 @@ router.get('/customer/:customerId', async (req, res) => {
         populate: {
           path: 'cityID',
           model: 'City',
-          select: '_id cityName cityNameAr'
+          select: '_id cityName cityNameAr isActive'
         },
         select: '_id cityID airportName airportNameAr lat long image isActive createdAt'
       })
@@ -3855,7 +3864,7 @@ router.get('/customer/:customerId', async (req, res) => {
         populate: {
           path: 'airportID',
           model: 'Airport',
-          select: '_id airportName airportNameAr'
+          select: '_id airportName airportNameAr isActive'
         },
         select: '_id airportID terminalName terminalNameAr image isActive createdAt'
       })
@@ -3866,15 +3875,15 @@ router.get('/customer/:customerId', async (req, res) => {
           {
             path: 'categoryID',
             model: 'Category',
-            select: '_id name'
+            select: '_id name isActive'
           },
           {
             path: 'brandID',
             model: 'Brand',
-            select: '_id brandName'
+            select: '_id brandName isActive'
           }
         ],
-        select: '_id categoryID brandID carName model numberOfPassengers carImage minimumChargeDistance createdAt'
+        select: '_id categoryID brandID isActive carName model numberOfPassengers carImage minimumChargeDistance createdAt'
       })
       .populate({
         path: 'driverID',
@@ -3892,8 +3901,12 @@ router.get('/customer/:customerId', async (req, res) => {
     // Format each booking with full details (similar to admin endpoint)
     const formattedBookings = bookings.map(booking => ({
       _id: booking._id,
-      category: booking.category,
-      
+      category: {
+
+        _id: booking.category._id,
+        name: booking.category.name,
+        isActive: booking.category.isActive
+      },
       // City details
       city: booking.cityID && typeof booking.cityID === 'object' ? {
         _id: booking.cityID._id,
@@ -3911,11 +3924,13 @@ router.get('/customer/:customerId', async (req, res) => {
         cityDetails: booking.airportID.cityID && typeof booking.airportID.cityID === 'object' ? {
           _id: booking.airportID.cityID._id,
           cityName: booking.airportID.cityID.cityName,
-          cityNameAr: booking.airportID.cityID.cityNameAr
+          cityNameAr: booking.airportID.cityID.cityNameAr,
+          isActive: booking.airportID.cityID.isActive
         } : null,
         lat: booking.airportID.lat,
         long: booking.airportID.long,
-        image: booking.airportID.image
+        image: booking.airportID.image,
+        isActive: booking.airportID.isActive,
       } : null,
       
       // Terminal details with airport info
@@ -3926,8 +3941,11 @@ router.get('/customer/:customerId', async (req, res) => {
         airportDetails: booking.terminalID.airportID && typeof booking.terminalID.airportID === 'object' ? {
           _id: booking.terminalID.airportID._id,
           airportName: booking.terminalID.airportID.airportName,
-          airportNameAr: booking.terminalID.airportID.airportNameAr
+          airportNameAr: booking.terminalID.airportID.airportNameAr,
+          isActive: booking.terminalID.airportID.isActive
         } : null,
+
+          isActive: booking.terminalID.airportID.isActive,
         image: booking.terminalID.image
       } : null,
       
@@ -3940,11 +3958,13 @@ router.get('/customer/:customerId', async (req, res) => {
         carImage: booking.carID.carImage,
         categoryDetails: booking.carID.categoryID && typeof booking.carID.categoryID === 'object' ? {
           _id: booking.carID.categoryID._id,
-          name: booking.carID.categoryID.name
+          name: booking.carID.categoryID.name,
+          isActive: booking.carID.categoryID.isActive
         } : null,
         brandDetails: booking.carID.brandID && typeof booking.carID.brandID === 'object' ? {
           _id: booking.carID.brandID._id,
-          brandName: booking.carID.brandID.brandName
+          brandName: booking.carID.brandID.brandName,
+          isActive: booking.carID.brandID.isActive
         } : null
       } : null,
       
@@ -4164,7 +4184,8 @@ router.get('/driver/:driverid', async (req, res) => {
         cityDetails: booking.airportID.cityID && typeof booking.airportID.cityID === 'object' ? {
           _id: booking.airportID.cityID._id,
           cityName: booking.airportID.cityID.cityName,
-          cityNameAr: booking.airportID.cityID.cityNameAr
+          cityNameAr: booking.airportID.cityID.cityNameAr,
+          isActive: booking.airportID.cityID.isActive,
         } : null,
         lat: booking.airportID.lat,
         long: booking.airportID.long,
@@ -4181,7 +4202,8 @@ router.get('/driver/:driverid', async (req, res) => {
         airportDetails: booking.terminalID.airportID && typeof booking.terminalID.airportID === 'object' ? {
           _id: booking.terminalID.airportID._id,
           airportName: booking.terminalID.airportID.airportName,
-          airportNameAr: booking.terminalID.airportID.airportNameAr
+          airportNameAr: booking.terminalID.airportID.airportNameAr,
+          isActive: booking.terminalID.airportID.isActive
         } : null,
         image: booking.terminalID.image,
         isActive: booking.terminalID.isActive,
@@ -4198,11 +4220,13 @@ router.get('/driver/:driverid', async (req, res) => {
         minimumChargeDistance: booking.carID.minimumChargeDistance,
         categoryDetails: booking.carID.categoryID && typeof booking.carID.categoryID === 'object' ? {
           _id: booking.carID.categoryID._id,
-          name: booking.carID.categoryID.name
+          name: booking.carID.categoryID.name,
+          isActive: booking.carID.categoryID.isActive
         } : null,
         brandDetails: booking.carID.brandID && typeof booking.carID.brandID === 'object' ? {
           _id: booking.carID.brandID._id,
-          brandName: booking.carID.brandID.brandName
+          brandName: booking.carID.brandID.brandName,
+          isActive: booking.carID.brandID.isActive
         } : null,
         createdAt: booking.carID.createdAt
       } : null,

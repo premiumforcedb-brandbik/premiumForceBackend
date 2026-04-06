@@ -43,6 +43,28 @@ router.patch('/cancel/booking/:bookingID',
         isHourly = true;
       }
 
+      // Find and update booking in one operation
+      await Booking.findOneAndUpdate(
+        {
+          _id: bookingID,
+          driverID: booking.driverID,
+          bookingStatus: 'cancelled'
+        },
+        {
+          $set: {
+            driverID: 'null',
+          }
+        },
+        { new: true }
+      ).select('bookingStatus completedAt pickupLocation dropLocation customerName customerID carName');
+
+
+      // // Update driver stats
+      //     await Driver.findByIdAndUpdate(driverId, {
+      //       $inc: { totalTrips: 1 },
+      //       $set: { lastTripCompletedAt: new Date() }
+      //     });
+
       if (!booking) {
         return res.status(404).json({
           success: false,
@@ -53,13 +75,13 @@ router.patch('/cancel/booking/:bookingID',
       // Check if already cancelled
       if (booking.bookingStatus === 'cancelled') {
         return res.status(400).json({
-            success: false,
-            message: 'Booking is already cancelled'
+          success: false,
+          message: 'Booking is already cancelled'
         });
       }
 
       const oldStatus = booking.bookingStatus;
-      
+
       // Update booking status
       booking.bookingStatus = 'cancelled';
       if (isHourly) {
@@ -76,7 +98,7 @@ router.patch('/cancel/booking/:bookingID',
         driver = await Driver.findById(booking.driverID);
         if (driver) {
           await driver.setFree();
-          
+
           // Notify driver about cancellation
           if (typeof notifyUser === 'function') {
             await notifyUser(
@@ -95,16 +117,16 @@ router.patch('/cancel/booking/:bookingID',
 
       // Notify customer (if applicable)
       if (typeof notifyUser === 'function' && booking.customerID) {
-          await notifyUser(
-            booking.customerID,
-            '✅ Booking Cancelled Successfully',
-            `Your booking ${bookingID} has been cancelled.`,
-            {
-              type: 'booking_cancelled',
-              bookingId: bookingID,
-              role: 'customer'
-            }
-          ).catch(err => console.error('Error notifying customer:', err));
+        await notifyUser(
+          booking.customerID,
+          '✅ Booking Cancelled Successfully',
+          `Your booking ${bookingID} has been cancelled.`,
+          {
+            type: 'booking_cancelled',
+            bookingId: bookingID,
+            role: 'customer'
+          }
+        ).catch(err => console.error('Error notifying customer:', err));
       }
 
       console.log(`Booking ${bookingID} cancelled. Previous status: ${oldStatus}`);

@@ -5,7 +5,7 @@ const bookingSchema = new mongoose.Schema({
   category: {
     type: String,
     required: true
-   // customize as needed
+    // customize as needed
   },
   cityID: {
     type: String,
@@ -17,20 +17,21 @@ const bookingSchema = new mongoose.Schema({
   terminalID: {
     type: String
   },
-    carID: {
+  carID: {
     type: String
   },
   transactionID: {
     type: String,
     required: true
   },
-   orderID: {
+  orderID: {
     type: String,
     required: true
   },
   discountPercentage: {
     type: Number,
-    default: 0},
+    default: 0
+  },
   flightNumber: {
     type: String
   },
@@ -46,8 +47,8 @@ const bookingSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
-   pickupAddress: 
-   {
+  pickupAddress:
+  {
     type: String,
     required: true
   },
@@ -63,7 +64,7 @@ const bookingSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-   // Make sure these field names match exactly with your code
+  // Make sure these field names match exactly with your code
   // carclass: {
   //   type: String,
   //   required: true
@@ -105,9 +106,14 @@ const bookingSchema = new mongoose.Schema({
   },
   bookingStatus: {
     type: String,
-    required: false, 
+    required: false,
   },
-    timeLine: [{
+  vat: {
+    type: Number,
+    required: false,
+  },
+
+  timeLine: [{
     type: String,
     required: false
   }],
@@ -140,7 +146,7 @@ const bookingSchema = new mongoose.Schema({
   bookingStatus: {
     type: String,
     required: true,
-  
+
   },
   TrackingTimeLine: [{
     type: String,
@@ -175,17 +181,17 @@ const bookingSchema = new mongoose.Schema({
 
 
 // Method to update booking status with timestamps
-bookingSchema.methods.updateStatus = async function(status) {
+bookingSchema.methods.updateStatus = async function (status) {
   const validStatuses = ['pending', 'assigned', 'starttracking', 'completed', 'cancelled'];
-  
+
   if (!validStatuses.includes(status)) {
     throw new Error('Invalid status');
   }
-  
+
   this.bookingStatus = status;
-  
+
   // Set timestamps based on status
-  switch(status) {
+  switch (status) {
     case 'assigned':
       this.driverAssignedAt = new Date();
       break;
@@ -196,7 +202,7 @@ bookingSchema.methods.updateStatus = async function(status) {
       this.completedAt = new Date();
       break;
   }
-  
+
   await this.save();
   return this;
 };

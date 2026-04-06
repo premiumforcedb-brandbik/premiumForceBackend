@@ -28,6 +28,7 @@ const { notifyUser } = require('../fcm');
 
 const { authenticateCustomer
 } = require('../middleware/customermiddleware');
+const { validate } = require('../models/booking_model');
 
 
 
@@ -75,10 +76,10 @@ router.post('/',
         extraHours, model, categoryID, brandID, carID, cityID,
         charge, customerID, driverID, passsenrgersCount,
         passengerMobile, carClass, specialRequestText,
-        bookingStatus, passengerNames, isActive,
+        bookingStatus, passengerNames, isActive, vat,
         transactionID, orderID, discountPercentage, pickupDateTime,
         stoppedAt, startedAt, extraPayment, extraTransactionID, extraOrderID,
-        extraDiscount, extraPaymentCompleted,
+        extraDiscount, extraPaymentCompleted, extraVat
       } = req.body;
 
       // ========== REQUIRED FIELDS VALIDATION ==========
@@ -151,56 +152,56 @@ router.post('/',
           if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Invalid categoryID format. Must be a valid ObjectId.' 
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid categoryID format. Must be a valid ObjectId.'
         });
       }
-      
+
       if (!mongoose.Types.ObjectId.isValid(brandID)) {
         if (req.files) {
           if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Invalid brandID format. Must be a valid ObjectId.' 
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid brandID format. Must be a valid ObjectId.'
         });
       }
-      
+
       if (!mongoose.Types.ObjectId.isValid(carID)) {
         if (req.files) {
           if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Invalid carID format. Must be a valid ObjectId.' 
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid carID format. Must be a valid ObjectId.'
         });
       }
-      
+
       if (!mongoose.Types.ObjectId.isValid(cityID)) {
         if (req.files) {
           if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Invalid cityID format. Must be a valid ObjectId.' 
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid cityID format. Must be a valid ObjectId.'
         });
       }
-      
+
       if (!mongoose.Types.ObjectId.isValid(customerID)) {
         if (req.files) {
           if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Invalid customerID format. Must be a valid ObjectId.' 
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid customerID format. Must be a valid ObjectId.'
         });
       }
-      
+
       // if (driverID && isValidValue(driverID) && driverID !== 'null' && driverID !== 'undefined') {
       //   if (!mongoose.Types.ObjectId.isValid(driverID)) {
       //     if (req.files) {
@@ -214,15 +215,6 @@ router.post('/',
       //   }
       // }
 
-      // ========== CHECK IF REFERENCE IDs EXIST IN DATABASE ==========
-      
-      // Import models at the top of your file (make sure these are imported)
-      // const Category = require('../models/Category');
-      // const Brand = require('../models/Brand');
-      // const Car = require('../models/Car');
-      // const City = require('../models/City');
-      // const User = require('../models/User');
-      // const Driver = require('../models/Driver');
 
       // Check Category exists
       const categoryExists = await Category.findById(categoryID);
@@ -289,22 +281,7 @@ router.post('/',
         });
       }
 
-      // Check Driver exists if provided
-      // if (driverID && isValidValue(driverID) && driverID !== 'null' && driverID !== 'undefined') {
-      //   const driverExists = await Driver.findById(driverID);
-      //   if (!driverExists) {
-      //     if (req.files) {
-      //       if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-      //       if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-      //     }
-      //     return res.status(404).json({
-      //       success: false,
-      //       message: 'Driver not found with the provided driverID'
-      //     });
-      //   }
-      // }
 
-      // ========== EXISTING BOOKING CHECK ==========
       const activeBooking = await HourlyBooking.findOne({
         customerID: String(customerID).trim(),
         bookingStatus: { $in: ['pending', 'completed', 'starttrack'] },
@@ -484,9 +461,12 @@ router.post('/',
         parsedExtraOrderID = String(extraOrderID).trim();
       }
 
+
       // ========== CREATE BOOKING OBJECT ==========
       const bookingData = {
         category: String(category).trim(),
+        vat: vat,
+        extraVat: extraVat,
         hours: parsedHours,
         pickupLat: parsedPickupLat,
         pickuplong: parsedPickuplong,
@@ -599,7 +579,7 @@ router.post('/',
   });
 
 
-  
+
 
 
 // PUT /api/hourly-bookings/:id - Update hourly booking
@@ -611,7 +591,7 @@ router.put('/:id',
     console.log('Content-Type:', req.headers['content-type']);
     next();
   },
-  
+
   (req, res, next) => {
     upload.fields([
       { name: 'carImage', maxCount: 1 },
@@ -676,7 +656,7 @@ router.put('/:id',
         extraHours, model, categoryID, brandID, carID, cityID,
         charge, customerID, driverID, passsenrgersCount,
         passengerMobile, carClass, specialRequestText,
-        bookingStatus, passengerNames, isActive,
+        bookingStatus, passengerNames, isActive, vat, extraVat,
         transactionID, orderID, discountPercentage, pickupDateTime,
         stoppedAt, startedAt, extraPayment, extraTransactionID, extraOrderID,
         extraDiscount, extraPaymentCompleted
@@ -686,7 +666,7 @@ router.put('/:id',
       const updateData = {};
 
       // ========== VALIDATE AND UPDATE REGULAR FIELDS ==========
-      
+
       // Handle hours
       if (isValidValue(hours)) {
         const parsedHours = parseInt(hours);
@@ -722,9 +702,9 @@ router.put('/:id',
           });
         }
       }
-         // Handle pickup address
+      // Handle pickup address
       // if (isValidValue(category)) {
-        updateData.category = String(category).trim();
+      updateData.category = String(category).trim();
       // }
 
       // Handle pickup address
@@ -804,8 +784,8 @@ router.put('/:id',
 
       // Handle booking status
       if (isValidValue(bookingStatus)) {
-           const validStatuses = ['pending', 'assigned', 'starttrack','stoptrack', 'completed',
-        'paymentPending', 'reviewed', 'cancelled'];
+        const validStatuses = ['pending', 'assigned', 'starttrack', 'stoptrack', 'completed',
+          'paymentPending', 'reviewed', 'cancelled'];
         const status = String(bookingStatus).trim().toLowerCase();
         if (validStatuses.includes(status)) {
           updateData.bookingStatus = status;
@@ -840,8 +820,32 @@ router.put('/:id',
         }
       }
 
+
+
+
+
+
+
+      // Handle discount percentage
+      if (isValidValue(vat)) {
+        const parsedVat = parseFloat(vat);
+        if (!isNaN(parsedVat)) {
+          updateData.vat = parsedVat;
+        }
+      }
+
+
+
+      // Handle discount percentage
+      if (isValidValue(extraVat)) {
+        const parsedExtraVat = parseFloat(extraVat);
+        if (!isNaN(parsedExtraVat)) {
+          updateData.extraVat = parsedExtraVat;
+        }
+      }
+
       // ========== VALIDATE AND UPDATE REFERENCE IDs ==========
-      
+
       // Handle categoryID
       if (isValidValue(categoryID)) {
         if (!mongoose.Types.ObjectId.isValid(categoryID)) {
@@ -849,12 +853,12 @@ router.put('/:id',
             if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
-          return res.status(400).json({ 
-            success: false, 
-            message: 'Invalid categoryID format. Must be a valid ObjectId.' 
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid categoryID format. Must be a valid ObjectId.'
           });
         }
-        
+
         const categoryExists = await Category.findById(categoryID);
         if (!categoryExists) {
           if (req.files) {
@@ -876,12 +880,12 @@ router.put('/:id',
             if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
-          return res.status(400).json({ 
-            success: false, 
-            message: 'Invalid brandID format. Must be a valid ObjectId.' 
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid brandID format. Must be a valid ObjectId.'
           });
         }
-        
+
         const brandExists = await Brand.findById(brandID);
         if (!brandExists) {
           if (req.files) {
@@ -903,12 +907,12 @@ router.put('/:id',
             if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
-          return res.status(400).json({ 
-            success: false, 
-            message: 'Invalid carID format. Must be a valid ObjectId.' 
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid carID format. Must be a valid ObjectId.'
           });
         }
-        
+
         const carExists = await Car.findById(carID);
         if (!carExists) {
           if (req.files) {
@@ -930,12 +934,12 @@ router.put('/:id',
             if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
-          return res.status(400).json({ 
-            success: false, 
-            message: 'Invalid cityID format. Must be a valid ObjectId.' 
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid cityID format. Must be a valid ObjectId.'
           });
         }
-        
+
         const cityExists = await City.findById(cityID);
         if (!cityExists) {
           if (req.files) {
@@ -957,12 +961,12 @@ router.put('/:id',
             if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
-          return res.status(400).json({ 
-            success: false, 
-            message: 'Invalid customerID format. Must be a valid ObjectId.' 
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid customerID format. Must be a valid ObjectId.'
           });
         }
-        
+
         const customerExists = await User.findById(customerID);
         if (!customerExists) {
           if (req.files) {
@@ -984,12 +988,12 @@ router.put('/:id',
             if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
-          return res.status(400).json({ 
-            success: false, 
-            message: 'Invalid driverID format. Must be a valid ObjectId.' 
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid driverID format. Must be a valid ObjectId.'
           });
         }
-        
+
         const driverExists = await Driver.findById(driverID);
         if (!driverExists) {
           if (req.files) {
@@ -1127,10 +1131,10 @@ router.put('/:id',
         try {
           let statusMessage = '';
           switch (updateData.bookingStatus) {
-            case 'stoptrack':
+            case 'stoptracking':
               statusMessage = 'Your booking has been stopped!';
               break;
-            case 'starttrack':
+            case 'starttracking':
               statusMessage = 'Your ride has started!';
               break;
             case 'completed':
@@ -1142,7 +1146,8 @@ router.put('/:id',
             default:
               statusMessage = `Your booking status has been updated to ${updateData.bookingStatus}`;
           }
-          
+
+
           await notifyUser(
             updatedBooking.customerID,
             '📅 Booking Updated',
@@ -1711,9 +1716,9 @@ router.put('/:id',
 // READ - Get all hourly bookings with populated references and pagination
 router.get('/', async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 10, 
+    const {
+      page = 1,
+      limit = 10,
       sort = '-createdAt',
       status,
       customerID,
@@ -1725,7 +1730,7 @@ router.get('/', async (req, res) => {
 
     // Build query filters
     const query = {};
-    
+
     if (status) query.bookingStatus = status;
     if (customerID && mongoose.Types.ObjectId.isValid(customerID)) {
       query.customerID = new mongoose.Types.ObjectId(customerID);
@@ -1802,11 +1807,11 @@ router.get('/', async (req, res) => {
     // Format the response with full field mapping
     const formattedBookings = bookings.map(booking => ({
       _id: booking._id,
-      
+
       // Basic Information
       bookingType: 'hourly',
       bookingNumber: booking.bookingNumber || `HB${booking._id.toString().slice(-8)}`,
-      
+
       // Category Details
       category: booking.categoryID ? {
         _id: booking.categoryID._id,
@@ -1817,7 +1822,7 @@ router.get('/', async (req, res) => {
         image: booking.categoryID.image,
         isActive: booking.categoryID.isActive
       } : null,
-      
+
       // Brand Details
       brand: booking.brandID ? {
         _id: booking.brandID._id,
@@ -1826,7 +1831,7 @@ router.get('/', async (req, res) => {
         logo: booking.brandID.logo,
         isActive: booking.brandID.isActive
       } : null,
-      
+
       // Car Details with nested relations
       car: booking.carID ? {
         _id: booking.carID._id,
@@ -1848,7 +1853,7 @@ router.get('/', async (req, res) => {
         } : null,
         isActive: booking.carID.isActive
       } : null,
-      
+
       // City Details
       city: booking.cityID ? {
         _id: booking.cityID._id,
@@ -1857,7 +1862,7 @@ router.get('/', async (req, res) => {
         image: booking.cityID.image,
         isActive: booking.cityID.isActive
       } : null,
-      
+
       // Customer Details
       customer: booking.customerID ? {
         _id: booking.customerID._id,
@@ -1865,12 +1870,12 @@ router.get('/', async (req, res) => {
         email: booking.customerID.email,
         phoneNumber: booking.customerID.phoneNumber,
         countryCode: booking.customerID.countryCode,
-        fullPhoneNumber: booking.customerID.fullPhoneNumber || 
+        fullPhoneNumber: booking.customerID.fullPhoneNumber ||
           `${booking.customerID.countryCode || ''}${booking.customerID.phoneNumber || ''}`,
         profileImage: booking.customerID.profileImage,
         isActive: booking.customerID.isActive
       } : null,
-      
+
       // Driver Details
       driver: booking.driverID ? {
         _id: booking.driverID._id,
@@ -1885,14 +1890,14 @@ router.get('/', async (req, res) => {
         isActive: booking.driverID.isActive,
         isVerified: booking.driverID.isVerified
       } : null,
-      
+
       // Hourly Booking Specific Fields
       hours: booking.hours,
       startTime: booking.startTime,
       endTime: booking.endTime,
       totalCharge: booking.totalCharge,
       hourlyRate: booking.hourlyRate,
-      
+
       // Location Details
       pickupLat: booking.pickupLat,
       pickupLong: booking.pickupLong,
@@ -1900,46 +1905,46 @@ router.get('/', async (req, res) => {
       dropOffLat: booking.dropOffLat,
       dropOffLong: booking.dropOffLong,
       dropOffAddress: booking.dropOffAddress,
-      
+
       // Car Details from Booking
       carModel: booking.carModel,
       carImage: booking.carImage,
-      
+
       // Passenger Details
       passengerCount: booking.passengerCount,
       passengerNames: booking.passengerNames,
       passengerMobile: booking.passengerMobile,
-      
+
       // Status and Tracking
       bookingStatus: booking.bookingStatus,
       trackingTimeline: booking.trackingTimeline || [],
       paymentStatus: booking.paymentStatus,
       paymentMethod: booking.paymentMethod,
-      
+
       // Ratings
       customerRating: booking.customerRating,
       driverRating: booking.driverRating,
       customerReview: booking.customerReview,
       driverReview: booking.driverReview,
-      
+
       // Special Requests
       specialRequests: booking.specialRequests,
       specialRequestAudio: booking.specialRequestAudio,
-      
+
       // Transaction Details
       transactionID: booking.transactionID,
       orderID: booking.orderID,
       discountApplied: booking.discountApplied,
       discountAmount: booking.discountAmount,
       taxAmount: booking.taxAmount,
-      
+
       // Timestamps
       createdAt: booking.createdAt,
       updatedAt: booking.updatedAt,
       startedAt: booking.startedAt,
       completedAt: booking.completedAt,
       cancelledAt: booking.cancelledAt,
-      
+
       // Additional Metadata
       metadata: booking.metadata
     }));
@@ -1983,7 +1988,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -1992,7 +1997,7 @@ router.get('/:id', async (req, res) => {
         message_en: 'Invalid booking ID format'
       });
     }
-    
+
     const booking = await HourlyBooking.findById(id)
       .populate({
         path: 'categoryID',
@@ -2037,7 +2042,7 @@ router.get('/:id', async (req, res) => {
         select: '_id driverName countryCode phoneNumber licenseNumber profileImage rating'
       })
       .lean();
-      
+
     if (!booking) {
       return res.status(404).json({
         success: false,
@@ -2045,7 +2050,7 @@ router.get('/:id', async (req, res) => {
         message_en: 'Booking not found'
       });
     }
-    
+
     // Format response with Arabic mapping
     const formattedBooking = {
       success: true,
@@ -2053,12 +2058,12 @@ router.get('/:id', async (req, res) => {
       message_en: 'Booking fetched successfully',
       data: {
         _id: booking._id,
-        
+
         // Basic Info
         bookingType: 'بالساعة',
         bookingType_en: 'hourly',
 
-        
+
         // Category with Arabic names
         category: booking.categoryID ? {
           _id: booking.categoryID._id,
@@ -2069,7 +2074,7 @@ router.get('/:id', async (req, res) => {
           descriptionAr: booking.categoryID.descriptionAr,
           image: booking.categoryID.image
         } : null,
-        
+
         // Brand with Arabic names
         brand: booking.brandID ? {
           _id: booking.brandID._id,
@@ -2078,7 +2083,7 @@ router.get('/:id', async (req, res) => {
           name_en: booking.brandID.brandName,
           logo: booking.brandID.logo
         } : null,
-        
+
         // Car with full details
         car: booking.carID ? {
           _id: booking.carID._id,
@@ -2099,7 +2104,7 @@ router.get('/:id', async (req, res) => {
             nameAr: booking.carID.brandID.brandNameAr
           } : null
         } : null,
-        
+
         // City with Arabic name
         city: booking.cityID ? {
           _id: booking.cityID._id,
@@ -2108,7 +2113,7 @@ router.get('/:id', async (req, res) => {
           name_en: booking.cityID.cityName,
           image: booking.cityID.image
         } : null,
-        
+
         // Customer details
         customer: booking.customerID ? {
           _id: booking.customerID._id,
@@ -2119,7 +2124,7 @@ router.get('/:id', async (req, res) => {
           fullPhone: `${booking.customerID.countryCode || ''}${booking.customerID.phoneNumber || ''}`,
           profileImage: booking.customerID.profileImage
         } : null,
-        
+
         // Driver details
         driver: booking.driverID ? {
           _id: booking.driverID._id,
@@ -2132,13 +2137,13 @@ router.get('/:id', async (req, res) => {
           profileImage: booking.driverID.profileImage,
           rating: booking.driverID.rating
         } : null,
-        
+
         // Booking Details
         hours: booking.hours,
         startTime: booking.startTime,
         endTime: booking.endTime,
         totalCharge: booking.totalCharge,
-        
+
         // Location Details
         pickup: {
           lat: booking.pickupLat,
@@ -2152,14 +2157,14 @@ router.get('/:id', async (req, res) => {
           address: booking.dropOffAddress,
           addressAr: booking.dropOffAddress, // Add translation if available
         },
-        
+
         // Passenger Details
         passengers: {
           count: booking.passengerCount,
           names: booking.passengerNames,
           mobile: booking.passengerMobile
         },
-        
+
         // Status
         status: {
           code: booking.bookingStatus,
@@ -2167,16 +2172,16 @@ router.get('/:id', async (req, res) => {
           payment: booking.paymentStatus ? 'مدفوع' : 'غير مدفوع',
           payment_en: booking.paymentStatus ? 'paid' : 'unpaid'
         },
-        
+
         // Timeline
         timeline: booking.trackingTimeline || [],
-        
+
         // Special Requests
         specialRequests: {
           text: booking.specialRequests,
           audio: booking.specialRequestAudio
         },
-        
+
         // Transaction
         transaction: {
           id: booking.transactionID,
@@ -2185,7 +2190,7 @@ router.get('/:id', async (req, res) => {
           discountAmount: booking.discountAmount,
           tax: booking.taxAmount
         },
-        
+
         // Ratings
         ratings: {
           customer: booking.customerRating,
@@ -2193,21 +2198,21 @@ router.get('/:id', async (req, res) => {
           customerReview: booking.customerReview,
           driverReview: booking.driverReview
         },
-        
+
         // Timestamps
         createdAt: booking.createdAt,
         updatedAt: booking.updatedAt,
         startedAt: booking.startedAt,
         completedAt: booking.completedAt,
-        
+
         // Metadata
         metadata: booking.metadata
       }
     };
 
-    
+
     res.status(200).json(formattedBooking);
-    
+
   } catch (error) {
     console.error('Get booking error:', error);
     res.status(500).json({
@@ -2224,7 +2229,7 @@ router.get('/:id', async (req, res) => {
 router.get('/customer/:customerId', async (req, res) => {
   try {
     const { customerId } = req.params;
-    
+
     // Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(customerId)) {
       return res.status(400).json({
@@ -2232,7 +2237,7 @@ router.get('/customer/:customerId', async (req, res) => {
         message: 'Invalid customer ID format'
       });
     }
-    
+
     // Check if customer exists
     const customerExists = await User.findById(customerId);
     if (!customerExists) {
@@ -2241,7 +2246,7 @@ router.get('/customer/:customerId', async (req, res) => {
         message: 'Customer not found'
       });
     }
-    
+
     const bookings = await HourlyBooking.find({ customerID: customerId })
       .populate('categoryID', 'name description')
       .populate('brandID', 'brandName logo')
@@ -2268,7 +2273,7 @@ router.get('/customer/:customerId', async (req, res) => {
 router.get('/driver/:driverId', async (req, res) => {
   try {
     const { driverId } = req.params;
-    
+
     // Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(driverId)) {
       return res.status(400).json({
@@ -2276,7 +2281,7 @@ router.get('/driver/:driverId', async (req, res) => {
         message: 'Invalid driver ID format'
       });
     }
-    
+
     // Check if driver exists
     const driverExists = await Driver.findById(driverId);
     if (!driverExists) {
@@ -2285,8 +2290,8 @@ router.get('/driver/:driverId', async (req, res) => {
         message: 'Driver not found'
       });
     }
-    
-    
+
+
     const bookings = await HourlyBooking.find({ driverID: driverId })
       .populate('categoryID', 'name description')
       .populate('brandID', 'brandName logo')
@@ -2315,16 +2320,16 @@ router.get('/driver/:driverId', async (req, res) => {
 router.get('/status/:status', async (req, res) => {
   try {
     const { status } = req.params;
-  const validStatuses = ['pending', 'assigned', 'starttrack','stoptrack', 'completed',
-        'paymentPending', 'reviewed', 'cancelled'];
-    
+    const validStatuses = ['pending', 'assigned', 'starttrack', 'stoptrack', 'completed',
+      'paymentPending', 'reviewed', 'cancelled'];
+
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid status. Must be one of: pending, assigned, started, stopped, completed, paymentPending, reviewed, cancelled'
       });
     }
-    
+
     const bookings = await HourlyBooking.find({ bookingStatus: status })
       .populate('categoryID', 'name description')
       .populate('brandID', 'name logo')
@@ -2354,7 +2359,7 @@ router.patch('/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
     const { bookingStatus } = req.body;
-    
+
     // Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -2364,10 +2369,10 @@ router.patch('/:id/status', async (req, res) => {
     }
 
 
-    
+
     // Validate status
-  const validStatuses = ['pending', 'assigned', 'starttrack','stoptrack', 'completed',
-        'paymentPending', 'reviewed', 'cancelled'];
+    const validStatuses = ['pending', 'assigned', 'starttrack', 'stoptrack', 'completed',
+      'paymentPending', 'reviewed', 'cancelled'];
     if (!bookingStatus || !validStatuses.includes(bookingStatus)) {
       return res.status(400).json({
         success: false,
@@ -2375,7 +2380,7 @@ router.patch('/:id/status', async (req, res) => {
       });
     }
 
-    
+
     // Check if booking exists
     const existingBooking = await HourlyBooking.findById(id);
     if (!existingBooking) {
@@ -2384,20 +2389,20 @@ router.patch('/:id/status', async (req, res) => {
         message: 'Booking not found'
       });
     }
-    
+
     const updatedBooking = await HourlyBooking.findByIdAndUpdate(
       id,
-      { 
+      {
         bookingStatus,
         updatedAt: new Date()
       },
       { new: true, runValidators: true }
     ).populate('categoryID', 'name description')
-     .populate('brandID', 'name logo')
-     .populate('carID', 'name model year licensePlate')
-     .populate('cityID', 'name country')
-     .populate('customerID', 'name email phone')
-     .populate('driverID', 'name email phone licenseNumber');
+      .populate('brandID', 'name logo')
+      .populate('carID', 'name model year licensePlate')
+      .populate('cityID', 'name country')
+      .populate('customerID', 'name email phone')
+      .populate('driverID', 'name email phone licenseNumber');
 
     // Send notification
     try {
@@ -2418,7 +2423,7 @@ router.patch('/:id/status', async (req, res) => {
         default:
           statusMessage = `Your booking status has been updated to ${bookingStatus}`;
       }
-      
+
       await notifyUser(
         updatedBooking.customerID,
         '📅 Booking Updated',
@@ -2451,7 +2456,7 @@ router.patch('/:id/status', async (req, res) => {
 router.patch('/:id/toggle-active', async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -2459,7 +2464,7 @@ router.patch('/:id/toggle-active', async (req, res) => {
         message: 'Invalid booking ID format'
       });
     }
-    
+
     const booking = await HourlyBooking.findById(id);
     if (!booking) {
       return res.status(404).json({
@@ -2515,7 +2520,7 @@ router.delete('/:id',
           success: false,
           message: 'Booking not found'
         });
-   
+
       }
 
       console.log('📦 Booking found:', {
@@ -2525,7 +2530,7 @@ router.delete('/:id',
         status: booking.bookingStatus
       });
 
-      
+
 
       // ========== DELETE FILES FROM S3 ==========
       const deletionResults = {

@@ -45,12 +45,6 @@ router.patch('/cancel/booking/:bookingID',
 
 
 
-      // // Update driver stats
-      //     await Driver.findByIdAndUpdate(driverId, {
-      //       $inc: { totalTrips: 1 },
-      //       $set: { lastTripCompletedAt: new Date() }
-      //     });
-
       if (!booking) {
         return res.status(404).json({
           success: false,
@@ -75,42 +69,11 @@ router.patch('/cancel/booking/:bookingID',
         await booking.save();
 
 
-
-        // // Find and update booking in one operation
-        // await HourlyBooking.findOneAndUpdate(
-        //   {
-        //     _id: bookingID,
-        //     driverID: booking.driverID,
-        //     bookingStatus: 'cancelled'
-        //   },
-        //   {
-        //     $set: {
-        //       driverID: 'null',
-        //     }
-        //   },
-        //   { new: true }
-        // ).select('bookingStatus completedAt pickupLocation dropLocation customerName customerID carName');
-
       } else {
         // Booking model has updateStatus method
         await booking.updateStatus('cancelled');
 
 
-        // // Find and update booking in one operation
-        // await HourlyBooking.findOneAndUpdate(
-        //   {
-
-        //     _id: bookingID,
-        //     driverID: booking.driverID,
-        //     bookingStatus: 'cancelled'
-        //   },
-        //   {
-        //     $set: {
-        //       driverID: 'null',
-        //     }
-        //   },
-        //   { new: true }
-        // ).select('bookingStatus completedAt pickupLocation dropLocation customerName customerID carName');
 
       }
 
@@ -173,6 +136,7 @@ router.patch('/cancel/booking/:bookingID',
       });
     }
   });
+
 
 
 

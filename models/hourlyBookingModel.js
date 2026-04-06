@@ -1,14 +1,18 @@
 const mongoose = require('mongoose');
 
 const hourlyBookingSchema = new mongoose.Schema({
-    category: {
+  category: {
     type: String,
     required: false
-   // customize as needed
+    // customize as needed
   },
   hours: {
     type: Number,
     required: true
+  },
+  vat: {
+    type: Number,
+    required: false
   },
   pickupLat: {
     type: Number,
@@ -22,7 +26,7 @@ const hourlyBookingSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-   pickupDateTime: {
+  pickupDateTime: {
     type: Date,
     required: true,
     default: Date.now
@@ -31,30 +35,31 @@ const hourlyBookingSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-   transactionID: {
+  transactionID: {
     type: String,
     required: true
   },
-   orderID: {
+  orderID: {
     type: String,
     required: true
   },
   discountPercentage: {
     type: Number,
-    default: 0},
+    default: 0
+  },
   model: {
     type: String,
     required: true
   },
-   categoryID: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Category',
-            required: true
-      },
+  categoryID: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Category',
+    required: true
+  },
   brandID: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Brand',
-        required: true
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Brand',
+    required: true
   },
   carID: {
     type: mongoose.Schema.Types.ObjectId,
@@ -96,31 +101,36 @@ const hourlyBookingSchema = new mongoose.Schema({
     type: String,
     required: false
   },
-extraPayment: {
+  extraPayment: {
     type: Number,
     default: 0,
     required: false
   },
+  extraVat: {
+    type: Number,
+    required: false
+  },
   startedAt: {
     type: Date,
-    default: null},
+    default: null
+  },
   stoppedAt: {
     type: Date,
     default: null
   },
-   extraTransactionID: {
+  extraTransactionID: {
     type: String,
     required: false
   },
-   extraOrderID: {
+  extraOrderID: {
     type: String,
     required: false
   },
-    extraDiscount: {
+  extraDiscount: {
     type: Number,
     required: false
   },
-   extraPaymentCompleted: {
+  extraPaymentCompleted: {
     type: Boolean,
     default: false
   },

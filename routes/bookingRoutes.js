@@ -4,7 +4,7 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const Booking = require('../models/booking_model');
-  
+
 
 const User = require('../models/users_model');
 const City = require('../models/city_model');
@@ -20,16 +20,16 @@ const Customer = require('../models/users_model');
 
 const authMiddleware = require('../middleware/authTheMiddle');
 
-const {   authenticateToken,
+const { authenticateToken,
   authorizeAdmin,
- } = require('../middleware/adminmiddleware');
+} = require('../middleware/adminmiddleware');
 
- const { ObjectId } = require('mongoose').Types;
+const { ObjectId } = require('mongoose').Types;
 
 
- const {authenticateCustomer
- } = require('../middleware/customermiddleware');
- 
+const { authenticateCustomer
+} = require('../middleware/customermiddleware');
+
 
 // Import S3 configuration from your central config file (like in userRoutes)
 const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
@@ -37,7 +37,7 @@ const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
 const NotificationService = require('../services/notificationService');
 
 
-const { notifyUser, notifyUsers,notifyUserAdmin  } = require('../fcm');
+const { notifyUser, notifyUsers, notifyUserAdmin } = require('../fcm');
 
 
 
@@ -47,11 +47,11 @@ const { notifyUser, notifyUsers,notifyUserAdmin  } = require('../fcm');
 async function getAllAdminFcmTokens() {
   try {
     const Admin = require('../models/adminModel');
-    const admins = await Admin.find({ 
+    const admins = await Admin.find({
       isActive: true,
       fcmToken: { $ne: null, $exists: true }
     }).select('fcmToken').lean();
-    
+
     return admins.map(admin => admin.fcmToken).filter(token => token);
   } catch (error) {
     console.error('Error fetching admin tokens:', error);
@@ -63,21 +63,21 @@ async function getAllAdminFcmTokens() {
 async function notifyAllAdmins(title, body, data = {}) {
   try {
     const adminTokens = await getAllAdminFcmTokens();
-    
+
     if (adminTokens.length === 0) {
       console.log('No admin FCM tokens found');
       return;
     }
-    
+
     const { sendPushNotification } = require('../fcm');
-    
+
     // Send notifications to all admins in parallel
     await Promise.allSettled(
-      adminTokens.map(token => 
+      adminTokens.map(token =>
         sendPushNotification(token, title, body, data)
       )
     );
-    
+
     console.log(`Notifications sent to ${adminTokens.length} admins`);
   } catch (error) {
     console.error('Error notifying admins:', error);
@@ -86,17 +86,17 @@ async function notifyAllAdmins(title, body, data = {}) {
 
 
 // ============= CREATE BOOKING with Images and Audio =============
-router.post('/', 
+router.post('/',
   authenticateCustomer,
   upload.fields([
     { name: 'carimage', maxCount: 1 },
     { name: 'specialRequestAudio', maxCount: 1 }
-  ]), 
+  ]),
   async (req, res) => {
     try {
       console.log('Request body:', req.body);
       console.log('Request files:', req.files);
-      
+
       // FIXED: Check if req.customer exists
       if (!req.customer) {
         return res.status(401).json({
@@ -104,12 +104,13 @@ router.post('/',
           message: 'Authentication failed - Customer data not found'
         });
       }
-      
+
       console.log('Authenticated customer:', req.customer);
-      
+
       // Get customer ID from authenticated user (already an ObjectId)
       const customerID = req.customer.customerId;
       console.log('Customer ID:', customerID);
+
 
       const {
         category, cityID, airportID, terminalID, flightNumber, arrival,
@@ -117,7 +118,7 @@ router.post('/',
         charge, carID, carmodel,
         specialRequestText,
         passengerCount, passengerNames, passengerMobile, distance,
-        bookingStatus, driverID, transactionID, orderID, discountPercentage
+        bookingStatus, driverID, transactionID, orderID, discountPercentage, vat
       } = req.body;
 
       // Log the fields for debugging
@@ -150,43 +151,43 @@ router.post('/',
         'audio/flac',      // FLAC
         'audio/x-m4a'      // M4A alternative
       ];
-      
+
       // Allowed audio file extensions
       const allowedAudioExtensions = [
         'mp3', 'wav', 'mp4', 'm4a', 'aac', 'ogg', 'webm', 'flac', 'mpeg'
       ];
-      
+
       // Validate audio file if uploaded
       if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio[0]) {
         const audioFile = req.files.specialRequestAudio[0];
         const fileExtension = audioFile.originalname.split('.').pop().toLowerCase();
         const mimeType = audioFile.mimetype;
-        
+
         // Check file size (max 10MB for audio)
         const maxAudioSize = 10 * 1024 * 1024; // 10MB
         if (audioFile.size > maxAudioSize) {
           // Delete uploaded files
           if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(audioFile.key).catch(console.error);
-          
+
           return res.status(400).json({
             success: false,
             message: `Audio file size too large. Maximum size is 10MB. Your file size: ${(audioFile.size / (1024 * 1024)).toFixed(2)}MB`,
             field: 'specialRequestAudio'
           });
         }
-        
+
         // Check if MIME type is allowed
         const isMimeTypeAllowed = allowedAudioMimeTypes.includes(mimeType);
-        
+
         // Check if file extension is allowed
         const isExtensionAllowed = allowedAudioExtensions.includes(fileExtension);
-        
+
         if (!isMimeTypeAllowed && !isExtensionAllowed) {
           // Delete uploaded files
           if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(audioFile.key).catch(console.error);
-          
+
           return res.status(400).json({
             success: false,
             message: 'Invalid audio file format. Supported formats: MP3, WAV, M4A, AAC, OGG, WebM, FLAC',
@@ -196,7 +197,7 @@ router.post('/',
             receivedExtension: fileExtension
           });
         }
-        
+
         console.log('Audio file validated:', {
           originalName: audioFile.originalname,
           size: `${(audioFile.size / (1024 * 1024)).toFixed(2)}MB`,
@@ -230,7 +231,7 @@ router.post('/',
             await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
         }
-        
+
         return res.status(400).json({
           success: false,
           message: 'Please provide all required fields',
@@ -241,16 +242,16 @@ router.post('/',
 
       // IMPROVED DATE VALIDATION
       let parsedDate;
-      
+
       // Handle different date formats
       try {
         // Trim whitespace from arrival string
         const arrivalStr = String(arrival).trim();
         console.log('Cleaned arrival string:', arrivalStr);
-        
+
         // Try to parse the date
         parsedDate = new Date(arrivalStr);
-        
+
         // Check if date is valid
         if (isNaN(parsedDate.getTime())) {
           // Try alternative parsing without milliseconds
@@ -258,7 +259,7 @@ router.post('/',
           if (alternativeFormat !== arrivalStr) {
             parsedDate = new Date(alternativeFormat);
           }
-          
+
           // If still invalid, try parsing with timezone
           if (isNaN(parsedDate.getTime())) {
             // Try replacing Z with +00:00
@@ -266,15 +267,15 @@ router.post('/',
             parsedDate = new Date(withTimezone);
           }
         }
-        
+
         // Final validation
         if (isNaN(parsedDate.getTime())) {
           throw new Error('Invalid date format');
         }
-        
+
         console.log('Parsed date successfully:', parsedDate);
         console.log('ISO string:', parsedDate.toISOString());
-        
+
       } catch (dateError) {
         console.error('Date parsing error:', dateError);
         if (req.files) {
@@ -363,17 +364,17 @@ router.post('/',
         if (!id || id === 'null' || id === 'undefined' || id === '') {
           return null;
         }
-        
+
         // If it's already an ObjectId, return it
         if (id instanceof mongoose.Types.ObjectId) {
           return id;
         }
-        
+
         // Try to convert string to ObjectId
         if (typeof id === 'string' && mongoose.Types.ObjectId.isValid(id)) {
           return new mongoose.Types.ObjectId(id);
         }
-        
+
         console.warn(`Invalid ${fieldName} format:`, id);
         return null;
       };
@@ -485,6 +486,7 @@ router.post('/',
       // Create booking object with ObjectId fields
       const bookingData = {
         category: String(category).trim(),
+        vat: vat,
         cityID: finalCityID,
         airportID: finalAirportID, // Will be undefined if not provided
         terminalID: finalTerminalID, // Will be undefined if not provided
@@ -545,7 +547,7 @@ router.post('/',
           duration: null, // You can add duration if you process audio files
           format: audioFile.originalname.split('.').pop().toLowerCase()
         };
-        
+
         console.log('Audio file added to booking:', {
           key: audioFile.key,
           format: bookingData.specialRequestAudio.format,
@@ -578,12 +580,12 @@ router.post('/',
 
 
 
-       // 2. Send notification to ALL ADMINS
+      // 2. Send notification to ALL ADMINS
       const adminNotificationData = {
         type: 'new_booking',
         bookingId: booking._id.toString(),
         customerId: customerID.toString(),
-              arrival: parsedDate.toISOString(),
+        arrival: parsedDate.toISOString(),
         pickupAddress: bookingData.pickupAddress,
         dropOffAddress: bookingData.dropOffAddress,
         charge: chargeStr,
@@ -594,15 +596,15 @@ router.post('/',
       };
 
 
-    // await  notifyUserAdmin(
-    //     'New Booking Alert!',
-    //    `Review and assign a driver`,
-    //     ""
-    //   );
+      // await  notifyUserAdmin(
+      //     'New Booking Alert!',
+      //    `Review and assign a driver`,
+      //     ""
+      //   );
 
       await notifyAllAdmins(
         'New Booking Alert!',
-       `Review and assign a driver`,
+        `Review and assign a driver`,
         ""
       );
 
@@ -615,10 +617,10 @@ router.post('/',
         message: 'Booking created successfully',
         data: booking
       });
-      
+
     } catch (error) {
       console.error('Create booking error:', error);
-      
+
       // Delete uploaded files if error occurs
       if (req.files) {
         if (req.files.carimage) {
@@ -654,25 +656,25 @@ router.post('/',
         error: error.message
       });
     }
-});
+  });
 
 
 
 
 
 // ============= UPDATE BOOKING by ID =============
-router.put('/:id', 
+router.put('/:id',
   authenticateCustomer,
   upload.fields([
     { name: 'carimage', maxCount: 1 },
     { name: 'specialRequestAudio', maxCount: 1 }
-  ]), 
+  ]),
   async (req, res) => {
     try {
       console.log('Update booking - ID:', req.params.id);
       console.log('Request body:', req.body);
       console.log('Request files:', req.files);
-      
+
       // Check if req.customer exists
       if (!req.customer) {
         return res.status(401).json({
@@ -680,7 +682,7 @@ router.put('/:id',
           message: 'Authentication failed - Customer data not found'
         });
       }
-      
+
       console.log('Authenticated customer:', req.customer);
 
       const bookingId = req.params.id;
@@ -704,7 +706,7 @@ router.put('/:id',
         _id: bookingId,
         customerID: customerId
       });
-      
+
       if (!existingBooking) {
         // Delete uploaded files if booking not found
         if (req.files) {
@@ -726,7 +728,7 @@ router.put('/:id',
         pickupLat, pickupLong, pickupAddress, dropOffLat, dropOffLong, dropOffAddress,
         carID, charge, carmodel, specialRequestText,
         passengerCount, passengerNames, passengerMobile, distance,
-        bookingStatus, transactionID, orderID, discountPercentage
+        bookingStatus, transactionID, orderID, discountPercentage, vat
       } = req.body;
 
       // Helper function to check if value is null/undefined/empty
@@ -737,12 +739,12 @@ router.put('/:id',
       // Helper function to safely convert to ObjectId
       const toObjectId = (value, existingValue) => {
         if (!isValidValue(value)) return existingValue;
-        
+
         // If it's already an ObjectId
         if (value instanceof mongoose.Types.ObjectId) {
           return value;
         }
-        
+
         // If it's a string, try to convert
         if (typeof value === 'string') {
           const trimmedId = value.trim();
@@ -751,7 +753,7 @@ router.put('/:id',
             return new ObjectId(trimmedId);
           }
         }
-        
+
         console.warn(`Invalid ObjectId format for update:`, value);
         return existingValue;
       };
@@ -810,9 +812,10 @@ router.put('/:id',
 
       // Prepare update data - Start with an empty object
       const updateData = {};
-      
+
       // Add all regular fields
       updateData.category = cleanStringField(category, existingBooking.category);
+      updateData.vat = cleanNumberField(vat, existingBooking.vat);
       updateData.cityID = toObjectId(cityID, existingBooking.cityID);
       updateData.airportID = toObjectId(airportID, existingBooking.airportID);
       updateData.terminalID = toObjectId(terminalID, existingBooking.terminalID);
@@ -839,12 +842,12 @@ router.put('/:id',
       // Handle booking status update
       if (isValidValue(bookingStatus)) {
         const newStatus = String(bookingStatus).trim().toLowerCase();
-        
+
         // Define allowed statuses
         const allowedStatuses = ['pending', 'starttracking', 'assigned', 'completed', 'cancelled'];
-        
-      
-        
+
+
+
         // Check if the new status is valid
         if (!allowedStatuses.includes(newStatus)) {
           if (req.files) {
@@ -858,7 +861,7 @@ router.put('/:id',
             currentStatus: existingBooking.bookingStatus
           });
         }
-        
+
         updateData.bookingStatus = newStatus;
       }
 
@@ -868,7 +871,7 @@ router.put('/:id',
         if (existingBooking.carimage && existingBooking.carimage.key) {
           await deleteFromS3(existingBooking.carimage.key).catch(console.error);
         }
-        
+
         updateData.carimage = {
           key: req.files.carimage[0].key,
           url: getS3Url(req.files.carimage[0].key),
@@ -884,7 +887,7 @@ router.put('/:id',
         if (existingBooking.specialRequestAudio && existingBooking.specialRequestAudio.key) {
           await deleteFromS3(existingBooking.specialRequestAudio.key).catch(console.error);
         }
-        
+
         updateData.specialRequestAudio = {
           key: req.files.specialRequestAudio[0].key,
           url: getS3Url(req.files.specialRequestAudio[0].key),
@@ -913,19 +916,19 @@ router.put('/:id',
       // Handle TrackingTimeLine separately using $push
       // Initialize tracking timeline updates
       const timelineUpdates = [];
-      
+
       // Add status change to timeline if status changed
       if (isValidValue(bookingStatus) && updateData.bookingStatus !== existingBooking.bookingStatus) {
         timelineUpdates.push(`status_changed_from_${existingBooking.bookingStatus}_to_${updateData.bookingStatus}_by_customer`);
         console.log(`Status changing from ${existingBooking.bookingStatus} to ${updateData.bookingStatus}`);
       }
-      
+
       // Add general update to timeline
       timelineUpdates.push('booking_updated_by_customer');
-      
+
       // Prepare the final update operation
       let finalUpdateOperation = { $set: updateData };
-      
+
       // Add $push for timeline if there are any timeline updates
       if (timelineUpdates.length > 0) {
         finalUpdateOperation.$push = {
@@ -1001,7 +1004,7 @@ router.put('/:id',
 
     } catch (error) {
       console.error('Update booking error:', error);
-      
+
       // Delete newly uploaded files if error occurs
       if (req.files) {
         if (req.files.carimage) {
@@ -1031,7 +1034,8 @@ router.put('/:id',
         error: error.message
       });
     }
-});
+  });
+
 
 
 
@@ -1046,17 +1050,17 @@ router.put('/:id',
 
 // ============= GET BOOKING STATUS COUNTS FOR CURRENT MONTH =============
 // GET /api/bookings/status-counts - Get counts for completed, pending, start_pickup, cancelled
-router.get('/status-counts',async (req, res) => {
+router.get('/status-counts', async (req, res) => {
   try {
     // Get current date
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth(); // 0-11 (January is 0)
-    
+
     // Create start and end dates for current month
     const startOfMonth = new Date(currentYear, currentMonth, 1);
     const endOfMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999);
-    
+
     console.log('Start of month:', startOfMonth);
     console.log('End of month:', endOfMonth);
 
@@ -1064,12 +1068,12 @@ router.get('/status-counts',async (req, res) => {
     const results = await Booking.aggregate([
       {
         $match: {
-          createdAt: { 
-            $gte: startOfMonth, 
-            $lte: endOfMonth 
+          createdAt: {
+            $gte: startOfMonth,
+            $lte: endOfMonth
           },
-          bookingStatus: { 
-            $in: ['completed', 'pending', 'start_pickup', 'cancelled'] 
+          bookingStatus: {
+            $in: ['completed', 'pending', 'start_pickup', 'cancelled']
           }
         }
       },
@@ -1160,7 +1164,7 @@ router.get('/earnings/monthly', authenticateToken, async (req, res) => {
     // IMPORTANT: Include ALL booking statuses that represent completed/payment-ready trips
     // Don't filter by bookingStatus if you want to see all earnings
     // matchQuery.bookingStatus = { $in: ['completed', 'payment_completed', 'payment_pending', 'end'] };
-    
+
     // Or remove status filter completely to see all bookings with charges
     // The charge field exists regardless of status
 
@@ -1189,10 +1193,10 @@ router.get('/earnings/monthly', authenticateToken, async (req, res) => {
         updatedAt: matchQuery.createdAt
       };
       delete fallbackQuery.createdAt;
-      
+
       const fallbackBookings = await Booking.find(fallbackQuery).select('updatedAt charge bookingStatus driverID');
       console.log(`Found ${fallbackBookings.length} bookings with updatedAt`);
-      
+
       if (fallbackBookings.length > 0) {
         matchQuery = fallbackQuery;
       }
@@ -1207,8 +1211,8 @@ router.get('/earnings/monthly', authenticateToken, async (req, res) => {
             month: { $month: "$createdAt" },
             year: { $year: "$createdAt" }
           },
-          totalEarnings: { 
-            $sum: { 
+          totalEarnings: {
+            $sum: {
               $toDouble: {
                 $cond: {
                   if: { $isNumber: "$charge" },
@@ -1216,11 +1220,11 @@ router.get('/earnings/monthly', authenticateToken, async (req, res) => {
                   else: { $toDouble: "$charge" }
                 }
               }
-            } 
+            }
           },
           totalBookings: { $sum: 1 },
-          averageCharge: { 
-            $avg: { 
+          averageCharge: {
+            $avg: {
               $toDouble: {
                 $cond: {
                   if: { $isNumber: "$charge" },
@@ -1228,16 +1232,18 @@ router.get('/earnings/monthly', authenticateToken, async (req, res) => {
                   else: { $toDouble: "$charge" }
                 }
               }
-            } 
+            }
           },
-          bookings: { $push: { 
-            id: "$_id",
-            charge: "$charge",
-            date: "$createdAt",
-            customerId: "$customerID",
-            carID: "$carID",
-            status: "$bookingStatus"
-          }}
+          bookings: {
+            $push: {
+              id: "$_id",
+              charge: "$charge",
+              date: "$createdAt",
+              customerId: "$customerID",
+              carID: "$carID",
+              status: "$bookingStatus"
+            }
+          }
         }
       },
       { $sort: { "_id.month": 1 } }
@@ -1257,11 +1263,11 @@ router.get('/earnings/monthly', authenticateToken, async (req, res) => {
     const formattedData = months.map((month, index) => {
       const monthNum = index + 1;
       const monthData = monthlyData.find(d => d._id?.month === monthNum);
-      
+
       // Get actual bookings for this month from the database (for detailed view)
       const monthStart = new Date(year, monthNum - 1, 1);
       const monthEnd = new Date(year, monthNum, 0, 23, 59, 59, 999);
-      
+
       return {
         month: month,
         monthNumber: monthNum,
@@ -1280,8 +1286,8 @@ router.get('/earnings/monthly', authenticateToken, async (req, res) => {
       totalEarnings: formattedData.reduce((sum, m) => sum + m.totalEarnings, 0),
       totalBookings: formattedData.reduce((sum, m) => sum + m.totalBookings, 0),
       averageMonthlyEarnings: formattedData.reduce((sum, m) => sum + m.totalEarnings, 0) / 12,
-      averageBookingValue: formattedData.reduce((sum, m) => sum + m.totalEarnings, 0) / 
-                          (formattedData.reduce((sum, m) => sum + m.totalBookings, 0) || 1)
+      averageBookingValue: formattedData.reduce((sum, m) => sum + m.totalEarnings, 0) /
+        (formattedData.reduce((sum, m) => sum + m.totalBookings, 0) || 1)
     };
 
     res.status(200).json({
@@ -1315,117 +1321,117 @@ router.get('/earnings/monthly', authenticateToken, async (req, res) => {
 // ============= GET LAST 6 MONTHS EARNINGS =============
 // GET /api/bookings/earnings/last-6-months - Get last 6 months total earnings (Public)
 router.get('/earnings/last-6-months',
-  authenticateToken,authorizeAdmin,
+  authenticateToken, authorizeAdmin,
   async (req, res) => {
-  try {
-    console.log('Fetching last 6 months earnings (Public Access)');
+    try {
+      console.log('Fetching last 6 months earnings (Public Access)');
 
-    // Calculate date range for last 6 months
-    const currentDate = new Date();
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(currentDate.getMonth() - 5); // -5 to include current month
-    sixMonthsAgo.setDate(1); // Start from first day of the month
-    sixMonthsAgo.setHours(0, 0, 0, 0);
+      // Calculate date range for last 6 months
+      const currentDate = new Date();
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(currentDate.getMonth() - 5); // -5 to include current month
+      sixMonthsAgo.setDate(1); // Start from first day of the month
+      sixMonthsAgo.setHours(0, 0, 0, 0);
 
-    // Set end date to end of current month
-    const endDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59, 999);
+      // Set end date to end of current month
+      const endDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59, 999);
 
-    console.log('Date range:', {
-      start: sixMonthsAgo,
-      end: endDate
-    });
+      console.log('Date range:', {
+        start: sixMonthsAgo,
+        end: endDate
+      });
 
-    // Build query for all bookings in date range (no user filtering)
-    const matchQuery = {
-      createdAt: {
-        $gte: sixMonthsAgo,
-        $lte: endDate
-      }
-    };
+      // Build query for all bookings in date range (no user filtering)
+      const matchQuery = {
+        createdAt: {
+          $gte: sixMonthsAgo,
+          $lte: endDate
+        }
+      };
 
-    console.log('Earnings query:', JSON.stringify(matchQuery, null, 2));
+      console.log('Earnings query:', JSON.stringify(matchQuery, null, 2));
 
-    // Aggregation pipeline for monthly earnings
-    const pipeline = [
-      { $match: matchQuery },
-      {
-        $group: {
-          _id: {
-            year: { $year: "$createdAt" },
-            month: { $month: "$createdAt" }
-          },
-          totalEarnings: { 
-            $sum: { 
-              $toDouble: {
-                $cond: {
-                  if: { $isNumber: "$charge" },
-                  then: "$charge",
-                  else: { $toDouble: "$charge" }
+      // Aggregation pipeline for monthly earnings
+      const pipeline = [
+        { $match: matchQuery },
+        {
+          $group: {
+            _id: {
+              year: { $year: "$createdAt" },
+              month: { $month: "$createdAt" }
+            },
+            totalEarnings: {
+              $sum: {
+                $toDouble: {
+                  $cond: {
+                    if: { $isNumber: "$charge" },
+                    then: "$charge",
+                    else: { $toDouble: "$charge" }
+                  }
                 }
               }
-            } 
-          },
-          totalBookings: { $sum: 1 }
+            },
+            totalBookings: { $sum: 1 }
+          }
+        },
+        { $sort: { "_id.year": 1, "_id.month": 1 } }
+      ];
+
+      let monthlyData = await Booking.aggregate(pipeline);
+
+      console.log('Monthly aggregated data:', monthlyData);
+
+      // Generate last 6 months array
+      const months = [];
+      for (let i = 5; i >= 0; i--) {
+        const date = new Date();
+        date.setMonth(date.getMonth() - i);
+
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1; // JavaScript months are 0-indexed
+        const monthName = date.toLocaleString('default', { month: 'long' });
+
+        // Find data for this month
+        const monthData = monthlyData.find(d =>
+          d._id?.year === year && d._id?.month === month
+        );
+
+        months.push({
+          month: monthName,
+          monthNumber: month,
+          year: year,
+          totalEarnings: monthData?.totalEarnings || 0,
+          totalBookings: monthData?.totalBookings || 0,
+          date: `${year}-${month.toString().padStart(2, '0')}` // YYYY-MM format
+        });
+      }
+
+      // Calculate totals for the period
+      const totalEarnings = months.reduce((sum, m) => sum + m.totalEarnings, 0);
+      const totalBookings = months.reduce((sum, m) => sum + m.totalBookings, 0);
+
+      res.status(200).json({
+        success: true,
+        message: 'Last 6 months earnings fetched successfully',
+        data: {
+          period: 'last-6-months',
+          months: months,
+          totalEarnings: totalEarnings,
+          totalBookings: totalBookings,
+          averageMonthlyEarnings: totalEarnings / 6,
+          currency: 'SAR'
         }
-      },
-      { $sort: { "_id.year": 1, "_id.month": 1 } }
-    ];
+      });
 
-    let monthlyData = await Booking.aggregate(pipeline);
-
-    console.log('Monthly aggregated data:', monthlyData);
-
-    // Generate last 6 months array
-    const months = [];
-    for (let i = 5; i >= 0; i--) {
-      const date = new Date();
-      date.setMonth(date.getMonth() - i);
-      
-      const year = date.getFullYear();
-      const month = date.getMonth() + 1; // JavaScript months are 0-indexed
-      const monthName = date.toLocaleString('default', { month: 'long' });
-      
-      // Find data for this month
-      const monthData = monthlyData.find(d => 
-        d._id?.year === year && d._id?.month === month
-      );
-      
-      months.push({
-        month: monthName,
-        monthNumber: month,
-        year: year,
-        totalEarnings: monthData?.totalEarnings || 0,
-        totalBookings: monthData?.totalBookings || 0,
-        date: `${year}-${month.toString().padStart(2, '0')}` // YYYY-MM format
+    } catch (error) {
+      console.error('Last 6 months earnings error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching last 6 months earnings',
+        error: error.message
       });
     }
-
-    // Calculate totals for the period
-    const totalEarnings = months.reduce((sum, m) => sum + m.totalEarnings, 0);
-    const totalBookings = months.reduce((sum, m) => sum + m.totalBookings, 0);
-
-    res.status(200).json({
-      success: true,
-      message: 'Last 6 months earnings fetched successfully',
-      data: {
-        period: 'last-6-months',
-        months: months,
-        totalEarnings: totalEarnings,
-        totalBookings: totalBookings,
-        averageMonthlyEarnings: totalEarnings / 6,
-        currency: 'SAR'
-      }
-    });
-
-  } catch (error) {
-    console.error('Last 6 months earnings error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching last 6 months earnings',
-      error: error.message
-    });
-  }
-});
+  });
 
 
 
@@ -1492,7 +1498,7 @@ router.get('/earnings/month/:month', authenticateToken, async (req, res) => {
       stats.minCharge = Math.min(stats.minCharge, charge);
     });
 
-    stats.averageCharge = stats.totalBookings > 0 ? 
+    stats.averageCharge = stats.totalBookings > 0 ?
       stats.totalEarnings / stats.totalBookings : 0;
     stats.minCharge = stats.minCharge === Infinity ? 0 : stats.minCharge;
 
@@ -1577,7 +1583,7 @@ router.get('/earnings/range', authenticateToken, async (req, res) => {
       averageDailyEarnings: 0
     }), { totalEarnings: 0, totalBookings: 0 });
 
-    summary.averageDailyEarnings = earnings.length > 0 ? 
+    summary.averageDailyEarnings = earnings.length > 0 ?
       summary.totalEarnings / earnings.length : 0;
 
     res.status(200).json({
@@ -1638,10 +1644,10 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
         { $match: matchQuery },
         { $group: { _id: null, total: { $sum: { $toDouble: "$charge" } } } }
       ]),
-      
+
       // This month earnings
       Booking.aggregate([
-        { 
+        {
           $match: {
             ...matchQuery,
             updatedAt: {
@@ -1652,10 +1658,10 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
         },
         { $group: { _id: null, total: { $sum: { $toDouble: "$charge" } } } }
       ]),
-      
+
       // Last month earnings
       Booking.aggregate([
-        { 
+        {
           $match: {
             ...matchQuery,
             updatedAt: {
@@ -1666,7 +1672,7 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
         },
         { $group: { _id: null, total: { $sum: { $toDouble: "$charge" } } } }
       ]),
-      
+
       // Daily average
       Booking.aggregate([
         { $match: matchQuery },
@@ -1687,7 +1693,7 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
           }
         }
       ]),
-      
+
       // Best day (highest earnings)
       Booking.aggregate([
         { $match: matchQuery },
@@ -1702,7 +1708,7 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
         { $sort: { total: -1 } },
         { $limit: 1 }
       ]),
-      
+
       // Worst day (lowest earnings)
       Booking.aggregate([
         { $match: matchQuery },
@@ -1757,7 +1763,7 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //   ]), 
 //   async (req, res) => {
 //     try {
-      
+
 //       console.log('Request body:', req.body);
 //       console.log('Request files:', req.files);
 //       console.log('Authenticated user from middleware:',req.customer.customerId);
@@ -1772,7 +1778,7 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //           message: 'Authentication failed - Customer data not found'
 //         });
 //       }
-      
+
 //       console.log('Authenticated customer:', req.customer);
 
 //       const {
@@ -1793,7 +1799,7 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //           !carmodel || !passengerCount || !passengerNames || 
 //           !pickupAddress ||
 //           !passengerMobile || !distance || !charge || !carID) {
-        
+
 //         // Delete uploaded files if validation fails
 //         if (req.files) {
 //           if (req.files.carimage) {
@@ -1803,7 +1809,7 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //             await deleteFromS3(req.files.specialRequestAudio[0].key);
 //           }
 //         }
-        
+
 //         return res.status(400).json({
 //           success: false,
 //           message: 'Please provide all required fields',
@@ -1966,10 +1972,10 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //         message: 'Booking created successfully',
 //         data: booking
 //       });
-      
+
 //     } catch (error) {
 //       console.error('Create booking error:', error);
-      
+
 //       // Delete uploaded files if error occurs
 //       if (req.files) {
 //         if (req.files.carimage) {
@@ -2021,7 +2027,7 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 
 // // ============= CREATE BOOKING with Images =============
 // router.post('/', 
-  
+
 //   authenticateCustomer,
 //   upload.fields([
 //     { name: 'carimage', maxCount: 1 },
@@ -2031,7 +2037,7 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //     try {
 //       console.log('Request body:', req.body);
 //       console.log('Request files:', req.files);
-      
+
 //       // FIXED: Check if req.customer exists
 //       if (!req.customer) {
 //         return res.status(401).json({
@@ -2039,9 +2045,9 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //           message: 'Authentication failed - Customer data not found'
 //         });
 //       }
-      
+
 //       console.log('Authenticated customer:', req.customer);
-      
+
 //       // Get customer ID from authenticated user (already an ObjectId)
 //       const customerID = req.customer.customerId;
 //       console.log('Customer ID:', customerID);
@@ -2053,7 +2059,7 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //         specialRequestText,
 //         passengerCount, passengerNames, passengerMobile, distance,
 //         bookingStatus, driverID,transactionID,orderID,discountPercentage
-        
+
 //       } = req.body;
 
 //       // Log the fields for debugging
@@ -2077,7 +2083,7 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //         'dropOffLat', 'dropOffLong', 'dropOffAddress', 'carmodel',
 //         'passengerCount', 'passengerNames', 'pickupAddress',
 //         'passengerMobile', 'distance', 'charge', 'carID', 'transactionID', 'orderID',
-        
+
 //       ];
 
 //       const missingFields = [];
@@ -2097,7 +2103,7 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //             await deleteFromS3(req.files.specialRequestAudio[0].key);
 //           }
 //         }
-        
+
 //         return res.status(400).json({
 //           success: false,
 //           message: 'Please provide all required fields',
@@ -2108,16 +2114,16 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 
 //       // IMPROVED DATE VALIDATION
 //       let parsedDate;
-      
+
 //       // Handle different date formats
 //       try {
 //         // Trim whitespace from arrival string
 //         const arrivalStr = String(arrival).trim();
 //         console.log('Cleaned arrival string:', arrivalStr);
-        
+
 //         // Try to parse the date
 //         parsedDate = new Date(arrivalStr);
-        
+
 //         // Check if date is valid
 //         if (isNaN(parsedDate.getTime())) {
 //           // Try alternative parsing without milliseconds
@@ -2125,7 +2131,7 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //           if (alternativeFormat !== arrivalStr) {
 //             parsedDate = new Date(alternativeFormat);
 //           }
-          
+
 //           // If still invalid, try parsing with timezone
 //           if (isNaN(parsedDate.getTime())) {
 //             // Try replacing Z with +00:00
@@ -2133,15 +2139,15 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //             parsedDate = new Date(withTimezone);
 //           }
 //         }
-        
+
 //         // Final validation
 //         if (isNaN(parsedDate.getTime())) {
 //           throw new Error('Invalid date format');
 //         }
-        
+
 //         console.log('Parsed date successfully:', parsedDate);
 //         console.log('ISO string:', parsedDate.toISOString());
-        
+
 //       } catch (dateError) {
 //         console.error('Date parsing error:', dateError);
 //         if (req.files) {
@@ -2230,17 +2236,17 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //         if (!id || id === 'null' || id === 'undefined' || id === '') {
 //           return null;
 //         }
-        
+
 //         // If it's already an ObjectId, return it
 //         if (id instanceof mongoose.Types.ObjectId) {
 //           return id;
 //         }
-        
+
 //         // Try to convert string to ObjectId
 //         if (typeof id === 'string' && mongoose.Types.ObjectId.isValid(id)) {
 //           return new ObjectId(id);
 //         }
-        
+
 //         console.warn(`Invalid ${fieldName} format:`, id);
 //         return null;
 //       };
@@ -2436,10 +2442,10 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 //         message: 'Booking created successfully',
 //         data: booking
 //       });
-      
+
 //     } catch (error) {
 //       console.error('Create booking error:', error);
-      
+
 //       // Delete uploaded files if error occurs
 //       if (req.files) {
 //         if (req.files.carimage) {
@@ -2485,273 +2491,273 @@ router.get('/earnings/summary', authenticateToken, async (req, res) => {
 
 // ============= GET BOOKING BY ID =============
 // GET /api/bookings/:id - Get a single booking with full details (Admin Only)
-router.get('/:id', 
+router.get('/:id',
   authenticateToken,
   authorizeAdmin, // Only admin/superadmin can access
   async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    // Get admin info from the authenticated token
-    const adminId = req.user?.id;
-    const adminRole = req.user?.role;
-    
-    console.log('Get booking by ID - Admin info:', {
-      adminId,
-      adminRole,
-      bookingId: id
-    });
+    try {
+      const { id } = req.params;
 
-    // Validate booking ID
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid booking ID format'
-      });
-    }
+      // Get admin info from the authenticated token
+      const adminId = req.user?.id;
+      const adminRole = req.user?.role;
 
-    // Admin can access any booking - no restrictions
-    const query = { _id: id };
-
-    // Find booking with all populated fields
-    const booking = await Booking.findOne(query)
-      .populate({
-        path: 'customerID',
-        model: 'User',
-        select: '_id username email phoneNumber countryCode profileImage role isActive fullPhoneNumber'
-      })
-      .populate({
-        path: 'cityID',
-        model: 'City',
-        select: '_id cityName cityNameAr image isActive createdAt'
-      })
-      .populate({
-        path: 'airportID',
-        model: 'Airport',
-        populate: {
-          path: 'cityID',
-          model: 'City',
-          select: '_id cityName cityNameAr'
-        },
-        select: '_id cityID airportName airportNameAr lat long image isActive createdAt'
-      })
-      .populate({
-        path: 'terminalID',
-        model: 'Terminal',
-        populate: {
-          path: 'airportID',
-          model: 'Airport',
-          select: '_id airportName airportNameAr'
-        },
-        select: '_id airportID terminalName terminalNameAr image isActive createdAt'
-      })
-      .populate({
-        path: 'carID',
-        model: 'Car',
-        populate: [
-          {
-            path: 'categoryID',
-            model: 'Category',
-            select: '_id name'
-          },
-          {
-            path: 'brandID',
-            model: 'Brand',
-            select: '_id brandName'
-          }
-        ],
-        select: '_id categoryID brandID carName model numberOfPassengers carImage minimumChargeDistance createdAt'
-      })
-      .populate({
-        path: 'driverID',
-        model: 'Driver',
-        select: '_id driverName countryCode phoneNumber licenseNumber profileImage rating totalTrips isActive isVerified createdAt'
-      })
-      .lean();
-
-    if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
-    }
-
-    // Format the booking response with full details
-    const formattedBooking = {
-      _id: booking._id,
-      category: booking.category,
-      
-      // City details
-      city: booking.cityID && typeof booking.cityID === 'object' ? {
-        _id: booking.cityID._id,
-        cityName: booking.cityID.cityName,
-        cityNameAr: booking.cityID.cityNameAr,
-        image: booking.cityID.image,
-        isActive: booking.cityID.isActive,
-        createdAt: booking.cityID.createdAt
-      } : null,
-      
-      // Airport details with city info
-      airport: booking.airportID && typeof booking.airportID === 'object' ? {
-        _id: booking.airportID._id,
-        cityDetails: booking.airportID.cityID && typeof booking.airportID.cityID === 'object' ? {
-          _id: booking.airportID.cityID._id,
-          cityName: booking.airportID.cityID.cityName,
-          cityNameAr: booking.airportID.cityID.cityNameAr,
-          isActive: booking.airportID.cityID.isActive
-        } : null,
-        airportName: booking.airportID.airportName,
-        airportNameAr: booking.airportID.airportNameAr,
-        lat: booking.airportID.lat,
-        long: booking.airportID.long,
-        image: booking.airportID.image,
-        isActive: booking.airportID.isActive,
-        createdAt: booking.airportID.createdAt
-      } : null,
-      
-      // Terminal details with airport info
-      terminal: booking.terminalID && typeof booking.terminalID === 'object' ? {
-        _id: booking.terminalID._id,
-        airportDetails: booking.terminalID.airportID && typeof booking.terminalID.airportID === 'object' ? {
-          _id: booking.terminalID.airportID._id,
-          airportName: booking.terminalID.airportID.airportName,
-          airportNameAr: booking.terminalID.airportID.airportNameAr,
-          isActive: booking.terminalID.airportID.isActive
-        } : null,
-        terminalName: booking.terminalID.terminalName,
-        terminalNameAr: booking.terminalID.terminalNameAr,
-        image: booking.terminalID.image,
-        isActive: booking.terminalID.isActive,
-        createdAt: booking.terminalID.createdAt
-      } : null,
-      
-      // Car details with category and brand
-      car: booking.carID && typeof booking.carID === 'object' ? {
-        _id: booking.carID._id,
-        categoryDetails: booking.carID.categoryID && typeof booking.carID.categoryID === 'object' ? {
-          _id: booking.carID.categoryID._id,
-          categoryName: booking.carID.categoryID.name,
-          isActive: booking.carID.categoryID.isActive
-
-        } : null,
-        brandDetails: booking.carID.brandID && typeof booking.carID.brandID === 'object' ? {
-          _id: booking.carID.brandID._id,
-          brandName: booking.carID.brandID.brandName,
-          isActive: booking.carID.brandID.isActive
-        } : null,
-        carName: booking.carID.carName,
-        model: booking.carID.model,
-        numberOfPassengers: booking.carID.numberOfPassengers,
-        carImage: booking.carID.carImage,
-        minimumChargeDistance: booking.carID.minimumChargeDistance,
-        createdAt: booking.carID.createdAt
-      } : null,
-      
-      // Driver details
-      driver: booking.driverID && typeof booking.driverID === 'object' ? {
-        _id: booking.driverID._id,
-        driverName: booking.driverID.driverName,
-        countryCode: booking.driverID.countryCode,
-        phoneNumber: booking.driverID.phoneNumber,
-        fullPhoneNumber: `${booking.driverID.countryCode}${booking.driverID.phoneNumber}`,
-        licenseNumber: booking.driverID.licenseNumber,
-        profileImage: booking.driverID.profileImage,
-        rating: booking.driverID.rating,
-        totalTrips: booking.driverID.totalTrips,
-        isActive: booking.driverID.isActive,
-        isVerified: booking.driverID.isVerified,
-        createdAt: booking.driverID.createdAt
-      } : null,
-      
-      // Customer details
-      customer: booking.customerID && typeof booking.customerID === 'object' ? {
-        _id: booking.customerID._id,
-        username: booking.customerID.username,
-        email: booking.customerID.email,
-        phoneNumber: booking.customerID.phoneNumber,
-        countryCode: booking.customerID.countryCode,
-        fullPhoneNumber: `${booking.customerID.countryCode}${booking.customerID.phoneNumber}`,
-        profileImage: booking.customerID.profileImage,
-        role: booking.customerID.role,
-        isActive: booking.customerID.isActive,
-        createdAt: booking.customerID.createdAt
-      } : null,
-      
-      // Flight details
-      flightNumber: booking.flightNumber,
-      arrival: booking.arrival,
-      
-      // Pickup details
-      pickupLat: booking.pickupLat,
-      pickupLong: booking.pickupLong,
-      pickupAddress: booking.pickupAddress,
-      
-      // Dropoff details
-      dropOffLat: booking.dropOffLat,
-      dropOffLong: booking.dropOffLong,
-      dropOffAddress: booking.dropOffAddress,
-      
-      // Car details from booking
-      carmodel: booking.carmodel,
-      charge: booking.charge,
-      carimage: booking.carimage,
-      discountPercentage: booking.discountPercentage || 0,
-      
-      // Passenger details
-      passengerCount: booking.passengerCount,
-      passengerNames: booking.passengerNames,
-      passengerMobile: booking.passengerMobile,
-      distance: booking.distance,
-      
-      // Status and tracking
-      bookingStatus: booking.bookingStatus,
-      TrackingTimeLine: booking.TrackingTimeLine || [],
-      paymentStatus: booking.paymentStatus,
-      rating: booking.rating || {},
-      
-      // Special requests
-      specialRequestText: booking.specialRequestText,
-      specialRequestAudio: booking.specialRequestAudio,
-      
-      // Transaction details
-      transactionID: booking.transactionID,
-      orderID: booking.orderID,
-      
-      // Timestamps
-      createdAt: booking.createdAt,
-      updatedAt: booking.updatedAt,
-      
-      // Admin info (for debugging)
-      accessedBy: {
+      console.log('Get booking by ID - Admin info:', {
         adminId,
         adminRole,
-        accessTime: new Date().toISOString()
+        bookingId: id
+      });
+
+      // Validate booking ID
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid booking ID format'
+        });
       }
-    };
 
-    res.status(200).json({
-      success: true,
-      message: 'Booking fetched successfully',
-      data: formattedBooking
-    });
+      // Admin can access any booking - no restrictions
+      const query = { _id: id };
 
-  } catch (error) {
-    console.error('Get booking by ID error:', error);
-    
-    if (error.name === 'CastError') {
-      return res.status(400).json({
+      // Find booking with all populated fields
+      const booking = await Booking.findOne(query)
+        .populate({
+          path: 'customerID',
+          model: 'User',
+          select: '_id username email phoneNumber countryCode profileImage role isActive fullPhoneNumber'
+        })
+        .populate({
+          path: 'cityID',
+          model: 'City',
+          select: '_id cityName cityNameAr image isActive createdAt'
+        })
+        .populate({
+          path: 'airportID',
+          model: 'Airport',
+          populate: {
+            path: 'cityID',
+            model: 'City',
+            select: '_id cityName cityNameAr'
+          },
+          select: '_id cityID airportName airportNameAr lat long image isActive createdAt'
+        })
+        .populate({
+          path: 'terminalID',
+          model: 'Terminal',
+          populate: {
+            path: 'airportID',
+            model: 'Airport',
+            select: '_id airportName airportNameAr'
+          },
+          select: '_id airportID terminalName terminalNameAr image isActive createdAt'
+        })
+        .populate({
+          path: 'carID',
+          model: 'Car',
+          populate: [
+            {
+              path: 'categoryID',
+              model: 'Category',
+              select: '_id name'
+            },
+            {
+              path: 'brandID',
+              model: 'Brand',
+              select: '_id brandName'
+            }
+          ],
+          select: '_id categoryID brandID carName model numberOfPassengers carImage minimumChargeDistance createdAt'
+        })
+        .populate({
+          path: 'driverID',
+          model: 'Driver',
+          select: '_id driverName countryCode phoneNumber licenseNumber profileImage rating totalTrips isActive isVerified createdAt'
+        })
+        .lean();
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found'
+        });
+      }
+
+      // Format the booking response with full details
+      const formattedBooking = {
+        _id: booking._id,
+        category: booking.category,
+
+        // City details
+        city: booking.cityID && typeof booking.cityID === 'object' ? {
+          _id: booking.cityID._id,
+          cityName: booking.cityID.cityName,
+          cityNameAr: booking.cityID.cityNameAr,
+          image: booking.cityID.image,
+          isActive: booking.cityID.isActive,
+          createdAt: booking.cityID.createdAt
+        } : null,
+
+        // Airport details with city info
+        airport: booking.airportID && typeof booking.airportID === 'object' ? {
+          _id: booking.airportID._id,
+          cityDetails: booking.airportID.cityID && typeof booking.airportID.cityID === 'object' ? {
+            _id: booking.airportID.cityID._id,
+            cityName: booking.airportID.cityID.cityName,
+            cityNameAr: booking.airportID.cityID.cityNameAr,
+            isActive: booking.airportID.cityID.isActive
+          } : null,
+          airportName: booking.airportID.airportName,
+          airportNameAr: booking.airportID.airportNameAr,
+          lat: booking.airportID.lat,
+          long: booking.airportID.long,
+          image: booking.airportID.image,
+          isActive: booking.airportID.isActive,
+          createdAt: booking.airportID.createdAt
+        } : null,
+
+        // Terminal details with airport info
+        terminal: booking.terminalID && typeof booking.terminalID === 'object' ? {
+          _id: booking.terminalID._id,
+          airportDetails: booking.terminalID.airportID && typeof booking.terminalID.airportID === 'object' ? {
+            _id: booking.terminalID.airportID._id,
+            airportName: booking.terminalID.airportID.airportName,
+            airportNameAr: booking.terminalID.airportID.airportNameAr,
+            isActive: booking.terminalID.airportID.isActive
+          } : null,
+          terminalName: booking.terminalID.terminalName,
+          terminalNameAr: booking.terminalID.terminalNameAr,
+          image: booking.terminalID.image,
+          isActive: booking.terminalID.isActive,
+          createdAt: booking.terminalID.createdAt
+        } : null,
+
+        // Car details with category and brand
+        car: booking.carID && typeof booking.carID === 'object' ? {
+          _id: booking.carID._id,
+          categoryDetails: booking.carID.categoryID && typeof booking.carID.categoryID === 'object' ? {
+            _id: booking.carID.categoryID._id,
+            categoryName: booking.carID.categoryID.name,
+            isActive: booking.carID.categoryID.isActive
+
+          } : null,
+          brandDetails: booking.carID.brandID && typeof booking.carID.brandID === 'object' ? {
+            _id: booking.carID.brandID._id,
+            brandName: booking.carID.brandID.brandName,
+            isActive: booking.carID.brandID.isActive
+          } : null,
+          carName: booking.carID.carName,
+          model: booking.carID.model,
+          numberOfPassengers: booking.carID.numberOfPassengers,
+          carImage: booking.carID.carImage,
+          minimumChargeDistance: booking.carID.minimumChargeDistance,
+          createdAt: booking.carID.createdAt
+        } : null,
+
+        // Driver details
+        driver: booking.driverID && typeof booking.driverID === 'object' ? {
+          _id: booking.driverID._id,
+          driverName: booking.driverID.driverName,
+          countryCode: booking.driverID.countryCode,
+          phoneNumber: booking.driverID.phoneNumber,
+          fullPhoneNumber: `${booking.driverID.countryCode}${booking.driverID.phoneNumber}`,
+          licenseNumber: booking.driverID.licenseNumber,
+          profileImage: booking.driverID.profileImage,
+          rating: booking.driverID.rating,
+          totalTrips: booking.driverID.totalTrips,
+          isActive: booking.driverID.isActive,
+          isVerified: booking.driverID.isVerified,
+          createdAt: booking.driverID.createdAt
+        } : null,
+
+        // Customer details
+        customer: booking.customerID && typeof booking.customerID === 'object' ? {
+          _id: booking.customerID._id,
+          username: booking.customerID.username,
+          email: booking.customerID.email,
+          phoneNumber: booking.customerID.phoneNumber,
+          countryCode: booking.customerID.countryCode,
+          fullPhoneNumber: `${booking.customerID.countryCode}${booking.customerID.phoneNumber}`,
+          profileImage: booking.customerID.profileImage,
+          role: booking.customerID.role,
+          isActive: booking.customerID.isActive,
+          createdAt: booking.customerID.createdAt
+        } : null,
+
+        // Flight details
+        flightNumber: booking.flightNumber,
+        arrival: booking.arrival,
+
+        // Pickup details
+        pickupLat: booking.pickupLat,
+        pickupLong: booking.pickupLong,
+        pickupAddress: booking.pickupAddress,
+
+        // Dropoff details
+        dropOffLat: booking.dropOffLat,
+        dropOffLong: booking.dropOffLong,
+        dropOffAddress: booking.dropOffAddress,
+
+        // Car details from booking
+        carmodel: booking.carmodel,
+        charge: booking.charge,
+        carimage: booking.carimage,
+        discountPercentage: booking.discountPercentage || 0,
+
+        // Passenger details
+        passengerCount: booking.passengerCount,
+        passengerNames: booking.passengerNames,
+        passengerMobile: booking.passengerMobile,
+        distance: booking.distance,
+
+        // Status and tracking
+        bookingStatus: booking.bookingStatus,
+        TrackingTimeLine: booking.TrackingTimeLine || [],
+        paymentStatus: booking.paymentStatus,
+        rating: booking.rating || {},
+
+        // Special requests
+        specialRequestText: booking.specialRequestText,
+        specialRequestAudio: booking.specialRequestAudio,
+
+        // Transaction details
+        transactionID: booking.transactionID,
+        orderID: booking.orderID,
+
+        // Timestamps
+        createdAt: booking.createdAt,
+        updatedAt: booking.updatedAt,
+
+        // Admin info (for debugging)
+        accessedBy: {
+          adminId,
+          adminRole,
+          accessTime: new Date().toISOString()
+        }
+      };
+
+      res.status(200).json({
+        success: true,
+        message: 'Booking fetched successfully',
+        data: formattedBooking
+      });
+
+    } catch (error) {
+      console.error('Get booking by ID error:', error);
+
+      if (error.name === 'CastError') {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid booking ID format'
+        });
+      }
+
+      res.status(500).json({
         success: false,
-        message: 'Invalid booking ID format'
+        message: 'Error fetching booking',
+        error: error.message
       });
     }
-    
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching booking',
-      error: error.message
-    });
-  }
-});
+  });
 
 
 
@@ -2813,13 +2819,13 @@ router.get('/:id',
 //           !dropOffLat || !dropOffLong || !dropOffAddress || !carclass || 
 //           !carbrand || !carmodel || !passengerCount || !passengerNames || 
 //           !passengerMobile || !distance || !charge || !carName || !driverID) {
-        
+
 //         // Delete uploaded files if validation fails
 //         if (req.files) {
 //           if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
 //           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
 //         }
-        
+
 //         return res.status(400).json({
 //           success: false,
 //           message: 'Please provide all required fields'
@@ -2886,14 +2892,14 @@ router.get('/:id',
 //       };
 
 //       // Handle file updates
-      
+
 //       // 1. Handle car image update
 //       if (req.files && req.files.carimage && req.files.carimage[0]) {
 //         // Delete old car image from S3 if exists
 //         if (existingBooking.carimage && existingBooking.carimage.key) {
 //           await deleteFromS3(existingBooking.carimage.key).catch(console.error);
 //         }
-        
+
 //         // Add new car image
 //         updateData.carimage = {
 //           key: req.files.carimage[0].key,
@@ -2910,7 +2916,7 @@ router.get('/:id',
 //         if (existingBooking.specialRequestAudio && existingBooking.specialRequestAudio.key) {
 //           await deleteFromS3(existingBooking.specialRequestAudio.key).catch(console.error);
 //         }
-        
+
 //         // Add new audio
 //         updateData.specialRequestAudio = {
 //           key: req.files.specialRequestAudio[0].key,
@@ -3037,7 +3043,7 @@ router.get('/:id',
 
 //     } catch (error) {
 //       console.error('Update booking error:', error);
-      
+
 //       // Delete newly uploaded files if error occurs
 //       if (req.files) {
 //         if (req.files.carimage) {
@@ -3085,18 +3091,18 @@ router.get('/:id',
 
 
 // Optional: PATCH method for partial updates
-router.patch('/:id', 
-  authMiddleware, 
+router.patch('/:id',
+  authMiddleware,
   upload.fields([
     { name: 'carimage', maxCount: 1 },
     { name: 'specialRequestAudio', maxCount: 1 }
-  ]), 
+  ]),
   async (req, res) => {
     try {
       console.log('Partial update booking - ID:', req.params.id);
       // Similar to PUT but without required field validation
       // You can implement a more flexible version here
-      
+
       const bookingId = req.params.id;
 
       // Validate booking ID
@@ -3149,18 +3155,18 @@ router.patch('/:id',
               }
               updateData[field] = date;
               break;
-              
+
             case 'pickupLat':
             case 'pickupLong':
             case 'dropOffLat':
             case 'dropOffLong':
               updateData[field] = parseFloat(req.body[field]);
               break;
-              
+
             case 'passengerCount':
               updateData[field] = parseInt(req.body[field]);
               break;
-              
+
             case 'passengerNames':
               if (typeof req.body[field] === 'string') {
                 try {
@@ -3174,7 +3180,7 @@ router.patch('/:id',
                 updateData[field] = [String(req.body[field])];
               }
               break;
-              
+
             case 'specialRequestText':
               if (req.body[field] && req.body[field].trim() !== '') {
                 updateData[field] = String(req.body[field]).trim();
@@ -3182,7 +3188,7 @@ router.patch('/:id',
                 updateData.$unset = { ...updateData.$unset, [field]: 1 };
               }
               break;
-              
+
             default:
               updateData[field] = String(req.body[field]).trim();
           }
@@ -3241,7 +3247,7 @@ router.patch('/:id',
         error: error.message
       });
     }
-});
+  });
 
 
 
@@ -3290,7 +3296,7 @@ router.patch('/:id/charge', authMiddleware, async (req, res) => {
     // Update only the charge field
     const updatedBooking = await Booking.findByIdAndUpdate(
       id,
-      { 
+      {
         charge: chargeValue,
         updatedAt: new Date(),
         $push: { TrackingTimeLine: 'charge_updated' }
@@ -3311,7 +3317,7 @@ router.patch('/:id/charge', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Update charge error:', error);
-    
+
     if (error.name === 'ValidationError') {
       const errors = {};
       for (let field in error.errors) {
@@ -3428,7 +3434,7 @@ router.patch('/:id/charge-detailed', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Update charge details error:', error);
-    
+
     if (error.name === 'ValidationError') {
       const errors = {};
       for (let field in error.errors) {
@@ -3515,299 +3521,299 @@ router.patch('/:id/charge-detailed', authMiddleware, async (req, res) => {
 
 // ============= GET ALL BOOKINGS =============
 // GET /api/bookings - Get all bookings with filtering
-router.get('/',authenticateToken,
+router.get('/', authenticateToken,
   authorizeAdmin, async (req, res) => {
-  try {
-    const { 
-      customerID, 
-      driverID, 
-      status, 
-      fromDate, 
-      toDate,
-      page = 1,
-      limit = 10
-    } = req.query;
+    try {
+      const {
+        customerID,
+        driverID,
+        status,
+        fromDate,
+        toDate,
+        page = 1,
+        limit = 10
+      } = req.query;
 
-    const query = {};
+      const query = {};
 
-    if (customerID && mongoose.Types.ObjectId.isValid(customerID)) {
-      query.customerID = new mongoose.Types.ObjectId(customerID);
-    }
-    if (driverID && mongoose.Types.ObjectId.isValid(driverID)) {
-      query.driverID = new mongoose.Types.ObjectId(driverID);
-    }
-    if (status) query.bookingStatus = status;
-    if (fromDate || toDate) {
-      query.arrival = {};
-      if (fromDate) query.arrival.$gte = new Date(fromDate);
-      if (toDate) query.arrival.$lte = new Date(toDate);
-    }
-
-    // First, get the raw bookings to check what's in the database
-    const rawBookings = await Booking.find(query)
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit))
-      .lean();
-    
-    console.log('Raw bookings sample:', rawBookings[0] ? {
-      cityID: rawBookings[0].cityID,
-      airportID: rawBookings[0].airportID,
-      terminalID: rawBookings[0].terminalID,
-      carID: rawBookings[0].carID,
-      types: {
-        cityID: typeof rawBookings[0].cityID,
-        airportID: typeof rawBookings[0].airportID
+      if (customerID && mongoose.Types.ObjectId.isValid(customerID)) {
+        query.customerID = new mongoose.Types.ObjectId(customerID);
       }
-    } : 'No bookings');
+      if (driverID && mongoose.Types.ObjectId.isValid(driverID)) {
+        query.driverID = new mongoose.Types.ObjectId(driverID);
+      }
+      if (status) query.bookingStatus = status;
+      if (fromDate || toDate) {
+        query.arrival = {};
+        if (fromDate) query.arrival.$gte = new Date(fromDate);
+        if (toDate) query.arrival.$lte = new Date(toDate);
+      }
 
-    // Find bookings with full population
-    const bookings = await Booking.find(query)
-      .populate({
-        path: 'customerID',
-        model: 'User',
-        select: '_id username email phoneNumber countryCode profileImage role isActive fullPhoneNumber'
-      })
-      .populate({
-        path: 'cityID',
-        model: 'City',
-        select: '_id cityName cityNameAr image isActive createdAt'
-      })
-      .populate({
-        path: 'airportID',
-        model: 'Airport',
-        populate: {
+      // First, get the raw bookings to check what's in the database
+      const rawBookings = await Booking.find(query)
+        .limit(parseInt(limit))
+        .skip((parseInt(page) - 1) * parseInt(limit))
+        .lean();
+
+      console.log('Raw bookings sample:', rawBookings[0] ? {
+        cityID: rawBookings[0].cityID,
+        airportID: rawBookings[0].airportID,
+        terminalID: rawBookings[0].terminalID,
+        carID: rawBookings[0].carID,
+        types: {
+          cityID: typeof rawBookings[0].cityID,
+          airportID: typeof rawBookings[0].airportID
+        }
+      } : 'No bookings');
+
+      // Find bookings with full population
+      const bookings = await Booking.find(query)
+        .populate({
+          path: 'customerID',
+          model: 'User',
+          select: '_id username email phoneNumber countryCode profileImage role isActive fullPhoneNumber'
+        })
+        .populate({
           path: 'cityID',
           model: 'City',
-          select: '_id cityName cityNameAr'
-        },
-        select: '_id cityID airportName airportNameAr lat long image isActive createdAt'
-      })
-      .populate({
-        path: 'terminalID',
-        model: 'Terminal',
-        populate: {
+          select: '_id cityName cityNameAr image isActive createdAt'
+        })
+        .populate({
           path: 'airportID',
           model: 'Airport',
-          select: '_id airportName airportNameAr terminalName terminalNameAr lat long image isActive createdAt'
-        },
-        select: '_id airportID terminalName terminalNameAr image isActive createdAt'
-      })
-      .populate({
-        path: 'carID',
-        model: 'Car',
-        populate: [
-          {
-            path: 'categoryID',
-            model: 'Category',
-            select: '_id name'
+          populate: {
+            path: 'cityID',
+            model: 'City',
+            select: '_id cityName cityNameAr'
           },
-          {
-            path: 'brandID',
-            model: 'Brand',
-            select: '_id brandName'
-          }
-        ],
-        select: '_id categoryID brandID carName model numberOfPassengers carImage minimumChargeDistance createdAt'
-      })
-      .populate({
-        path: 'driverID',
-        model: 'Driver',
-        select: '_id driverName countryCode phoneNumber licenseNumber profileImage rating totalTrips isActive isVerified createdAt'
-      })
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit))
-      .lean();
+          select: '_id cityID airportName airportNameAr lat long image isActive createdAt'
+        })
+        .populate({
+          path: 'terminalID',
+          model: 'Terminal',
+          populate: {
+            path: 'airportID',
+            model: 'Airport',
+            select: '_id airportName airportNameAr terminalName terminalNameAr lat long image isActive createdAt'
+          },
+          select: '_id airportID terminalName terminalNameAr image isActive createdAt'
+        })
+        .populate({
+          path: 'carID',
+          model: 'Car',
+          populate: [
+            {
+              path: 'categoryID',
+              model: 'Category',
+              select: '_id name'
+            },
+            {
+              path: 'brandID',
+              model: 'Brand',
+              select: '_id brandName'
+            }
+          ],
+          select: '_id categoryID brandID carName model numberOfPassengers carImage minimumChargeDistance createdAt'
+        })
+        .populate({
+          path: 'driverID',
+          model: 'Driver',
+          select: '_id driverName countryCode phoneNumber licenseNumber profileImage rating totalTrips isActive isVerified createdAt'
+        })
+        .sort({ createdAt: -1 })
+        .limit(parseInt(limit))
+        .skip((parseInt(page) - 1) * parseInt(limit))
+        .lean();
 
-    const total = await Booking.countDocuments(query);
+      const total = await Booking.countDocuments(query);
 
-    // Format each booking with full details
-    const formattedBookings = bookings.map(booking => {
-      // Debug logging for each booking
-      console.log(`Booking ${booking._id} population status:`, {
-        hasCity: !!booking.cityID,
-        cityType: typeof booking.cityID,
-        cityData: booking.cityID,
-        hasAirport: !!booking.airportID,
-        airportType: typeof booking.airportID,
-        hasTerminal: !!booking.terminalID,
-        terminalType: typeof booking.terminalID,
-        hasCar: !!booking.carID,
-        carType: typeof booking.carID
+      // Format each booking with full details
+      const formattedBookings = bookings.map(booking => {
+        // Debug logging for each booking
+        console.log(`Booking ${booking._id} population status:`, {
+          hasCity: !!booking.cityID,
+          cityType: typeof booking.cityID,
+          cityData: booking.cityID,
+          hasAirport: !!booking.airportID,
+          airportType: typeof booking.airportID,
+          hasTerminal: !!booking.terminalID,
+          terminalType: typeof booking.terminalID,
+          hasCar: !!booking.carID,
+          carType: typeof booking.carID
+        });
+
+        return {
+          _id: booking._id,
+          category: booking.category,
+
+          // City details - Full data from City model
+          city: booking.cityID && typeof booking.cityID === 'object' ? {
+            _id: booking.cityID._id,
+            cityName: booking.cityID.cityName,
+            image: booking.cityID.image,
+            cityNameAr: booking.cityID.cityNameAr,
+            isActive: booking.cityID.isActive,
+            createdAt: booking.cityID.createdAt
+          } : null,
+
+          // Airport details with city info
+          airport: booking.airportID && typeof booking.airportID === 'object' ? {
+            _id: booking.airportID._id,
+            cityID: booking.airportID.cityID,
+            cityDetails: booking.airportID.cityID && typeof booking.airportID.cityID === 'object' ? {
+              _id: booking.airportID.cityID._id,
+              cityName: booking.airportID.cityID.cityName,
+              cityNameAr: booking.airportID.cityID.cityNameAr,
+              isActive: booking.airportID.cityID.isActive,
+            } : null,
+            airportName: booking.airportID.airportName,
+            airportNameAr: booking.airportID.airportNameAr,
+            lat: booking.airportID.lat,
+            long: booking.airportID.long,
+            image: booking.airportID.image,
+            isActive: booking.airportID.isActive,
+            createdAt: booking.airportID.createdAt
+          } : null,
+
+          // Terminal details with airport info
+          terminal: booking.terminalID && typeof booking.terminalID === 'object' ? {
+            _id: booking.terminalID._id,
+            airportID: booking.terminalID.airportID,
+            airportDetails: booking.terminalID.airportID && typeof booking.terminalID.airportID === 'object' ? {
+              _id: booking.terminalID.airportID._id,
+              airportName: booking.terminalID.airportID.airportName,
+              isActive: booking.terminalID.airportID.isActive
+            } : null,
+            terminalName: booking.terminalID.terminalName,
+            terminalNameAr: booking.terminalID.terminalNameAr,
+            image: booking.terminalID.image,
+            isActive: booking.terminalID.isActive,
+            createdAt: booking.terminalID.createdAt
+          } : null,
+
+          // Car details with category and brand
+          car: booking.carID && typeof booking.carID === 'object' ? {
+            _id: booking.carID._id,
+            // categoryID: booking.carID.categoryID,
+            categoryDetails: booking.carID.categoryID && typeof booking.carID.categoryID === 'object' ? {
+              _id: booking.carID.categoryID._id,
+              categoryName: booking.carID.categoryID.name,
+              isActive: booking.carID.categoryID.isActive
+            } : null,
+            // brandID: booking.carID.brandID,
+            brandDetails: booking.carID.brandID && typeof booking.carID.brandID === 'object' ? {
+              _id: booking.carID.brandID._id,
+              brandName: booking.carID.brandID.brandName,
+              isActive: booking.carID.brandID.isActive
+            } : null,
+            carName: booking.carID.carName,
+            model: booking.carID.model,
+            numberOfPassengers: booking.carID.numberOfPassengers,
+            carImage: booking.carID.carImage,
+            minimumChargeDistance: booking.carID.minimumChargeDistance,
+            createdAt: booking.carID.createdAt
+          } : null,
+
+          // Driver details
+          driver: booking.driverID && typeof booking.driverID === 'object' ? {
+            _id: booking.driverID._id,
+            driverName: booking.driverID.driverName,
+            countryCode: booking.driverID.countryCode,
+            phoneNumber: booking.driverID.phoneNumber,
+            fullPhoneNumber: `${booking.driverID.countryCode}${booking.driverID.phoneNumber}`,
+            licenseNumber: booking.driverID.licenseNumber,
+            profileImage: booking.driverID.profileImage,
+            rating: booking.driverID.rating,
+            totalTrips: booking.driverID.totalTrips,
+            isActive: booking.driverID.isActive,
+            isVerified: booking.driverID.isVerified,
+            createdAt: booking.driverID.createdAt
+          } : null,
+
+          // Customer details
+          customer: booking.customerID && typeof booking.customerID === 'object' ? {
+            _id: booking.customerID._id,
+            username: booking.customerID.username,
+            email: booking.customerID.email,
+            phoneNumber: booking.customerID.phoneNumber,
+            countryCode: booking.customerID.countryCode,
+            fullPhoneNumber: `${booking.customerID.countryCode}${booking.customerID.phoneNumber}`,
+            profileImage: booking.customerID.profileImage,
+            role: booking.customerID.role,
+            isActive: booking.customerID.isActive,
+            createdAt: booking.customerID.createdAt
+          } : null,
+
+          // Keep original IDs for reference
+          originalIds: {
+            cityID: booking.cityID?._id || booking.cityID,
+            airportID: booking.airportID?._id || booking.airportID,
+            terminalID: booking.terminalID?._id || booking.terminalID,
+            carID: booking.carID?._id || booking.carID,
+            customerID: booking.customerID?._id || booking.customerID,
+            driverID: booking.driverID?._id || booking.driverID
+          },
+
+          // Flight details
+          flightNumber: booking.flightNumber,
+          arrival: booking.arrival,
+
+          // Pickup details
+          pickupLat: booking.pickupLat,
+          pickupLong: booking.pickupLong,
+          pickupAddress: booking.pickupAddress,
+
+          // Dropoff details
+          dropOffLat: booking.dropOffLat,
+          dropOffLong: booking.dropOffLong,
+          dropOffAddress: booking.dropOffAddress,
+
+          // Car details from booking
+          carmodel: booking.carmodel,
+          charge: booking.charge,
+          carimage: booking.carimage,
+
+          // Passenger details
+          passengerCount: booking.passengerCount,
+          passengerNames: booking.passengerNames,
+          passengerMobile: booking.passengerMobile,
+          distance: booking.distance,
+
+          // Status and tracking
+          bookingStatus: booking.bookingStatus,
+          TrackingTimeLine: booking.TrackingTimeLine || [],
+          paymentStatus: booking.paymentStatus,
+          rating: booking.rating || {},
+
+          // Special requests
+          specialRequestText: booking.specialRequestText,
+          specialRequestAudio: booking.specialRequestAudio,
+
+          // Timestamps
+          createdAt: booking.createdAt,
+          updatedAt: booking.updatedAt
+        };
       });
 
-      return {
-        _id: booking._id,
-        category: booking.category,
-        
-        // City details - Full data from City model
-        city: booking.cityID && typeof booking.cityID === 'object' ? {
-          _id: booking.cityID._id,
-          cityName: booking.cityID.cityName,
-          image: booking.cityID.image,
-          cityNameAr: booking.cityID.cityNameAr,
-          isActive: booking.cityID.isActive,
-          createdAt: booking.cityID.createdAt
-        } : null,
-        
-        // Airport details with city info
-        airport: booking.airportID && typeof booking.airportID === 'object' ? {
-          _id: booking.airportID._id,
-          cityID: booking.airportID.cityID,
-          cityDetails: booking.airportID.cityID && typeof booking.airportID.cityID === 'object' ? {
-            _id: booking.airportID.cityID._id,
-            cityName: booking.airportID.cityID.cityName,
-            cityNameAr: booking.airportID.cityID.cityNameAr,
-            isActive: booking.airportID.cityID.isActive,
-          } : null,
-          airportName: booking.airportID.airportName,
-          airportNameAr: booking.airportID.airportNameAr,
-          lat: booking.airportID.lat,
-          long: booking.airportID.long,
-          image: booking.airportID.image,
-          isActive: booking.airportID.isActive,
-          createdAt: booking.airportID.createdAt
-        } : null,
-        
-        // Terminal details with airport info
-        terminal: booking.terminalID && typeof booking.terminalID === 'object' ? {
-          _id: booking.terminalID._id,
-          airportID: booking.terminalID.airportID,
-          airportDetails: booking.terminalID.airportID && typeof booking.terminalID.airportID === 'object' ? {
-            _id: booking.terminalID.airportID._id,
-            airportName: booking.terminalID.airportID.airportName,
-            isActive: booking.terminalID.airportID.isActive
-          } : null,
-          terminalName: booking.terminalID.terminalName,
-          terminalNameAr: booking.terminalID.terminalNameAr,
-          image: booking.terminalID.image,
-          isActive: booking.terminalID.isActive,
-          createdAt: booking.terminalID.createdAt
-        } : null,
-        
-        // Car details with category and brand
-        car: booking.carID && typeof booking.carID === 'object' ? {
-          _id: booking.carID._id,
-          // categoryID: booking.carID.categoryID,
-          categoryDetails: booking.carID.categoryID && typeof booking.carID.categoryID === 'object' ? {
-            _id: booking.carID.categoryID._id,
-            categoryName: booking.carID.categoryID.name,
-            isActive: booking.carID.categoryID.isActive
-          } : null,
-          // brandID: booking.carID.brandID,
-          brandDetails: booking.carID.brandID && typeof booking.carID.brandID === 'object' ? {
-            _id: booking.carID.brandID._id,
-            brandName: booking.carID.brandID.brandName,
-            isActive: booking.carID.brandID.isActive
-          } : null,
-          carName: booking.carID.carName,
-          model: booking.carID.model,
-          numberOfPassengers: booking.carID.numberOfPassengers,
-          carImage: booking.carID.carImage,
-          minimumChargeDistance: booking.carID.minimumChargeDistance,
-          createdAt: booking.carID.createdAt
-        } : null,
-        
-        // Driver details
-        driver: booking.driverID && typeof booking.driverID === 'object' ? {
-          _id: booking.driverID._id,
-          driverName: booking.driverID.driverName,
-          countryCode: booking.driverID.countryCode,
-          phoneNumber: booking.driverID.phoneNumber,
-          fullPhoneNumber: `${booking.driverID.countryCode}${booking.driverID.phoneNumber}`,
-          licenseNumber: booking.driverID.licenseNumber,
-          profileImage: booking.driverID.profileImage,
-          rating: booking.driverID.rating,
-          totalTrips: booking.driverID.totalTrips,
-          isActive: booking.driverID.isActive,
-          isVerified: booking.driverID.isVerified,
-          createdAt: booking.driverID.createdAt
-        } : null,
-        
-        // Customer details
-        customer: booking.customerID && typeof booking.customerID === 'object' ? {
-          _id: booking.customerID._id,
-          username: booking.customerID.username,
-          email: booking.customerID.email,
-          phoneNumber: booking.customerID.phoneNumber,
-          countryCode: booking.customerID.countryCode,
-          fullPhoneNumber: `${booking.customerID.countryCode}${booking.customerID.phoneNumber}`,
-          profileImage: booking.customerID.profileImage,
-          role: booking.customerID.role,
-          isActive: booking.customerID.isActive,
-          createdAt: booking.customerID.createdAt
-        } : null,
-        
-        // Keep original IDs for reference
-        originalIds: {
-          cityID: booking.cityID?._id || booking.cityID,
-          airportID: booking.airportID?._id || booking.airportID,
-          terminalID: booking.terminalID?._id || booking.terminalID,
-          carID: booking.carID?._id || booking.carID,
-          customerID: booking.customerID?._id || booking.customerID,
-          driverID: booking.driverID?._id || booking.driverID
-        },
-        
-        // Flight details
-        flightNumber: booking.flightNumber,
-        arrival: booking.arrival,
-        
-        // Pickup details
-        pickupLat: booking.pickupLat,
-        pickupLong: booking.pickupLong,
-        pickupAddress: booking.pickupAddress,
-        
-        // Dropoff details
-        dropOffLat: booking.dropOffLat,
-        dropOffLong: booking.dropOffLong,
-        dropOffAddress: booking.dropOffAddress,
-        
-        // Car details from booking
-        carmodel: booking.carmodel,
-        charge: booking.charge,
-        carimage: booking.carimage,
-        
-        // Passenger details
-        passengerCount: booking.passengerCount,
-        passengerNames: booking.passengerNames,
-        passengerMobile: booking.passengerMobile,
-        distance: booking.distance,
-        
-        // Status and tracking
-        bookingStatus: booking.bookingStatus,
-        TrackingTimeLine: booking.TrackingTimeLine || [],
-        paymentStatus: booking.paymentStatus,
-        rating: booking.rating || {},
-        
-        // Special requests
-        specialRequestText: booking.specialRequestText,
-        specialRequestAudio: booking.specialRequestAudio,
-        
-        // Timestamps
-        createdAt: booking.createdAt,
-        updatedAt: booking.updatedAt
-      };
-    });
+      res.json({
+        success: true,
+        count: formattedBookings.length,
+        total,
+        page: parseInt(page),
+        pages: Math.ceil(total / parseInt(limit)),
+        data: formattedBookings
+      });
 
-    res.json({
-      success: true,
-      count: formattedBookings.length,
-      total,
-      page: parseInt(page),
-      pages: Math.ceil(total / parseInt(limit)),
-      data: formattedBookings
-    });
-    
-  } catch (error) {
-    console.error('Get bookings error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching bookings',
-      error: error.message
-    });
-  }
+    } catch (error) {
+      console.error('Get bookings error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching bookings',
+        error: error.message
+      });
+    }
 
-});
+  });
 
 
 
@@ -3827,7 +3833,7 @@ router.get('/customer/:customerId', async (req, res) => {
 
     // Build query
     const query = { customerID: new mongoose.Types.ObjectId(customerId) };
-    
+
     // Add status filter if provided
     if (status) {
       query.bookingStatus = status;
@@ -3912,7 +3918,7 @@ router.get('/customer/:customerId', async (req, res) => {
         image: booking.cityID.image,
         isActive: booking.cityID.isActive
       } : null,
-      
+
       // Airport details with city info
       airport: booking.airportID && typeof booking.airportID === 'object' ? {
         _id: booking.airportID._id,
@@ -3929,7 +3935,7 @@ router.get('/customer/:customerId', async (req, res) => {
         image: booking.airportID.image,
         isActive: booking.airportID.isActive,
       } : null,
-      
+
       // Terminal details with airport info
       terminal: booking.terminalID && typeof booking.terminalID === 'object' ? {
         _id: booking.terminalID._id,
@@ -3942,10 +3948,10 @@ router.get('/customer/:customerId', async (req, res) => {
           isActive: booking.terminalID.airportID.isActive
         } : null,
 
-          isActive: booking.terminalID.airportID.isActive,
+        isActive: booking.terminalID.airportID.isActive,
         image: booking.terminalID.image
       } : null,
-      
+
       // Car details with category and brand
       car: booking.carID && typeof booking.carID === 'object' ? {
         _id: booking.carID._id,
@@ -3964,21 +3970,21 @@ router.get('/customer/:customerId', async (req, res) => {
           isActive: booking.carID.brandID.isActive
         } : null
       } : null,
-      
+
       // Driver details
       driver: booking.driverID && typeof booking.driverID === 'object' ? {
         _id: booking.driverID._id,
         driverName: booking.driverID.driverName,
         phoneNumber: booking.driverID.phoneNumber,
         countryCode: booking.driverID.countryCode,
-        fullPhoneNumber: booking.driverID.countryCode && booking.driverID.phoneNumber 
-          ? `${booking.driverID.countryCode}${booking.driverID.phoneNumber}` 
+        fullPhoneNumber: booking.driverID.countryCode && booking.driverID.phoneNumber
+          ? `${booking.driverID.countryCode}${booking.driverID.phoneNumber}`
           : null,
         profileImage: booking.driverID.profileImage,
         rating: booking.driverID.rating,
         totalTrips: booking.driverID.totalTrips
       } : null,
-      
+
       // Customer details (simplified for customer view)
       customer: {
         _id: booking.customerID?._id,
@@ -3987,47 +3993,47 @@ router.get('/customer/:customerId', async (req, res) => {
         phoneNumber: booking.customerID?.phoneNumber,
         profileImage: booking.customerID?.profileImage
       },
-      
+
       // Flight details
       flightNumber: booking.flightNumber,
       arrival: booking.arrival,
-      
+
       // Pickup details
       pickupLat: booking.pickupLat,
       pickupLong: booking.pickupLong,
       pickupAddress: booking.pickupAddress,
-      
+
       // Dropoff details
       dropOffLat: booking.dropOffLat,
       dropOffLong: booking.dropOffLong,
       dropOffAddress: booking.dropOffAddress,
-      
+
       // Car details from booking
       carmodel: booking.carmodel,
       charge: booking.charge,
       carimage: booking.carimage,
       discountPercentage: booking.discountPercentage || 0,
-      
+
       // Passenger details
       passengerCount: booking.passengerCount,
       passengerNames: booking.passengerNames,
       passengerMobile: booking.passengerMobile,
       distance: booking.distance,
-      
+
       // Status and tracking
       bookingStatus: booking.bookingStatus,
       TrackingTimeLine: booking.TrackingTimeLine || [],
       paymentStatus: booking.paymentStatus,
       rating: booking.rating || {},
-      
+
       // Special requests
       specialRequestText: booking.specialRequestText,
       specialRequestAudio: booking.specialRequestAudio,
-      
+
       // Transaction details
       transactionID: booking.transactionID,
       orderID: booking.orderID,
-      
+
       // Timestamps
       createdAt: booking.createdAt,
       updatedAt: booking.updatedAt
@@ -4045,14 +4051,14 @@ router.get('/customer/:customerId', async (req, res) => {
 
   } catch (error) {
     console.error('Get customer bookings error:', error);
-    
+
     if (error.name === 'CastError') {
       return res.status(400).json({
         success: false,
         message: 'Invalid customer ID format'
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Error fetching customer bookings',
@@ -4069,7 +4075,7 @@ router.get('/driver/:driverid', async (req, res) => {
     const { status, page = 1, limit = 10, sort = '-createdAt' } = req.query;
 
     console.log('Driver ID received:', driverid);
-    
+
     // Validate driver ID
     if (!mongoose.Types.ObjectId.isValid(driverid)) {
       return res.status(400).json({
@@ -4081,7 +4087,7 @@ router.get('/driver/:driverid', async (req, res) => {
 
     // Build query
     const query = { driverID: new mongoose.Types.ObjectId(driverid) };
-    
+
     // Add status filter if provided
     if (status) {
       query.bookingStatus = status;
@@ -4162,7 +4168,7 @@ router.get('/driver/:driverid', async (req, res) => {
     const formattedBookings = bookings.map(booking => ({
       _id: booking._id,
       category: booking.category,
-      
+
       // City details
       city: booking.cityID && typeof booking.cityID === 'object' ? {
         _id: booking.cityID._id,
@@ -4172,7 +4178,7 @@ router.get('/driver/:driverid', async (req, res) => {
         isActive: booking.cityID.isActive,
         createdAt: booking.cityID.createdAt
       } : null,
-      
+
       // Airport details with city info
       airport: booking.airportID && typeof booking.airportID === 'object' ? {
         _id: booking.airportID._id,
@@ -4190,7 +4196,7 @@ router.get('/driver/:driverid', async (req, res) => {
         isActive: booking.airportID.isActive,
         createdAt: booking.airportID.createdAt
       } : null,
-      
+
       // Terminal details with airport info
       terminal: booking.terminalID && typeof booking.terminalID === 'object' ? {
         _id: booking.terminalID._id,
@@ -4206,7 +4212,7 @@ router.get('/driver/:driverid', async (req, res) => {
         isActive: booking.terminalID.isActive,
         createdAt: booking.terminalID.createdAt
       } : null,
-      
+
       // Car details with category and brand
       car: booking.carID && typeof booking.carID === 'object' ? {
         _id: booking.carID._id,
@@ -4227,15 +4233,15 @@ router.get('/driver/:driverid', async (req, res) => {
         } : null,
         createdAt: booking.carID.createdAt
       } : null,
-      
+
       // Driver details (for driver view - can see their own info)
       driver: booking.driverID && typeof booking.driverID === 'object' ? {
         _id: booking.driverID._id,
         driverName: booking.driverID.driverName,
         countryCode: booking.driverID.countryCode,
         phoneNumber: booking.driverID.phoneNumber,
-        fullPhoneNumber: booking.driverID.countryCode && booking.driverID.phoneNumber 
-          ? `${booking.driverID.countryCode}${booking.driverID.phoneNumber}` 
+        fullPhoneNumber: booking.driverID.countryCode && booking.driverID.phoneNumber
+          ? `${booking.driverID.countryCode}${booking.driverID.phoneNumber}`
           : null,
         licenseNumber: booking.driverID.licenseNumber,
         profileImage: booking.driverID.profileImage,
@@ -4245,7 +4251,7 @@ router.get('/driver/:driverid', async (req, res) => {
         isVerified: booking.driverID.isVerified,
         createdAt: booking.driverID.createdAt
       } : null,
-      
+
       // Customer details
       customer: booking.customerID && typeof booking.customerID === 'object' ? {
         _id: booking.customerID._id,
@@ -4253,54 +4259,54 @@ router.get('/driver/:driverid', async (req, res) => {
         email: booking.customerID.email,
         phoneNumber: booking.customerID.phoneNumber,
         countryCode: booking.customerID.countryCode,
-        fullPhoneNumber: booking.customerID.countryCode && booking.customerID.phoneNumber 
-          ? `${booking.customerID.countryCode}${booking.customerID.phoneNumber}` 
+        fullPhoneNumber: booking.customerID.countryCode && booking.customerID.phoneNumber
+          ? `${booking.customerID.countryCode}${booking.customerID.phoneNumber}`
           : null,
         profileImage: booking.customerID.profileImage,
         role: booking.customerID.role,
         isActive: booking.customerID.isActive
       } : null,
-      
+
       // Flight details
       flightNumber: booking.flightNumber,
       arrival: booking.arrival,
-      
+
       // Pickup details
       pickupLat: booking.pickupLat,
       pickupLong: booking.pickupLong,
       pickupAddress: booking.pickupAddress,
-      
+
       // Dropoff details
       dropOffLat: booking.dropOffLat,
       dropOffLong: booking.dropOffLong,
       dropOffAddress: booking.dropOffAddress,
-      
+
       // Car details from booking
       carmodel: booking.carmodel,
       charge: booking.charge,
       carimage: booking.carimage,
       discountPercentage: booking.discountPercentage || 0,
-      
+
       // Passenger details
       passengerCount: booking.passengerCount,
       passengerNames: booking.passengerNames,
       passengerMobile: booking.passengerMobile,
       distance: booking.distance,
-      
+
       // Status and tracking
       bookingStatus: booking.bookingStatus,
       TrackingTimeLine: booking.TrackingTimeLine || [],
       paymentStatus: booking.paymentStatus,
       rating: booking.rating || {},
-      
+
       // Special requests
       specialRequestText: booking.specialRequestText,
       specialRequestAudio: booking.specialRequestAudio,
-      
+
       // Transaction details
       transactionID: booking.transactionID,
       orderID: booking.orderID,
-      
+
       // Timestamps
       createdAt: booking.createdAt,
       updatedAt: booking.updatedAt
@@ -4324,7 +4330,7 @@ router.get('/driver/:driverid', async (req, res) => {
 
   } catch (error) {
     console.error('Get driver bookings error:', error);
-    
+
     if (error.name === 'CastError') {
       return res.status(400).json({
         success: false,
@@ -4332,7 +4338,7 @@ router.get('/driver/:driverid', async (req, res) => {
         error: error.message
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Error fetching driver bookings',
@@ -4345,13 +4351,13 @@ router.get('/driver/:driverid', async (req, res) => {
 
 // ============= UPDATE BOOKING STATUS =============
 // PATCH /api/bookings/:id/status - Update booking status
-router.patch('/:id/status',  async (req, res) => {
+router.patch('/:id/status', async (req, res) => {
   try {
     const { status } = req.body;
     const { id } = req.params;
 
-    const validStatuses = ['pending','assigned', 'starttracking', 'completed', 'cancelled','reviewed'];
-    
+    const validStatuses = ['pending', 'assigned', 'starttracking', 'completed', 'cancelled', 'reviewed'];
+
     if (!status || !validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
@@ -4372,7 +4378,7 @@ router.patch('/:id/status',  async (req, res) => {
       $push: { TrackingTimeLine: `booking_${status}` }
     };
 
-  
+
 
     if (status === 'completed') {
       updateData.paymentStatus = true;
@@ -4410,111 +4416,111 @@ router.patch('/:id/status',  async (req, res) => {
 // ============= ADD RATING TO BOOKING =============
 // PATCH /api/bookings/:id/rating - Add rating
 router.patch('/:id/rating',
-    authenticateToken,
+  authenticateToken,
   authorizeAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const ratingData = req.body;
+    try {
+      const { id } = req.params;
+      const ratingData = req.body;
 
-    const booking = await Booking.findById(id);
-    if (!booking) {
-      return res.status(404).json({
+      const booking = await Booking.findById(id);
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found'
+        });
+      }
+
+      const updatedBooking = await Booking.findByIdAndUpdate(
+        id,
+        { rating: ratingData },
+        { new: true }
+      );
+
+      res.json({
+        success: true,
+        message: 'Rating added successfully',
+        data: updatedBooking
+      });
+    } catch (error) {
+      console.error('Add rating error:', error);
+      if (error.name === 'CastError') {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid booking ID format'
+        });
+      }
+      res.status(500).json({
         success: false,
-        message: 'Booking not found'
+        message: 'Error adding rating',
+        error: error.message
       });
     }
-
-    const updatedBooking = await Booking.findByIdAndUpdate(
-      id,
-      { rating: ratingData },
-      { new: true }
-    );
-
-    res.json({
-      success: true,
-      message: 'Rating added successfully',
-      data: updatedBooking
-    });
-  } catch (error) {
-    console.error('Add rating error:', error);
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid booking ID format'
-      });
-    }
-    res.status(500).json({
-      success: false,
-      message: 'Error adding rating',
-      error: error.message
-    });
-  }
-});
+  });
 
 // ============= UPDATE PAYMENT STATUS =============
 // PATCH /api/bookings/:id/payment - Update payment status
 router.patch('/:id/payment', authenticateToken,
-  authorizeAdmin,async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { paymentStatus } = req.body;
+  authorizeAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { paymentStatus } = req.body;
 
-    if (typeof paymentStatus !== 'boolean') {
-      return res.status(400).json({
+      if (typeof paymentStatus !== 'boolean') {
+        return res.status(400).json({
+          success: false,
+          message: 'Payment status must be boolean'
+        });
+      }
+
+      const booking = await Booking.findById(id);
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found'
+        });
+      }
+
+      const updateData = {
+        paymentStatus,
+        paymentCompletedAt: paymentStatus ? new Date() : null
+      };
+
+      const updatedBooking = await Booking.findByIdAndUpdate(
+        id,
+        updateData,
+        { new: true }
+      );
+
+      res.json({
+        success: true,
+        message: `Payment status updated to ${paymentStatus}`,
+        data: updatedBooking
+      });
+    } catch (error) {
+      console.error('Update payment error:', error);
+      if (error.name === 'CastError') {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid booking ID format'
+        });
+      }
+      res.status(500).json({
         success: false,
-        message: 'Payment status must be boolean'
+        message: 'Error updating payment status',
+        error: error.message
       });
     }
-
-    const booking = await Booking.findById(id);
-    if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
-    }
-
-    const updateData = {
-      paymentStatus,
-      paymentCompletedAt: paymentStatus ? new Date() : null
-    };
-
-    const updatedBooking = await Booking.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true }
-    );
-
-    res.json({
-      success: true,
-      message: `Payment status updated to ${paymentStatus}`,
-      data: updatedBooking
-    });
-  } catch (error) {
-    console.error('Update payment error:', error);
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid booking ID format'
-      });
-    }
-    res.status(500).json({
-      success: false,
-      message: 'Error updating payment status',
-      error: error.message
-    });
-  }
-});
+  });
 
 // ============= UPDATE CAR IMAGE =============
 // PATCH /api/bookings/:id/car-image - Update only car image
-router.patch('/:id/car-image', 
+router.patch('/:id/car-image',
   authenticateToken,
   authorizeAdmin,
-  upload.single('carimage'), 
+  upload.single('carimage'),
   async (req, res) => {
     try {
-      
+
       // if (!req.file) {
       //   return res.status(400).json({
       //     success: false,
@@ -4533,7 +4539,7 @@ router.patch('/:id/car-image',
 
       // Delete old car image
       if (booking.carimage?.key) {
-        await deleteFromS3(booking.carimage.key).catch(err => 
+        await deleteFromS3(booking.carimage.key).catch(err =>
           console.error('Error deleting old car image:', err)
         );
       }
@@ -4573,92 +4579,92 @@ router.patch('/:id/car-image',
         error: error.message
       });
     }
-});
+  });
 
 // ============= DELETE BOOKING =============
 // DELETE /api/bookings/:id - Delete booking and associated files
 router.delete('/:id', authenticateToken,
-  authorizeAdmin,async (req, res) => {
-  try {
-    const booking = await Booking.findById(req.params.id);
+  authorizeAdmin, async (req, res) => {
+    try {
+      const booking = await Booking.findById(req.params.id);
 
-    if (!booking) {
-      return res.status(404).json({
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found'
+        });
+      }
+
+      // Delete associated files from S3
+      if (booking.carimage?.key) {
+        await deleteFromS3(booking.carimage.key);
+      }
+      if (booking.specialRequestAudio?.key) {
+        await deleteFromS3(booking.specialRequestAudio.key);
+      }
+
+      await Booking.findByIdAndDelete(req.params.id);
+
+      res.json({
+        success: true,
+        message: 'Booking deleted successfully'
+      });
+    } catch (error) {
+      console.error('Delete booking error:', error);
+      if (error.name === 'CastError') {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid booking ID format'
+        });
+      }
+      res.status(500).json({
         success: false,
-        message: 'Booking not found'
+        message: 'Error deleting booking',
+        error: error.message
       });
     }
-
-    // Delete associated files from S3
-    if (booking.carimage?.key) {
-      await deleteFromS3(booking.carimage.key);
-    }
-    if (booking.specialRequestAudio?.key) {
-      await deleteFromS3(booking.specialRequestAudio.key);
-    }
-
-    await Booking.findByIdAndDelete(req.params.id);
-
-    res.json({
-      success: true,
-      message: 'Booking deleted successfully'
-    });
-  } catch (error) {
-    console.error('Delete booking error:', error);
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid booking ID format'
-      });
-    }
-    res.status(500).json({
-      success: false,
-      message: 'Error deleting booking',
-      error: error.message
-    });
-  }
-});
+  });
 
 // ============= GET BOOKING CAR IMAGE =============
 // GET /api/bookings/:id/car-image - Get car image URL
 router.get('/:id/car-image', authenticateToken,
   authorizeAdmin, async (req, res) => {
-  try {
-    const booking = await Booking.findById(req.params.id).select('carimage');
-    
-    if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
-    }
+    try {
+      const booking = await Booking.findById(req.params.id).select('carimage');
 
-    if (!booking.carimage) {
-      return res.status(404).json({
-        success: false,
-        message: 'Car image not found'
-      });
-    }
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found'
+        });
+      }
 
-    res.json({
-      success: true,
-      data: booking.carimage
-    });
-  } catch (error) {
-    console.error('Fetch car image error:', error);
-    if (error.name === 'CastError') {
-      return res.status(400).json({
+      if (!booking.carimage) {
+        return res.status(404).json({
+          success: false,
+          message: 'Car image not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        data: booking.carimage
+      });
+    } catch (error) {
+      console.error('Fetch car image error:', error);
+      if (error.name === 'CastError') {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid booking ID format'
+        });
+      }
+      res.status(500).json({
         success: false,
-        message: 'Invalid booking ID format'
+        message: 'Error fetching car image',
+        error: error.message
       });
     }
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching car image',
-      error: error.message
-    });
-  }
-});
+  });
 
 
 module.exports = router;

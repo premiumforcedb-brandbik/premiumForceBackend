@@ -468,18 +468,22 @@ router.get('/availability/date-wise', async (req, res) => {
 
       const allDriverBookings = [...driverHourlyBookings, ...driverNormalBookings];
 
+
+      const starttrackingBookingsList = allDriverBookings.filter(b =>
+        b.bookingStatus === 'starttracking'
+      );
       // Separate completed and pending bookings
-      const completedBookingsList = allDriverBookings.filter(b =>
-        b.bookingStatus === 'completed'
-      );
+      // const completedBookingsList = allDriverBookings.filter(b =>
+      //   b.bookingStatus === 'starttracking'
+      // );
 
-      const pendingBookingsList = allDriverBookings.filter(b =>
-        b.bookingStatus === 'pending'
-      );
+      // const pendingBookingsList = allDriverBookings.filter(b =>
+      //   b.bookingStatus === 'pending'
+      // );
 
-      const cancelledBookingsList = allDriverBookings.filter(b =>
-        b.bookingStatus === 'cancelled'
-      );
+      // const cancelledBookingsList = allDriverBookings.filter(b =>
+      //   b.bookingStatus === 'cancelled'
+      // );
 
       // Check if driver has active booking
       const hasActiveBooking = allDriverBookings.some(booking =>
@@ -497,13 +501,15 @@ router.get('/availability/date-wise', async (req, res) => {
 
       // Calculate stats
       const totalBookings = allDriverBookings.length;
-      const completedBookings = completedBookingsList.length;
-      const pendingBookings = pendingBookingsList.length;
-      const cancelledBookings = cancelledBookingsList.length;
 
-      const totalEarnings = completedBookingsList.reduce((sum, b) =>
-        sum + (parseFloat(b.charge) || 0), 0
-      );
+      const starttrackingBookings = starttrackingBookingsList.length;
+      // const completedBookings = completedBookingsList.length;
+      // const pendingBookings = pendingBookingsList.length;
+      // const cancelledBookings = cancelledBookingsList.length;
+
+      // const totalEarnings = completedBookingsList.reduce((sum, b) =>
+      //   sum + (parseFloat(b.charge) || 0), 0
+      // );
       const busyHours = driverHourlyBookings.reduce((sum, b) =>
         sum + (b.hours || 0), 0
       );
@@ -536,6 +542,7 @@ router.get('/availability/date-wise', async (req, res) => {
         stats: {
           totalBookings,
           completedBookings,
+          starttrackingBookings,
           pendingBookings,
           cancelledBookings,
           totalEarnings,
@@ -543,9 +550,14 @@ router.get('/availability/date-wise', async (req, res) => {
         }
       };
 
+
+
+
+
       // Add completed bookings details if requested
-      if (bookingStatus === 'completed' && includeDetails === 'true' && completedBookingsList.length > 0) {
-        response.completedBookings = completedBookingsList.map(booking => ({
+      if (bookingStatus === 'starttracking' && includeDetails === 'true'
+        && starttrackingBookingsList.length > 0) {
+        response.starttrackingBookings = starttrackingBookingsList.map(booking => ({
           id: booking._id,
           type: booking.hours ? 'hourly' : 'normal',
           status: booking.bookingStatus,
@@ -559,36 +571,53 @@ router.get('/availability/date-wise', async (req, res) => {
         }));
       }
 
-      // Add pending bookings details if requested
-      if (bookingStatus === 'pending' && includeDetails === 'true' && pendingBookingsList.length > 0) {
-        response.pendingBookings = pendingBookingsList.map(booking => ({
-          id: booking._id,
-          type: booking.hours ? 'hourly' : 'normal',
-          status: booking.bookingStatus,
-          charge: booking.charge,
-          hours: booking.hours,
-          pickupAddress: booking.pickupAddress || booking.pickupAdddress,
-          dropOffAddress: booking.dropOffAddress,
-          customerID: booking.customerID,
-          createdAt: booking.createdAt
-        }));
-      }
+
+      // Add completed bookings details if requested
+      // if (bookingStatus === 'completed' && includeDetails === 'true' && completedBookingsList.length > 0) {
+      //   response.completedBookings = completedBookingsList.map(booking => ({
+      //     id: booking._id,
+      //     type: booking.hours ? 'hourly' : 'normal',
+      //     status: booking.bookingStatus,
+      //     charge: booking.charge,
+      //     hours: booking.hours,
+      //     pickupAddress: booking.pickupAddress || booking.pickupAdddress,
+      //     dropOffAddress: booking.dropOffAddress,
+      //     customerID: booking.customerID,
+      //     createdAt: booking.createdAt,
+      //     completedAt: booking.completedAt || booking.updatedAt
+      //   }));
+      // }
+
+      // // Add pending bookings details if requested
+      // if (bookingStatus === 'pending' && includeDetails === 'true' && pendingBookingsList.length > 0) {
+      //   response.pendingBookings = pendingBookingsList.map(booking => ({
+      //     id: booking._id,
+      //     type: booking.hours ? 'hourly' : 'normal',
+      //     status: booking.bookingStatus,
+      //     charge: booking.charge,
+      //     hours: booking.hours,
+      //     pickupAddress: booking.pickupAddress || booking.pickupAdddress,
+      //     dropOffAddress: booking.dropOffAddress,
+      //     customerID: booking.customerID,
+      //     createdAt: booking.createdAt
+      //   }));
+      // }
 
 
-      // Add pending bookings details if requested
-      if (bookingStatus === 'cancelled' && includeDetails === 'true' && cancelledBookingsList.length > 0) {
-        response.cancelledBookings = cancelledBookingsList.map(booking => ({
-          id: booking._id,
-          type: booking.hours ? 'hourly' : 'normal',
-          status: booking.bookingStatus,
-          charge: booking.charge,
-          hours: booking.hours,
-          pickupAddress: booking.pickupAddress || booking.pickupAdddress,
-          dropOffAddress: booking.dropOffAddress,
-          customerID: booking.customerID,
-          createdAt: booking.createdAt
-        }));
-      }
+      // // Add pending bookings details if requested
+      // if (bookingStatus === 'cancelled' && includeDetails === 'true' && cancelledBookingsList.length > 0) {
+      //   response.cancelledBookings = cancelledBookingsList.map(booking => ({
+      //     id: booking._id,
+      //     type: booking.hours ? 'hourly' : 'normal',
+      //     status: booking.bookingStatus,
+      //     charge: booking.charge,
+      //     hours: booking.hours,
+      //     pickupAddress: booking.pickupAddress || booking.pickupAdddress,
+      //     dropOffAddress: booking.dropOffAddress,
+      //     customerID: booking.customerID,
+      //     createdAt: booking.createdAt
+      //   }));
+      // }
 
 
       // Add active booking details if exists
@@ -625,6 +654,8 @@ router.get('/availability/date-wise', async (req, res) => {
       totalBookings: driverAvailability.reduce((sum, d) => sum + d.stats.totalBookings, 0),
       totalCompletedBookings: driverAvailability.reduce((sum, d) => sum + d.stats.completedBookings, 0),
       totalPendingBookings: driverAvailability.reduce((sum, d) => sum + d.stats.pendingBookings, 0),
+      totalstarttrackingBookings: driverAvailability.reduce((sum, d) => sum + d.stats.starttrackingBookings, 0),
+
       totalEarnings: driverAvailability.reduce((sum, d) => sum + d.stats.totalEarnings, 0),
       totalBusyHours: driverAvailability.reduce((sum, d) => sum + d.stats.busyHours, 0)
     };

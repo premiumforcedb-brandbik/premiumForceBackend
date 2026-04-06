@@ -357,7 +357,6 @@ router.patch('/:id/busy-status',
   });
 
 
-
 /**
  * @route   GET /api/drivers/availability/date-wise
  * @desc    Get drivers with their availability status for specific dates

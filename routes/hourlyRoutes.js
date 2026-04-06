@@ -181,28 +181,26 @@ router.get('/FromcityToCity/vehicleRoutePrice', async (req, res) => {
   }
 });
 
-
 // ============= CREATE ROUTE =============
 // POST /api/routes
 router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
-    const { fromCity, toCity, charge, isActive, vehicleID } = req.body;
+    const { charge, isActive, vehicleID } = req.body;
 
     console.log('Received data:', req.body);
     console.log('VehicleID:', vehicleID);
 
 
     // Basic validation - include VehicleID
-    if (!fromCity || !toCity || charge === undefined || !vehicleID) {
+    if (charge === undefined || !vehicleID) {
       return res.status(400).json({
         success: false,
-        message: 'From city, to city, charge, and vehicle ID are all required'
+        message: 'vehicle ID and charge are all required'
       });
     }
 
     // Validate all IDs
-    if (!mongoose.Types.ObjectId.isValid(fromCity) ||
-      !mongoose.Types.ObjectId.isValid(toCity) ||
+    if (
       !mongoose.Types.ObjectId.isValid(vehicleID)) {
       return res.status(400).json({
         success: false,
@@ -210,24 +208,8 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
       });
     }
 
-    // IMPORTANT: Check if fromCity and toCity are the same
-    // if (fromCity === toCity) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: 'From city and To city cannot be the same'
-    //   });
-    // }
 
-    // Check if cities exist
-    const fromCityExists = await City.findById(fromCity);
-    const toCityExists = await City.findById(toCity);
 
-    if (!fromCityExists || !toCityExists) {
-      return res.status(404).json({
-        success: false,
-        message: 'One or both cities not found'
-      });
-    }
 
     // Check if vehicle exists
     const existingCar = await Cars.findById(vehicleID); // Use VehicleID from destructuring
@@ -244,8 +226,6 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
     // Check if route already exists for this vehicle and cities
     const existingRoute = await Route.findOne({
       vehicleID: vehicleID,  // Include VehicleID in the check
-      fromCity: fromCity,
-      toCity: toCity
     });
 
     if (existingRoute) {
@@ -258,8 +238,6 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
     // Create route - FIX: Include VehicleID!
     const route = new Route({
       vehicleID: vehicleID,  // ← This was missing!
-      fromCity,
-      toCity,
       charge: Number(charge),
       isActive: isActive === 'true' || isActive === true || isActive === undefined
     });
@@ -268,9 +246,7 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
 
     // Populate all references
     await route.populate([
-      { path: 'vehicleID', select: 'carName brand model' },
-      { path: 'fromCity', select: 'cityName isActive' },
-      { path: 'toCity', select: 'cityName isActive' }
+      { path: 'vehicleID', select: 'charge hour isActive' }
     ]);
 
     res.status(201).json({
@@ -316,7 +292,7 @@ router.put('/:id',
   async (req, res) => {
     try {
       const { id } = req.params;
-      const { fromCity, toCity, charge, isActive, vehicleID } = req.body;
+      const { charge, isActive, vehicleID } = req.body;
 
       // Validate ID
       if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -358,30 +334,9 @@ router.put('/:id',
         });
       }
 
-      // Check if cities exist if provided
-      if (fromCity) {
-        const cityExists = await City.findById(fromCity);
-        if (!cityExists) {
-          return res.status(404).json({
-            success: false,
-            message: 'From city not found'
-          });
-        }
-      }
 
-      if (toCity) {
-        const cityExists = await City.findById(toCity);
-        if (!cityExists) {
-          return res.status(404).json({
-            success: false,
-            message: 'To city not found'
-          });
-        }
-      }
 
-      // Check if from and to cities are the same
-      const newFromCity = fromCity || existingRoute.fromCity;
-      const newToCity = toCity || existingRoute.toCity;
+
       const newVehicleID = vehicleID || existingRoute.vehicleID;
 
 
@@ -393,11 +348,9 @@ router.put('/:id',
       // }
 
       // Check if updated route already exists (excluding current route)
-      if (fromCity || toCity || vehicleID) {
+      if (vehicleID) {
         const duplicateRoute = await Route.findOne({
           _id: { $ne: id },
-          fromCity: newFromCity,
-          toCity: newToCity,
           vehicleID: newVehicleID
         });
 
@@ -411,8 +364,6 @@ router.put('/:id',
 
       // Prepare update data
       const updateData = {
-        fromCity: newFromCity,
-        toCity: newToCity,
         charge: charge !== undefined ? Number(charge) : existingRoute.charge,
         isActive: isActive !== undefined ? isActive === 'true' || isActive === true : existingRoute.isActive
       };
@@ -422,7 +373,7 @@ router.put('/:id',
         id,
         updateData,
         { new: true, runValidators: true }
-      ).populate('fromCity toCity', 'cityName isActive');
+      ).populate('vehicleID', 'charge hour isActive');
 
       res.json({
         success: true,

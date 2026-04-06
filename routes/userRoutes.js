@@ -3,12 +3,132 @@ const express = require('express');
 const User = require('../models/users_model');
 const { verifyOTP } = require('../middleware/otpMideWare');
 const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
-
-
+const Driver = require('../models/driver_model');
+const Booking = require('../models/booking_model');
+const HourlyBooking = require('../models/hourlyBookingModel');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
+const { notifyUser } = require('../fcm');
 
 const router = express.Router();
 
+
+
+
+
+/**
+ * @route   PATCH /api/users/cancel/booking/:bookingID
+ * @desc    Cancel a booking (Customer initiated)
+ * @access  Public (Should ideally be Private/Authenticated)
+ */
+router.patch('/cancel/booking/:bookingID',
+  async (req, res) => {
+    try {
+      const { bookingID } = req.params;
+
+      // Validate ID format
+      if (!mongoose.Types.ObjectId.isValid(bookingID)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid booking ID format'
+        });
+      }
+
+      // Find booking in both models
+      let booking = await Booking.findById(bookingID);
+      let isHourly = false;
+
+      if (!booking) {
+        booking = await HourlyBooking.findById(bookingID);
+        isHourly = true;
+      }
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found'
+        });
+      }
+
+      // Check if already cancelled
+      if (booking.bookingStatus === 'cancelled') {
+        return res.status(400).json({
+            success: false,
+            message: 'Booking is already cancelled'
+        });
+      }
+
+      const oldStatus = booking.bookingStatus;
+      
+      // Update booking status
+      booking.bookingStatus = 'cancelled';
+      if (isHourly) {
+        // HourlyBooking model doesn't have updateStatus method in memory
+        await booking.save();
+      } else {
+        // Booking model has updateStatus method
+        await booking.updateStatus('cancelled');
+      }
+
+      // Handle driver availability if a driver was assigned
+      let driver = null;
+      if (booking.driverID) {
+        driver = await Driver.findById(booking.driverID);
+        if (driver) {
+          await driver.setFree();
+          
+          // Notify driver about cancellation
+          if (typeof notifyUser === 'function') {
+            await notifyUser(
+              driver._id,
+              '❌ Booking Cancelled',
+              `The booking ${bookingID} has been cancelled by the customer.`,
+              {
+                type: 'booking_cancelled',
+                bookingId: bookingID,
+                role: 'driver'
+              }
+            ).catch(err => console.error('Error notifying driver:', err));
+          }
+        }
+      }
+
+      // Notify customer (if applicable)
+      if (typeof notifyUser === 'function' && booking.customerID) {
+          await notifyUser(
+            booking.customerID,
+            '✅ Booking Cancelled Successfully',
+            `Your booking ${bookingID} has been cancelled.`,
+            {
+              type: 'booking_cancelled',
+              bookingId: bookingID,
+              role: 'customer'
+            }
+          ).catch(err => console.error('Error notifying customer:', err));
+      }
+
+      console.log(`Booking ${bookingID} cancelled. Previous status: ${oldStatus}`);
+
+      res.status(200).json({
+        success: true,
+        message: 'Booking cancelled successfully',
+        data: {
+          _id: booking._id,
+          bookingStatus: booking.bookingStatus,
+          isHourly: isHourly,
+          driverReleased: !!driver
+        }
+      });
+
+    } catch (error) {
+      console.error('Cancel booking error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error cancelling booking',
+        error: error.message
+      });
+    }
+  });
 
 
 
@@ -65,7 +185,7 @@ router.delete('/:id/fcm-token', async (req, res) => {
 router.patch('/:id/phone', verifyOTP, upload.none(), async (req, res) => {
   try {
     const { newPhoneNumber, newCountryCode } = req.body;
-    
+
     if (!newPhoneNumber || !newCountryCode) {
       return res.status(400).json({
         success: false,
@@ -74,8 +194,8 @@ router.patch('/:id/phone', verifyOTP, upload.none(), async (req, res) => {
     }
 
     // Check if new phone number already exists
-    const existingUser = await User.findOne({ 
-      countryCode: newCountryCode, 
+    const existingUser = await User.findOne({
+      countryCode: newCountryCode,
       phoneNumber: newPhoneNumber,
       _id: { $ne: req.params.id }
     });
@@ -193,7 +313,7 @@ router.patch('/:id/phone', verifyOTP, upload.none(), async (req, res) => {
 //     }
 
 //     console.error('Create user error:', error);
-    
+
 //     // Handle duplicate key error
 //     if (error.code === 11000) {
 //       return res.status(400).json({ 
@@ -219,10 +339,10 @@ router.patch('/:id/phone', verifyOTP, upload.none(), async (req, res) => {
 
 const generateAccessToken = (user) => {
   return jwt.sign(
-    { 
-      userId: user._id, 
+    {
+      userId: user._id,
       username: user.username,
-      role: user.role 
+      role: user.role
     },
     process.env.JWT_ACCESS_SECRET,
     { expiresIn: process.env.JWT_ACCESS_EXPIRY || '1d' } // 1 day default
@@ -249,15 +369,15 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
     const { username, email, countryCode, phoneNumber, lat, long, specialId, role } = req.body;
 
     console.log('Create user request body:', req.file, req.body);
-    
+
     // Validation
     if (!username || !countryCode || !phoneNumber) {
       if (req.file) {
         await deleteFromS3(req.file.key);
       }
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Please provide username, countryCode and phoneNumber' 
+        message: 'Please provide username, countryCode and phoneNumber'
       });
     }
 
@@ -265,25 +385,25 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
     const existingUserQuery = [
       { phoneNumber }
     ];
-    
+
     if (email && email.trim() !== '') {
       existingUserQuery.push({ email: email.trim().toLowerCase() });
     }
-    
+
     const existingUser = await User.findOne({ $or: existingUserQuery });
 
     if (existingUser) {
       if (req.file) {
         await deleteFromS3(req.file.key);
       }
-      
+
       let duplicateField = 'phone number';
-      if (email && existingUser.email && 
-          existingUser.email.toLowerCase() === email.toLowerCase()) {
+      if (email && existingUser.email &&
+        existingUser.email.toLowerCase() === email.toLowerCase()) {
         duplicateField = 'email';
       }
-      
-      return res.status(400).json({ 
+
+      return res.status(400).json({
         success: false,
         message: `User with this ${duplicateField} already exists.`,
         field: duplicateField
@@ -299,7 +419,7 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
         // Option 1: Add a random suffix
         const newUsername = `${username}_${Date.now().toString().slice(-4)}`;
         req.body.username = newUsername; // Use this for the new user
-        
+
         console.log(`Username ${username} taken, using ${newUsername} instead`);
       }
     }
@@ -359,39 +479,39 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
       message: 'User created successfully',
       data: responseData
     });
-    
+
   } catch (error) {
     if (req.file) {
-      await deleteFromS3(req.file.key).catch(err => 
+      await deleteFromS3(req.file.key).catch(err =>
         console.error('Error deleting file:', err)
       );
     }
 
     console.error('Create user error:', error);
-    
+
     if (error.code === 11000) {
       if (error.keyPattern && error.keyPattern.username) {
         // Special handling for username duplicate
-        return res.status(400).json({ 
+        return res.status(400).json({
           success: false,
           message: 'Username already taken. Please choose a different username.',
           field: 'username',
           suggestion: 'Add numbers or special characters to make it unique'
         });
       }
-      
+
       const field = Object.keys(error.keyPattern)[0];
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         message: `User with this ${field} already exists.`,
         field: field
       });
     }
 
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Error creating user', 
-      error: error.message 
+      message: 'Error creating user',
+      error: error.message
     });
   }
 });
@@ -511,7 +631,7 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
 //     }
 
 //     console.error('Create user error:', error);
-    
+
 //     // Handle duplicate key error
 //     if (error.code === 11000) {
 //       return res.status(400).json({ 
@@ -568,7 +688,7 @@ router.get('/check-email', async (req, res) => {
 
     // Clean and validate email format
     const cleanEmail = email.trim().toLowerCase();
-    
+
     // Basic email format validation
     const emailRegex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
     if (!emailRegex.test(cleanEmail)) {
@@ -617,27 +737,27 @@ router.get('/', async (req, res) => {
   try {
     const { role, isActive, sort, page = 1, limit = 10 } = req.query;
     let query = {};
-    
+
     // Filtering
     if (role) query.role = role;
     if (isActive) query.isActive = isActive === 'true';
-    
+
     // Sorting
     let sortOption = {};
     if (sort === 'newest') sortOption.createdAt = -1;
     else if (sort === 'oldest') sortOption.createdAt = 1;
     else if (sort === 'username') sortOption.username = 1;
     else sortOption.createdAt = -1; // Default: newest first
-    
+
     // Pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    
+
     const users = await User.find(query)
       .sort(sortOption)
       .skip(skip)
       .limit(parseInt(limit))
       .select('-__v');
-    
+
     const total = await User.countDocuments(query);
 
     res.status(200).json({
@@ -650,10 +770,10 @@ router.get('/', async (req, res) => {
     });
   } catch (error) {
     console.error('Fetch all users error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Error fetching users', 
-      error: error.message 
+      message: 'Error fetching users',
+      error: error.message
     });
   }
 });
@@ -663,14 +783,14 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select('-__v');
-    
+
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: 'User not found' 
+        message: 'User not found'
       });
     }
-    
+
     res.status(200).json({
       success: true,
       data: user
@@ -678,15 +798,15 @@ router.get('/:id', async (req, res) => {
   } catch (error) {
     console.error('Fetch user error:', error);
     if (error.name === 'CastError') {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Invalid user ID format' 
+        message: 'Invalid user ID format'
       });
     }
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Error fetching user', 
-      error: error.message 
+      message: 'Error fetching user',
+      error: error.message
     });
   }
 });
@@ -697,30 +817,30 @@ router.get('/profile/:phoneNumber', async (req, res) => {
   try {
     const { countryCode } = req.query;
     let query = { phoneNumber: req.params.phoneNumber };
-    
+
     if (countryCode) {
       query.countryCode = countryCode;
     }
-    
+
     const user = await User.findOne(query).select('-__v');
-    
+
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: 'User not found' 
+        message: 'User not found'
       });
     }
-    
+
     res.status(200).json({
       success: true,
       data: user
     });
   } catch (error) {
     console.error('Fetch user profile error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Error fetching user profile', 
-      error: error.message 
+      message: 'Error fetching user profile',
+      error: error.message
     });
   }
 });
@@ -734,26 +854,26 @@ router.get('/profile/:phoneNumber', async (req, res) => {
 router.put('/:id', upload.single('profileImage'), async (req, res) => {
   try {
     const { username, email, phoneNumber } = req.body;
-    
+
     // Get all fields from request body
     const updateFields = { ...req.body };
-    
+
     // Find the user we want to update
     const userToUpdate = await User.findById(req.params.id);
-    
+
     if (!userToUpdate) {
       if (req.file) {
         await deleteFromS3(req.file.key);
       }
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: 'User not found' 
+        message: 'User not found'
       });
     }
-    
+
     // CHECK FOR DUPLICATES (only if fields are being changed)
     const duplicateChecks = [];
-    
+
     // Check username duplicate (if username is being changed)
     // if (username && username !== userToUpdate.username) {
     //   duplicateChecks.push(
@@ -761,7 +881,7 @@ router.put('/:id', upload.single('profileImage'), async (req, res) => {
     //       .then(user => user ? 'username' : null)
     //   );
     // }
-    
+
     // Check email duplicate (if email is being changed and not empty)
     if (email && email !== userToUpdate.email) {
       duplicateChecks.push(
@@ -769,7 +889,7 @@ router.put('/:id', upload.single('profileImage'), async (req, res) => {
           .then(user => user ? 'email' : null)
       );
     }
-    
+
     // Check phoneNumber duplicate (if phoneNumber is being changed)
     if (phoneNumber && phoneNumber !== userToUpdate.phoneNumber) {
       duplicateChecks.push(
@@ -777,17 +897,17 @@ router.put('/:id', upload.single('profileImage'), async (req, res) => {
           .then(user => user ? 'phoneNumber' : null)
       );
     }
-    
+
     // Wait for all duplicate checks
     const duplicateResults = await Promise.all(duplicateChecks);
     const duplicates = duplicateResults.filter(result => result !== null);
-    
+
     if (duplicates.length > 0) {
       // If duplicates found and new file was uploaded, delete it
       if (req.file) {
         await deleteFromS3(req.file.key);
       }
-      
+
       return res.status(400).json({
         success: false,
         message: `Duplicate field(s) already exist: ${duplicates.join(', ')}`,
@@ -795,16 +915,16 @@ router.put('/:id', upload.single('profileImage'), async (req, res) => {
       });
 
     }
-    
+
     // Handle profile image if uploaded
     if (req.file) {
       // Delete old profile image if exists
       if (userToUpdate.profileImage?.key) {
-        await deleteFromS3(userToUpdate.profileImage.key).catch(err => 
+        await deleteFromS3(userToUpdate.profileImage.key).catch(err =>
           console.error('Error deleting old profile image:', err)
         );
       }
-      
+
       // Add new profile image data
       updateFields.profileImage = {
         key: req.file.key,
@@ -814,7 +934,7 @@ router.put('/:id', upload.single('profileImage'), async (req, res) => {
         size: req.file.size
       };
     }
-    
+
     // Handle location object if lat/long provided
     if (req.body.lat || req.body.long) {
       updateFields.location = {
@@ -822,23 +942,23 @@ router.put('/:id', upload.single('profileImage'), async (req, res) => {
         long: req.body.long ? parseFloat(req.body.long) : userToUpdate.location?.long
       };
     }
-    
+
     // Parse boolean values
     if (updateFields.isActive === 'true') updateFields.isActive = true;
     if (updateFields.isActive === 'false') updateFields.isActive = false;
-    
+
     // Remove undefined fields
-    Object.keys(updateFields).forEach(key => 
+    Object.keys(updateFields).forEach(key =>
       updateFields[key] === undefined && delete updateFields[key]
     );
-    
+
     // Remove protected fields
     delete updateFields._id;
     delete updateFields.__v;
     delete updateFields.createdAt;
-    
+
     console.log('Updating user with fields:', updateFields);
-    
+
     // Check if there's anything to update
     if (Object.keys(updateFields).length === 0 && !req.file) {
       return res.status(200).json({
@@ -847,46 +967,46 @@ router.put('/:id', upload.single('profileImage'), async (req, res) => {
         data: userToUpdate
       });
     }
-    
+
     // Update user with provided fields only
     const updatedUser = await User.findByIdAndUpdate(
       req.params.id,
       { $set: updateFields },
-      { 
+      {
         new: true,
         runValidators: false
       }
     ).select('-__v');
-    
+
     res.status(200).json({
       success: true,
       message: 'User updated successfully',
       data: updatedUser,
       updated: Object.keys(updateFields)
     });
-    
+
   } catch (error) {
     // If error occurs and new file was uploaded, delete it
     if (req.file) {
-      await deleteFromS3(req.file.key).catch(err => 
+      await deleteFromS3(req.file.key).catch(err =>
         console.error('Error deleting file after failed update:', err)
       );
     }
-    
+
     console.error('Update user error:', error);
-    
+
     // Handle invalid ID format
     if (error.name === 'CastError') {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Invalid user ID format' 
+        message: 'Invalid user ID format'
       });
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       success: false,
-      message: 'Error updating user', 
-      error: error.message 
+      message: 'Error updating user',
+      error: error.message
     });
   }
 });
@@ -899,38 +1019,38 @@ router.put('/:id', upload.single('profileImage'), async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
-    
+
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: 'User not found' 
+        message: 'User not found'
       });
     }
-    
+
     // Delete profile image from S3
     if (user.profileImage?.key) {
       await deleteFromS3(user.profileImage.key);
     }
-    
+
     // Delete user from database
     await User.findByIdAndDelete(req.params.id);
-    
-    res.status(200).json({ 
+
+    res.status(200).json({
       success: true,
-      message: 'User deleted successfully' 
+      message: 'User deleted successfully'
     });
   } catch (error) {
     console.error('Delete user error:', error);
     if (error.name === 'CastError') {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Invalid user ID format' 
+        message: 'Invalid user ID format'
       });
     }
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Error deleting user', 
-      error: error.message 
+      message: 'Error deleting user',
+      error: error.message
     });
   }
 });
@@ -945,13 +1065,13 @@ router.delete('/:id', async (req, res) => {
 router.post('/create-missing-admin', async (req, res) => {
   try {
     const missingUserId = "699dda745f83dd112f637b11";
-    
+
     // Check if it exists first
     const exists = await Admin.findById(missingUserId);
     if (exists) {
       return res.json({ message: 'User already exists' });
     }
-    
+
     // Create the user with the specific ID
     const newAdmin = new Admin({
       _id: missingUserId, // Use the specific ID
@@ -963,9 +1083,9 @@ router.post('/create-missing-admin', async (req, res) => {
       password: "hashed_password_here", // You need to hash this
       isActive: true
     });
-    
+
     await newAdmin.save();
-    
+
     res.json({
       success: true,
       message: 'Missing admin created',
@@ -982,29 +1102,29 @@ router.post('/create-missing-admin', async (req, res) => {
 router.patch('/:id/profile-image', upload.single('profileImage'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Profile image is required' 
+        message: 'Profile image is required'
       });
     }
-    
+
     const user = await User.findById(req.params.id);
-    
+
     if (!user) {
       await deleteFromS3(req.file.key);
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: 'User not found' 
+        message: 'User not found'
       });
     }
-    
+
     // Delete old profile image
     if (user.profileImage?.key) {
-      await deleteFromS3(user.profileImage.key).catch(err => 
+      await deleteFromS3(user.profileImage.key).catch(err =>
         console.error('Error deleting old profile image:', err)
       );
     }
-    
+
     // Update with new profile image
     user.profileImage = {
       key: req.file.key,
@@ -1013,9 +1133,9 @@ router.patch('/:id/profile-image', upload.single('profileImage'), async (req, re
       mimeType: req.file.mimetype,
       size: req.file.size
     };
-    
+
     await user.save();
-    
+
     res.status(200).json({
       success: true,
       message: 'Profile image updated successfully',
@@ -1025,22 +1145,22 @@ router.patch('/:id/profile-image', upload.single('profileImage'), async (req, re
     });
   } catch (error) {
     if (req.file) {
-      await deleteFromS3(req.file.key).catch(err => 
+      await deleteFromS3(req.file.key).catch(err =>
         console.error('Error deleting file after failed update:', err)
       );
     }
-    
+
     console.error('Update profile image error:', error);
     if (error.name === 'CastError') {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Invalid user ID format' 
+        message: 'Invalid user ID format'
       });
     }
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Error updating profile image', 
-      error: error.message 
+      message: 'Error updating profile image',
+      error: error.message
     });
   }
 });
@@ -1050,21 +1170,21 @@ router.patch('/:id/profile-image', upload.single('profileImage'), async (req, re
 router.get('/:id/profile-image', async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select('profileImage');
-    
+
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: 'User not found' 
+        message: 'User not found'
       });
     }
-    
+
     if (!user.profileImage) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: 'Profile image not found' 
+        message: 'Profile image not found'
       });
     }
-    
+
     res.status(200).json({
       success: true,
       data: user.profileImage
@@ -1072,15 +1192,15 @@ router.get('/:id/profile-image', async (req, res) => {
   } catch (error) {
     console.error('Fetch profile image error:', error);
     if (error.name === 'CastError') {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Invalid user ID format' 
+        message: 'Invalid user ID format'
       });
     }
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Error fetching profile image', 
-      error: error.message 
+      message: 'Error fetching profile image',
+      error: error.message
     });
   }
 });

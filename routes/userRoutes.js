@@ -43,20 +43,6 @@ router.patch('/cancel/booking/:bookingID',
         isHourly = true;
       }
 
-      // Find and update booking in one operation
-      await Booking.findOneAndUpdate(
-        {
-          _id: bookingID,
-          driverID: booking.driverID,
-          bookingStatus: 'cancelled'
-        },
-        {
-          $set: {
-            driverID: 'null',
-          }
-        },
-        { new: true }
-      ).select('bookingStatus completedAt pickupLocation dropLocation customerName customerID carName');
 
 
       // // Update driver stats
@@ -87,9 +73,44 @@ router.patch('/cancel/booking/:bookingID',
       if (isHourly) {
         // HourlyBooking model doesn't have updateStatus method in memory
         await booking.save();
+
+
+
+        // Find and update booking in one operation
+        await HourlyBooking.findOneAndUpdate(
+          {
+            _id: bookingID,
+            driverID: booking.driverID,
+            bookingStatus: 'cancelled'
+          },
+          {
+            $set: {
+              driverID: 'null',
+            }
+          },
+          { new: true }
+        ).select('bookingStatus completedAt pickupLocation dropLocation customerName customerID carName');
+
       } else {
         // Booking model has updateStatus method
         await booking.updateStatus('cancelled');
+
+
+        // Find and update booking in one operation
+        await HourlyBooking.findOneAndUpdate(
+          {
+            _id: bookingID,
+            driverID: booking.driverID,
+            bookingStatus: 'cancelled'
+          },
+          {
+            $set: {
+              driverID: 'null',
+            }
+          },
+          { new: true }
+        ).select('bookingStatus completedAt pickupLocation dropLocation customerName customerID carName');
+
       }
 
       // Handle driver availability if a driver was assigned

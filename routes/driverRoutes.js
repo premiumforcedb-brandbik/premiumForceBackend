@@ -541,11 +541,11 @@ router.get('/availability/date-wise', async (req, res) => {
         },
         stats: {
           totalBookings,
-          completedBookings,
+          // completedBookings,
           starttrackingBookings,
-          pendingBookings,
-          cancelledBookings,
-          totalEarnings,
+          // pendingBookings,
+          // cancelledBookings,
+          // totalEarnings,
           busyHours
         }
       };

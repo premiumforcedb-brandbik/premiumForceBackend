@@ -76,40 +76,41 @@ router.patch('/cancel/booking/:bookingID',
 
 
 
-        // Find and update booking in one operation
-        await HourlyBooking.findOneAndUpdate(
-          {
-            _id: bookingID,
-            driverID: booking.driverID,
-            bookingStatus: 'cancelled'
-          },
-          {
-            $set: {
-              driverID: 'null',
-            }
-          },
-          { new: true }
-        ).select('bookingStatus completedAt pickupLocation dropLocation customerName customerID carName');
+        // // Find and update booking in one operation
+        // await HourlyBooking.findOneAndUpdate(
+        //   {
+        //     _id: bookingID,
+        //     driverID: booking.driverID,
+        //     bookingStatus: 'cancelled'
+        //   },
+        //   {
+        //     $set: {
+        //       driverID: 'null',
+        //     }
+        //   },
+        //   { new: true }
+        // ).select('bookingStatus completedAt pickupLocation dropLocation customerName customerID carName');
 
       } else {
         // Booking model has updateStatus method
         await booking.updateStatus('cancelled');
 
 
-        // Find and update booking in one operation
-        await HourlyBooking.findOneAndUpdate(
-          {
-            _id: bookingID,
-            driverID: booking.driverID,
-            bookingStatus: 'cancelled'
-          },
-          {
-            $set: {
-              driverID: 'null',
-            }
-          },
-          { new: true }
-        ).select('bookingStatus completedAt pickupLocation dropLocation customerName customerID carName');
+        // // Find and update booking in one operation
+        // await HourlyBooking.findOneAndUpdate(
+        //   {
+
+        //     _id: bookingID,
+        //     driverID: booking.driverID,
+        //     bookingStatus: 'cancelled'
+        //   },
+        //   {
+        //     $set: {
+        //       driverID: 'null',
+        //     }
+        //   },
+        //   { new: true }
+        // ).select('bookingStatus completedAt pickupLocation dropLocation customerName customerID carName');
 
       }
 

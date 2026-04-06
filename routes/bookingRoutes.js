@@ -2586,6 +2586,7 @@ router.get('/:id',
       const formattedBooking = {
         _id: booking._id,
         category: booking.category,
+        vat: booking.vat,
 
         // City details
         city: booking.cityID && typeof booking.cityID === 'object' ? {
@@ -3645,7 +3646,7 @@ router.get('/', authenticateToken,
         return {
           _id: booking._id,
           category: booking.category,
-
+          vat: booking.vat,
           // City details - Full data from City model
           city: booking.cityID && typeof booking.cityID === 'object' ? {
             _id: booking.cityID._id,

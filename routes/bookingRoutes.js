@@ -317,6 +317,7 @@ router.post('/',
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
 
+
         await notifyUser(
           customerID,
           '✅ Booking Already Exists',

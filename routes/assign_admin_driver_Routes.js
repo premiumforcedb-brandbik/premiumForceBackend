@@ -6,12 +6,13 @@ const Driver = require('../models/driver_model');
 const Booking = require('../models/booking_model');
 
 const HourlyBooking = require('../models/hourlyBookingModel');
+const { notifyDriver } = require('../fcm');
 
 
 
 const Customer = require('../models/users_model');
 const Admin = require('../models/users_model');
-const {   authenticateToken,
+const { authenticateToken,
   authorizeAdmin,
   authorizeRoles,
   authorizeAny,
@@ -28,22 +29,22 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
   try {
     console.log('========== ASSIGN DRIVER DEBUG ==========');
     console.log('1. Request body:', req.body);
-    
+
     const { driverID, bookingID } = req.body;
 
     // Validate required fields
-    if (!driverID || !bookingID ) {
+    if (!driverID || !bookingID) {
       return res.status(400).json({
         success: false,
         message: 'driverID, bookingID, and customerID are required'
       });
     }
 
-   
+
 
     // Get admin ID from token
     const adminID = req.user?.adminId || req.user?.id || req.user?._id;
-    
+
     if (!adminID) {
       return res.status(401).json({
         success: false,
@@ -81,9 +82,9 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
         message: 'Booking not found'
       });
     }
-    
+
     console.log('Booking status:', booking.bookingStatus);
-    
+
     // // Check if booking is already assigned or completed
     // if (booking.bookingStatus !== 'pending' && booking.bookingStatus !== 'completed') {
     //   return res.status(400).json({
@@ -91,26 +92,26 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
     //     message: `Booking is already ${booking.bookingStatus}. Cannot assign driver.`
     //   });
     // }
-   
+
     // conosle.log(booking.bookingStatus);
     // Check if booking is already assigned or in progress
-  //   if (booking.bookingStatus !== 'pending' ) {
-  //     if(booking.bookingStatus !== 'completed'){
-  //  return res.status(400).json({
-  //       success: false,
-  //       message: `Booking is already ${booking.bookingStatus}. Cannot assign driver.`
-  //     });
+    //   if (booking.bookingStatus !== 'pending' ) {
+    //     if(booking.bookingStatus !== 'completed'){
+    //  return res.status(400).json({
+    //       success: false,
+    //       message: `Booking is already ${booking.bookingStatus}. Cannot assign driver.`
+    //     });
 
-  //     }
-  //   }
-       console.log("The booking 108",booking.bookingStatus);
-  
+    //     }
+    //   }
+    console.log("The booking 108", booking.bookingStatus);
+
     console.log(booking.bookingStatus);
 
-    
+
 
     // return;
-   
+
     // Check for existing assignment
     const existingAssignment = await AdminAssignDriver.findOne({
       driverID: driverID,
@@ -119,6 +120,18 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
 
 
     if (existingAssignment) {
+      await notifyDriver(
+        String(driverID).trim(),
+        '📅 Already Assigned',
+        `You have been already assigned this booking.`,
+        {
+          type: 'booking_assigned',
+          bookingId: existingAssignment._id.toString(),
+          status: existingAssignment.status
+        }
+
+
+      );
       return res.status(400).json({
         success: false,
         message: 'This driver is already assigned to this booking',
@@ -126,7 +139,7 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
       });
     }
 
-     // Create new assignment
+    // Create new assignment
     const assignment = new AdminAssignDriver({
       adminID: adminID.toString(),
       driverID,
@@ -136,8 +149,8 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
 
     await assignment.save();
 
-    
-      // Update booking with driver and status
+
+    // Update booking with driver and status
     const updatedBooking = await Booking.findByIdAndUpdate(
       bookingID,
       {
@@ -148,7 +161,7 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
       },
       { new: true }
     );
-    
+
     // Update driver as busy
     // await driver.setBusy(bookingID);
 
@@ -159,6 +172,17 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
       Admin.findById(adminID).select('name email'),
       // Customer.findById(customerID).select('name email phone address')
     ]);
+    await notifyDriver(
+      String(driverID).trim(),
+      '📅 Driver Assigned',
+      `You have been assigned a new booking. Please complete or cancel it before creating a new one.`,
+      {
+        type: 'booking_assigned',
+        bookingId: updatedBooking._id.toString(),
+        status: updatedBooking.bookingStatus
+      }
+    );
+
 
     res.status(201).json({
       success: true,
@@ -186,7 +210,7 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
 
   } catch (error) {
     console.error('❌ Assign driver error:', error);
-    
+
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
@@ -194,7 +218,7 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
         error: 'DUPLICATE_ASSIGNMENT'
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Error assigning driver',
@@ -212,7 +236,7 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
   try {
     console.log('========== ASSIGN DRIVER DEBUG ==========');
     console.log('1. Request body:', req.body);
-    
+
     const { driverID, bookingID } = req.body;
 
     // Validate required fields
@@ -225,7 +249,7 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
 
     // Get admin ID from token
     const adminID = req.user?.adminId || req.user?.id || req.user?._id;
-    
+
     if (!adminID) {
       return res.status(401).json({
         success: false,
@@ -263,9 +287,9 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
         message: 'Hourly booking not found'
       });
     }
-    
+
     console.log('Current booking status:', booking.bookingStatus);
-    
+
     // Check if booking can be assigned (only pending or confirmed bookings can be assigned)
     // const allowedStatuses = ['assigned'];
     // if (!allowedStatuses.includes(booking.bookingStatus)) {
@@ -324,7 +348,7 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
       { new: true }
     );
 
-    
+
     // Update driver as busy
     // await driver.setBusy(bookingID);
 
@@ -405,7 +429,7 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
 
   } catch (error) {
     console.error('❌ Assign driver error:', error);
-    
+
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
@@ -413,7 +437,7 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
         error: 'DUPLICATE_ASSIGNMENT'
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Error assigning driver',
@@ -432,7 +456,7 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
 //   try {
 //     console.log('========== ASSIGN DRIVER (HOURLY) DEBUG ==========');
 //     console.log('1. Request body:', req.body);
-    
+
 //     const { driverID, bookingID, customerID, assignedAt } = req.body;
 
 //     // Validate required fields
@@ -442,7 +466,7 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
 //         message: 'Driver ID required'
 //       });
 //     }
-    
+
 //     if (!bookingID) {
 //       return res.status(400).json({
 //         success: false,
@@ -592,7 +616,7 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
 
 //   } catch (error) {
 //     console.error('❌ Assign driver error:', error);
-    
+
 //     if (error.code === 11000) {
 //       return res.status(400).json({
 //         success: false,
@@ -600,7 +624,7 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
 //         error: 'DUPLICATE_ASSIGNMENT'
 //       });
 //     }
-    
+
 //     res.status(500).json({
 //       success: false,
 //       message: 'Error assigning driver',
@@ -658,7 +682,7 @@ router.get('/assignments', authenticateToken, authorizeAdmin, async (req, res) =
 // @desc    Update assignment status
 // @route   PUT /api/admin/assignments/:id
 // @access  Private (Admin only)
-router.put('/assignments/:id',authenticateToken, authorizeAdmin, async (req, res) => {
+router.put('/assignments/:id', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { status, notes } = req.body;
@@ -706,7 +730,7 @@ router.put('/assignments/:id',authenticateToken, authorizeAdmin, async (req, res
 // @desc    Unassign/remove driver
 // @route   DELETE /api/admin/assignments/:id
 // @access  Private (Admin only)
-router.delete('/assignments/:id',authenticateToken, authorizeAdmin, async (req, res) => {
+router.delete('/assignments/:id', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const adminID = req.admin._id;
@@ -744,8 +768,8 @@ router.delete('/assignments/:id',authenticateToken, authorizeAdmin, async (req, 
 router.get('/available-drivers', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     // Find all drivers that are not actively assigned
-    const activeAssignments = await AdminAssignDriver.find({ 
-      status: 'active' 
+    const activeAssignments = await AdminAssignDriver.find({
+      status: 'active'
     }).distinct('driverID');
 
     const availableDrivers = await Driver.find({

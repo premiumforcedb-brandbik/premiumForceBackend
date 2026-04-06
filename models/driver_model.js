@@ -17,15 +17,15 @@ const driverSchema = new mongoose.Schema({
     unique: true,
     trim: true
   },
- licenseNumber: {
+  licenseNumber: {
     type: String,
     required: [true, 'License number is required'],
     unique: true,
     trim: true,
     // Add this to prevent null values
-   
+
   },
-    profileImage: {
+  profileImage: {
     key: {
       type: String,
       required: false
@@ -51,7 +51,7 @@ const driverSchema = new mongoose.Schema({
     mimeType: String,
     size: Number
   },
-    
+
   isBusy: {
     type: Boolean,
     default: false
@@ -84,10 +84,15 @@ const driverSchema = new mongoose.Schema({
   earnings: {
     type: Number,
     default: 0
-  }
+  },
+  fcmToken: {
+    type: String,
+    default: null
+  },
 }, {
   timestamps: true
 });
+
 
 // Index for faster queries
 
@@ -95,14 +100,14 @@ driverSchema.index({ isActive: 1, isVerified: 1 });
 driverSchema.index({ location: '2dsphere' });
 
 // Virtual for phone number with country code
-driverSchema.virtual('fullPhoneNumber').get(function() {
+driverSchema.virtual('fullPhoneNumber').get(function () {
   return `${this.countryCode}${this.phoneNumber}`;
 });
 
 
 
 // Method to set driver busy
-driverSchema.methods.setBusy = async function(bookingId) {
+driverSchema.methods.setBusy = async function (bookingId) {
   this.isBusy = true;
   this.currentBookingId = bookingId;
   await this.save();
@@ -110,7 +115,7 @@ driverSchema.methods.setBusy = async function(bookingId) {
 };
 
 // Method to set driver free
-driverSchema.methods.setFree = async function() {
+driverSchema.methods.setFree = async function () {
   this.isBusy = false;
   this.currentBookingId = null;
   await this.save();
@@ -119,7 +124,7 @@ driverSchema.methods.setFree = async function() {
 
 
 // Method to return public profile
-driverSchema.methods.getPublicProfile = function() {
+driverSchema.methods.getPublicProfile = function () {
   const driver = this.toObject();
   delete driver.refreshToken;
   delete driver.__v;

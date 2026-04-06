@@ -88,6 +88,7 @@ router.post('/', authenticateToken, async (req, res) => {
       error: error.message,
       stack: error.stack // Temporarily add stack for debugging
     });
+
   }
 });
 
@@ -576,6 +577,7 @@ router.delete('/:id/hard', authenticateToken, authorizeAdmin, async (req, res) =
     });
   }
 });
+
 
 // ============= GET SIMPLIFIED DRIVER STATS =============
 // GET /api/reviews/driver-stats/:driverId - Get simplified rating stats for a driver

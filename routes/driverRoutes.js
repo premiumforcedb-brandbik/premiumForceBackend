@@ -479,14 +479,16 @@ router.get('/availability/date-wise', async (req, res) => {
 
       // Check if driver has active booking
       const hasActiveBooking = allDriverBookings.some(booking =>
-        ['assigned', 'starttrack', 'stoptrack', 'in-progress', 'confirmed'].includes(booking.bookingStatus)
+        ['assigned', 'starttracking', 'stoptracking', 'completed'].includes(booking.bookingStatus)
       );
 
       const isBusy = driver.isBusy || hasActiveBooking;
 
+
+
       // Get active booking details
       const activeBooking = allDriverBookings.find(booking =>
-        ['assigned', 'starttrack', 'stoptrack', 'in-progress', 'confirmed'].includes(booking.bookingStatus)
+        ['assigned', 'starttracking', 'stoptracking', 'completed'].includes(booking.bookingStatus)
       );
 
       // Calculate stats

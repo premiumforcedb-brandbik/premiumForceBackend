@@ -1807,7 +1807,8 @@ router.get('/', async (req, res) => {
     // Format the response with full field mapping
     const formattedBookings = bookings.map(booking => ({
       _id: booking._id,
-
+      vat: booking.vat,
+      extraVat: booking.extraVat,
       // Basic Information
       bookingType: 'hourly',
       bookingNumber: booking.bookingNumber || `HB${booking._id.toString().slice(-8)}`,
@@ -2058,7 +2059,8 @@ router.get('/:id', async (req, res) => {
       message_en: 'Booking fetched successfully',
       data: {
         _id: booking._id,
-
+        vat: booking.vat,
+        extraVat: booking.extraVat,
         // Basic Info
         bookingType: 'بالساعة',
         bookingType_en: 'hourly',

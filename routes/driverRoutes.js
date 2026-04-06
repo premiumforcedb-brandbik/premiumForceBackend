@@ -477,6 +477,10 @@ router.get('/availability/date-wise', async (req, res) => {
         b.bookingStatus === 'pending'
       );
 
+      const cancelledBookingsList = allDriverBookings.filter(b =>
+        b.bookingStatus === 'cancelled'
+      );
+
       // Check if driver has active booking
       const hasActiveBooking = allDriverBookings.some(booking =>
         ['assigned', 'starttracking', 'stoptracking', 'completed'].includes(booking.bookingStatus)
@@ -495,6 +499,8 @@ router.get('/availability/date-wise', async (req, res) => {
       const totalBookings = allDriverBookings.length;
       const completedBookings = completedBookingsList.length;
       const pendingBookings = pendingBookingsList.length;
+      const cancelledBookings = cancelledBookingsList.length;
+
       const totalEarnings = completedBookingsList.reduce((sum, b) =>
         sum + (parseFloat(b.charge) || 0), 0
       );
@@ -531,7 +537,7 @@ router.get('/availability/date-wise', async (req, res) => {
           totalBookings,
           completedBookings,
           pendingBookings,
-          cancelledBookings: allDriverBookings.filter(b => b.bookingStatus === 'cancelled').length,
+          cancelledBookings,
           totalEarnings,
           busyHours
         }
@@ -567,6 +573,23 @@ router.get('/availability/date-wise', async (req, res) => {
           createdAt: booking.createdAt
         }));
       }
+
+
+      // Add pending bookings details if requested
+      if (bookingStatus === 'cancelled' && includeDetails === 'true' && cancelledBookingsList.length > 0) {
+        response.cancelledBookings = cancelledBookingsList.map(booking => ({
+          id: booking._id,
+          type: booking.hours ? 'hourly' : 'normal',
+          status: booking.bookingStatus,
+          charge: booking.charge,
+          hours: booking.hours,
+          pickupAddress: booking.pickupAddress || booking.pickupAdddress,
+          dropOffAddress: booking.dropOffAddress,
+          customerID: booking.customerID,
+          createdAt: booking.createdAt
+        }));
+      }
+
 
       // Add active booking details if exists
       if (activeBooking && includeDetails === 'true') {

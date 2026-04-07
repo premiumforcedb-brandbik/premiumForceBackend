@@ -43,8 +43,6 @@ router.patch('/cancel/booking/:bookingID',
         isHourly = true;
       }
 
-
-
       if (!booking) {
         return res.status(404).json({
           success: false,

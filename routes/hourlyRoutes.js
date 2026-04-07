@@ -288,115 +288,289 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
 });
 
 
-// Also update the PUT method with the same validation
-router.put('/:id',
-  //  authenticateToken, authorizeAdmin,
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { hour, charge, isActive, vehicleID } = req.body;
 
-      // Validate ID
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid route ID format'
-        });
-      }
+// ============= UPDATE ROUTE =============
+// PUT /api/routes/:id
+router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { hour, charge, isActive, vehicleID } = req.body;
 
-      // Check if route exists
-      const existingRoute = await HourlyRoute.findById(id);
-      if (!existingRoute) {
-        return res.status(404).json({
-          success: false,
-          message: 'Route not found'
-        });
-      }
+    console.log('Updating route ID:', id);
+    console.log('Received update data:', req.body);
 
-
-
-
-      if (vehicleID && !mongoose.Types.ObjectId.isValid(vehicleID)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid vehicle ID format'
-        });
-      }
-
-
-
-
-      const newVehicleID = vehicleID || existingRoute.vehicleID;
-
-
-
-
-      // Check if updated route already exists (excluding current route)
-      if (vehicleID) {
-        const duplicateRoute = await HourlyRoute.findOne({
-          _id: { $ne: id },
-          vehicleID: newVehicleID,
-          hour: hour
-        });
-
-        if (duplicateRoute) {
-          return res.status(400).json({
-            success: false,
-            message: 'Route already exists'
-          });
-        }
-      }
-
-
-      // Prepare update data
-      const updateData = {
-        hour: hour !== undefined ? Number(hour) : existingRoute.hour,
-        charge: charge !== undefined ? Number(charge) : existingRoute.charge,
-        isActive: isActive !== undefined ? isActive === 'true' || isActive === true : existingRoute.isActive
-      };
-
-      // Update route
-      const updatedRoute = await HourlyRoute.findByIdAndUpdate(
-        id,
-        updateData,
-        { new: true, runValidators: true }
-      ).populate('vehicleID', 'charge hour isActive');
-
-      res.json({
-        success: true,
-        message: 'Route updated successfully',
-        data: updatedRoute
-      });
-
-    } catch (error) {
-      console.error('Update route error:', error);
-
-      if (error.code === 11000) {
-        return res.status(400).json({
-          success: false,
-          message: 'Route already exists between these cities'
-        });
-      }
-
-      if (error.name === 'ValidationError') {
-        const errors = {};
-        for (let field in error.errors) {
-          errors[field] = error.errors[field].message;
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Validation error',
-          errors: errors
-        });
-      }
-
-      res.status(500).json({
+    // Validate route ID
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
         success: false,
-        message: 'Error updating route',
-        error: error.message
+        message: 'Invalid route ID format'
       });
     }
-  });
+
+    // Check if route exists
+    const existingRoute = await HourlyRoute.findById(id);
+    if (!existingRoute) {
+      return res.status(404).json({
+        success: false,
+        message: 'Route not found'
+      });
+    }
+
+    // Validate vehicleID if provided
+    if (vehicleID && !mongoose.Types.ObjectId.isValid(vehicleID)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid vehicle ID format'
+      });
+    }
+
+    // Check if vehicle exists when vehicleID is provided
+    if (vehicleID) {
+      const existingCar = await Cars.findById(vehicleID);
+      if (!existingCar) {
+        return res.status(404).json({
+          success: false,
+          message: 'Vehicle not found'
+        });
+      }
+    }
+
+    // Prepare update object
+    const updateData = {};
+    if (hour !== undefined) updateData.hour = hour;
+    if (vehicleID !== undefined) updateData.vehicleID = vehicleID;
+    if (charge !== undefined) updateData.charge = Number(charge);
+    if (isActive !== undefined) updateData.isActive = isActive === 'true' || isActive === true;
+
+    // Handle duplicate: If vehicleID and hour are being updated to a combination that exists
+    if ((vehicleID || hour !== undefined) && (vehicleID !== undefined || hour !== undefined)) {
+      // Determine the final vehicleID and hour after update
+      const finalVehicleID = vehicleID !== undefined ? vehicleID : existingRoute.vehicleID;
+      const finalHour = hour !== undefined ? hour : existingRoute.hour;
+
+      // Check if there's another route with the same vehicleID and hour
+      const duplicateRoute = await HourlyRoute.findOne({
+        _id: { $ne: id },
+        vehicleID: finalVehicleID,
+        hour: finalHour
+      });
+
+      // If duplicate exists, delete it
+      if (duplicateRoute) {
+        console.log(`Deleting duplicate route: ${duplicateRoute._id}`);
+        await HourlyRoute.findByIdAndDelete(duplicateRoute._id);
+      }
+    }
+
+    // Update the route
+    const updatedRoute = await HourlyRoute.findByIdAndUpdate(
+      id,
+      updateData,
+      {
+        new: true,
+        runValidators: true
+      }
+    );
+
+    // Populate all references
+    await updatedRoute.populate([
+      { path: 'vehicleID', select: 'charge hour isActive' }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: 'Route updated successfully',
+      data: updatedRoute
+    });
+
+  } catch (error) {
+    console.error('Update route error:', error);
+
+    if (error.code === 11000) {
+      // If duplicate error still occurs, try to resolve it
+      try {
+        const { hour, vehicleID } = req.body;
+        const existingRoute = await HourlyRoute.findById(req.params.id);
+
+        if (existingRoute && (vehicleID || hour)) {
+          const finalVehicleID = vehicleID || existingRoute.vehicleID;
+          const finalHour = hour !== undefined ? hour : existingRoute.hour;
+
+          // Delete the conflicting route
+          await HourlyRoute.findOneAndDelete({
+            vehicleID: finalVehicleID,
+            hour: finalHour,
+            _id: { $ne: req.params.id }
+          });
+
+          // Retry the update
+          const updateData = {};
+          if (req.body.hour !== undefined) updateData.hour = req.body.hour;
+          if (req.body.vehicleID !== undefined) updateData.vehicleID = req.body.vehicleID;
+          if (req.body.charge !== undefined) updateData.charge = Number(req.body.charge);
+          if (req.body.isActive !== undefined) updateData.isActive = req.body.isActive === 'true' || req.body.isActive === true;
+
+          const retriedRoute = await HourlyRoute.findByIdAndUpdate(
+            req.params.id,
+            updateData,
+            { new: true, runValidators: true }
+          );
+
+          await retriedRoute.populate([
+            { path: 'vehicleID', select: 'charge hour isActive' }
+          ]);
+
+          return res.status(200).json({
+            success: true,
+            message: 'Duplicate resolved and route updated successfully',
+            data: retriedRoute
+          });
+        }
+      } catch (retryError) {
+        console.error('Retry error:', retryError);
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: 'Duplicate route: This vehicle already has a route for the specified hour'
+      });
+    }
+
+    if (error.name === 'ValidationError') {
+      const errors = {};
+      for (let field in error.errors) {
+        errors[field] = error.errors[field].message;
+      }
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors: errors
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Error updating route',
+      error: error.message
+    });
+  }
+});
+
+
+
+
+
+
+
+// // Also update the PUT method with the same validation
+// router.put('/:id',
+//   //  authenticateToken, authorizeAdmin,
+//   async (req, res) => {
+//     try {
+//       const { id } = req.params;
+//       const { hour, charge, isActive, vehicleID } = req.body;
+
+//       // Validate ID
+//       if (!mongoose.Types.ObjectId.isValid(id)) {
+//         return res.status(400).json({
+//           success: false,
+//           message: 'Invalid route ID format'
+//         });
+//       }
+
+//       // Check if route exists
+//       const existingRoute = await HourlyRoute.findById(id);
+//       if (!existingRoute) {
+//         return res.status(404).json({
+//           success: false,
+//           message: 'Route not found'
+//         });
+//       }
+
+
+
+
+//       if (vehicleID && !mongoose.Types.ObjectId.isValid(vehicleID)) {
+//         return res.status(400).json({
+//           success: false,
+//           message: 'Invalid vehicle ID format'
+//         });
+//       }
+
+
+
+
+//       const newVehicleID = vehicleID || existingRoute.vehicleID;
+
+
+
+
+//       // Check if updated route already exists (excluding current route)
+//       if (vehicleID) {
+//         const duplicateRoute = await HourlyRoute.findOne({
+//           _id: { $ne: id },
+//           vehicleID: newVehicleID,
+//           hour: hour
+//         });
+
+//         if (duplicateRoute) {
+//           return res.status(400).json({
+//             success: false,
+//             message: 'Route already exists'
+//           });
+//         }
+//       }
+
+
+//       // Prepare update data
+//       const updateData = {
+//         hour: hour !== undefined ? Number(hour) : existingRoute.hour,
+//         charge: charge !== undefined ? Number(charge) : existingRoute.charge,
+//         isActive: isActive !== undefined ? isActive === 'true' || isActive === true : existingRoute.isActive
+//       };
+
+//       // Update route
+//       const updatedRoute = await HourlyRoute.findByIdAndUpdate(
+//         id,
+//         updateData,
+//         { new: true, runValidators: true }
+//       ).populate('vehicleID', 'charge hour isActive');
+
+//       res.json({
+//         success: true,
+//         message: 'Route updated successfully',
+//         data: updatedRoute
+//       });
+
+//     } catch (error) {
+//       console.error('Update route error:', error);
+
+//       if (error.code === 11000) {
+//         return res.status(400).json({
+//           success: false,
+//           message: 'Route already exists between these cities'
+//         });
+//       }
+
+//       if (error.name === 'ValidationError') {
+//         const errors = {};
+//         for (let field in error.errors) {
+//           errors[field] = error.errors[field].message;
+//         }
+//         return res.status(400).json({
+//           success: false,
+//           message: 'Validation error',
+//           errors: errors
+//         });
+//       }
+
+//       res.status(500).json({
+//         success: false,
+//         message: 'Error updating route',
+//         error: error.message
+//       });
+//     }
+//   });
 
 
 

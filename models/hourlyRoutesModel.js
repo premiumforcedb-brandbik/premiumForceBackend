@@ -2,10 +2,10 @@ const mongoose = require('mongoose');
 
 const hourlyRouteSchema = new mongoose.Schema({
 
-  categoryID: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Category',
-  },
+  // categoryID: {
+  //   type: mongoose.Schema.Types.ObjectId,
+  //   ref: 'Category',
+  // },
   vehicleID: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Car',
@@ -44,9 +44,10 @@ hourlyRouteSchema.methods.toggleActive = function () {
   return this.save();
 };
 
+
 // Static method to find active routes
 hourlyRouteSchema.statics.findActiveRoutes = function () {
   return this.find({ isActive: true }).populate('vehicleID');
 };
 
-module.exports = mongoose.model('HourlyRoutes', hourlyRouteSchema);
+module.exports = mongoose.model('HourlyRoute', hourlyRouteSchema);

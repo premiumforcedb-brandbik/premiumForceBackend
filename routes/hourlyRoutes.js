@@ -185,7 +185,7 @@ router.get('/FromcityToCity/vehicleRoutePrice', async (req, res) => {
 // POST /api/routes
 router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
-    const { charge, isActive, vehicleID } = req.body;
+    const { hour, charge, isActive, vehicleID } = req.body;
 
     console.log('Received data:', req.body);
     console.log('VehicleID:', vehicleID);
@@ -224,8 +224,9 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
     }
 
     // Check if route already exists for this vehicle and cities
-    const existingRoute = await Route.findOne({
-      vehicleID: vehicleID,  // Include VehicleID in the check
+    const existingRoute = await HourlyRoute.findOne({
+      vehicleID: vehicleID,
+      hour: hour // Include VehicleID in the check
     });
 
     if (existingRoute) {
@@ -236,7 +237,8 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
     }
 
     // Create route - FIX: Include VehicleID!
-    const route = new Route({
+    const route = new HourlyRoute({
+      hour: hour,
       vehicleID: vehicleID,  // ← This was missing!
       charge: Number(charge),
       isActive: isActive === 'true' || isActive === true || isActive === undefined
@@ -292,7 +294,7 @@ router.put('/:id',
   async (req, res) => {
     try {
       const { id } = req.params;
-      const { charge, isActive, vehicleID } = req.body;
+      const { hour, charge, isActive, vehicleID } = req.body;
 
       // Validate ID
       if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -303,7 +305,7 @@ router.put('/:id',
       }
 
       // Check if route exists
-      const existingRoute = await Route.findById(id);
+      const existingRoute = await HourlyRoute.findById(id);
       if (!existingRoute) {
         return res.status(404).json({
           success: false,
@@ -311,20 +313,7 @@ router.put('/:id',
         });
       }
 
-      // Validate city IDs if provided
-      if (fromCity && !mongoose.Types.ObjectId.isValid(fromCity)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid from city ID format'
-        });
-      }
 
-      if (toCity && !mongoose.Types.ObjectId.isValid(toCity)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid to city ID format'
-        });
-      }
 
 
       if (vehicleID && !mongoose.Types.ObjectId.isValid(vehicleID)) {
@@ -344,9 +333,10 @@ router.put('/:id',
 
       // Check if updated route already exists (excluding current route)
       if (vehicleID) {
-        const duplicateRoute = await Route.findOne({
+        const duplicateRoute = await HourlyRoute.findOne({
           _id: { $ne: id },
-          vehicleID: newVehicleID
+          vehicleID: newVehicleID,
+          hour: hour
         });
 
         if (duplicateRoute) {
@@ -357,14 +347,16 @@ router.put('/:id',
         }
       }
 
+
       // Prepare update data
       const updateData = {
+        hour: hour !== undefined ? Number(hour) : existingRoute.hour,
         charge: charge !== undefined ? Number(charge) : existingRoute.charge,
         isActive: isActive !== undefined ? isActive === 'true' || isActive === true : existingRoute.isActive
       };
 
       // Update route
-      const updatedRoute = await Route.findByIdAndUpdate(
+      const updatedRoute = await HourlyRoute.findByIdAndUpdate(
         id,
         updateData,
         { new: true, runValidators: true }
@@ -405,6 +397,8 @@ router.put('/:id',
       });
     }
   });
+
+
 
 
 

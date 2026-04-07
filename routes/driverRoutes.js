@@ -140,10 +140,6 @@ router.post('/:id/driver/fcm-token', async (req, res) => {
 
 
 
-
-
-
-
 /**
  * DELETE /api/users/:id/fcm-token
  *

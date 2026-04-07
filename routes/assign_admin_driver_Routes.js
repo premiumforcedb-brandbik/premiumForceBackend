@@ -129,8 +129,6 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
           bookingId: existingAssignment._id.toString(),
           status: existingAssignment.status
         }
-
-
       );
       return res.status(400).json({
         success: false,

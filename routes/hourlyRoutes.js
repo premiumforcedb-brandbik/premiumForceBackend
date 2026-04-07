@@ -231,7 +231,7 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
     if (existingRoute) {
       return res.status(400).json({
         success: false,
-        message: 'Route already exists for this vehicle between these cities'
+        message: 'Route already exists for this vehicle'
       });
     }
 
@@ -340,12 +340,7 @@ router.put('/:id',
       const newVehicleID = vehicleID || existingRoute.vehicleID;
 
 
-      // if (newFromCity.toString() === newToCity.toString()) {
-      //   return res.status(400).json({
-      //     success: false,
-      //     message: 'From city and To city cannot be the same'
-      //   });
-      // }
+
 
       // Check if updated route already exists (excluding current route)
       if (vehicleID) {
@@ -357,7 +352,7 @@ router.put('/:id',
         if (duplicateRoute) {
           return res.status(400).json({
             success: false,
-            message: 'Route already exists between these cities'
+            message: 'Route already exists'
           });
         }
       }
@@ -410,9 +405,6 @@ router.put('/:id',
       });
     }
   });
-
-
-
 
 
 

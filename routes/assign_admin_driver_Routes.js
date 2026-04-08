@@ -6,7 +6,7 @@ const Driver = require('../models/driver_model');
 const Booking = require('../models/booking_model');
 
 const HourlyBooking = require('../models/hourlyBookingModel');
-const { notifyDriver } = require('../fcm');
+const { notifyDriver, notifyUser } = require('../fcm');
 
 
 
@@ -120,6 +120,21 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
 
 
     if (existingAssignment) {
+
+      await notifyUser(
+        String(booking.customerID).trim(),
+        'Driver Assigned',
+        `Driver has been assigned to your booking.`,
+        {
+          type: 'booking_assigned',
+          bookingId: existingAssignment._id.toString(),
+          status: existingAssignment.status
+        }
+      );
+
+
+
+
       await notifyDriver(
         String(driverID).trim(),
         '📅 Already Assigned',
@@ -130,6 +145,7 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
           status: existingAssignment.status
         }
       );
+
       return res.status(400).json({
         success: false,
         message: 'This driver is already assigned to this booking',
@@ -170,17 +186,27 @@ router.post('/assign-driver', authenticateToken, authorizeAdmin, async (req, res
       Admin.findById(adminID).select('name email'),
       // Customer.findById(customerID).select('name email phone address')
     ]);
+
     await notifyDriver(
       String(driverID).trim(),
-      '📅 Driver Assigned',
-      `You have been assigned a new booking. Please complete or cancel it before creating a new one.`,
+      '📅 Booking Assigned!',
+      `Booking assigned a new booking has been to you`,
       {
         type: 'booking_assigned',
         bookingId: updatedBooking._id.toString(),
         status: updatedBooking.bookingStatus
       }
     );
-
+    await notifyUser(
+      String(booking.customerID).trim(),
+      'Driver Assigned',
+      `A Driver has been assigned to your booking.`,
+      {
+        type: 'booking_assigned',
+        bookingId: updatedBooking._id.toString(),
+        status: updatedBooking.bookingStatus
+      }
+    );
 
     res.status(201).json({
       success: true,

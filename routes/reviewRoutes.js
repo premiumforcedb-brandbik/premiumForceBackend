@@ -65,6 +65,22 @@ router.post('/', authenticateToken, async (req, res) => {
       .populate({ path: 'bookingID', select: 'carmodel pickupAddress dropOffAddress charge', model: 'Booking' })
       .populate({ path: 'createdBy', select: 'username email', model: 'User' });
 
+
+
+
+
+    await notifyDriver(
+      String(driverID).trim(),
+      '📅 Booking Reviewed!',
+      `A customer Reviewed there experience with you .`,
+      {
+        type: 'booking_assigned',
+        bookingId: existingAssignment._id.toString(),
+        status: existingAssignment.status
+      }
+    );
+
+
     res.status(201).json({
       success: true,
       message: 'Review created successfully',

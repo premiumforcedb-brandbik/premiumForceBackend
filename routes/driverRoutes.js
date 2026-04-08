@@ -159,12 +159,6 @@ router.delete('/:id/driver/fcm-token', async (req, res) => {
 
 
 
-
-
-
-
-
-
 // ============= PUBLIC ROUTES (No Auth Required) =============
 
 /**
@@ -904,7 +898,6 @@ router.get('/drivers/hourly-bookings',
 
 
 
-
 // Mark booking as completed by driver, start  tracking veichcle
 router.post('/complete-booking/tracking', authenticateDriver, async (req, res) => {
   try {
@@ -965,8 +958,8 @@ router.post('/complete-booking/tracking', authenticateDriver, async (req, res) =
     if (typeof notifyUser === 'function') {
       await notifyUser(
         booking.customerID,
-        '✅ Trip started and tracking has begun',
-        `Your Trip has tracking started`,
+        '✅ Tracking started!',
+        `Your Driver  is on the way to pickup You`,
         {
           type: 'start tracking',
           bookingId: bookingID.toString(),
@@ -1078,8 +1071,8 @@ router.post('/complete-booking/tracking/HourlyBooking', authenticateDriver, asyn
     if (typeof notifyUser === 'function') {
       await notifyUser(
         booking.customerID,
-        '✅ Trip started and tracking has begun',
-        `Your Trip has tracking started`,
+        '✅ Tracking started!',
+        `Your Driver  is on the way to pickup You`,
         {
           type: 'start tracking',
           bookingId: bookingID.toString(),
@@ -1197,9 +1190,10 @@ router.post('/complete-trip', authenticateDriver, async (req, res) => {
 
       await notifyUser(
         booking.customerID,
-        '✅ Trip Completed',
-        `Your Trip has been completed successfully. Thank you for choosing our service!.Please review your experience`,
+        '✅ Trip Completed!',
+        ` Thank you for your riding with us.Please rate your experience`,
         {
+
           type: 'booking_completed',
           bookingId: bookingID.toString(),
           status: 'completed',

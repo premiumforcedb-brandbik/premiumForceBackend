@@ -1353,15 +1353,17 @@ router.post('/complete-trip/HourlyBooking',
 
           await notifyUser(
             booking.customerID,
-            '✅ The Payment is pending for extra hours',
-            'please proceed to payment to complete the trip',
+            '✅ Action Required!',
+            'Extra hours detected . Balance SAR ${booking.extraPayment} is pending for ${booking.extraHours}hours'
+           ,
             {
+             
               type: 'paymentPending',
               bookingId: bookingID.toString(),
               status: 'paymentPending',
               completedAt: booking.completedAt,
               bookingDetails: {
-                pickupLocation: booking.pickupAddress,
+                pickupLocation: booking.pickupAdddress,
                 carName: booking.carName,
                 customerName: customer?.name,
                 driverName: driver?.driverName,
@@ -1402,6 +1404,7 @@ router.post('/complete-trip/HourlyBooking',
               }
             }
           });
+          
 
           await notifyUser(
             booking.customerID,

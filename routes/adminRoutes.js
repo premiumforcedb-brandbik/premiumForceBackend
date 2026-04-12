@@ -8,23 +8,23 @@ const HourlyBooking = require('../models/hourlyBookingModel');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
-const {   authenticateToken,
+const { authenticateToken,
   authorizeAdmin,
   authorizeRoles,
   authorizeAny,
   // New refresh token functions
- 
- } = require('../middleware/adminmiddleware');
+
+} = require('../middleware/adminmiddleware');
 
 const router = express.Router();
 
 // Generate Access Token
 const generateAccessToken = (admin) => {
   return jwt.sign(
-    { 
-      adminId: admin._id, 
+    {
+      adminId: admin._id,
       email: admin.email,
-      role: admin.role 
+      role: admin.role
     },
     process.env.JWT_ACCESS_SECRET,
     { expiresIn: process.env.JWT_ACCESS_EXPIRY || '1d' }
@@ -44,7 +44,7 @@ const generateRefreshToken = (admin) => {
 const verifyToken = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
         success: false,
@@ -54,9 +54,9 @@ const verifyToken = async (req, res, next) => {
 
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
-    
+
     const admin = await Admin.findById(decoded.adminId).select('-password -__v');
-    
+
     if (!admin) {
       return res.status(401).json({
         success: false,
@@ -102,6 +102,7 @@ const verifyToken = async (req, res, next) => {
 router.post('/fcm-token', verifyToken, async (req, res) => {
   try {
     const { fcmToken } = req.body;
+
 
     if (!fcmToken || typeof fcmToken !== 'string') {
       return res.status(400).json({
@@ -304,13 +305,13 @@ router.post('/login', async (req, res) => {
 
 
 // GET /api/analytics/dashboard-summary
-router.get('/dashboard-summary', 
+router.get('/dashboard-summary',
   // authenticateToken, authorizeAdmin,
   async (req, res) => {
     try {
 
       const { startDate, endDate } = req.query;
-      
+
       // Date filter
       const dateFilter = {};
       if (startDate || endDate) {
@@ -338,79 +339,79 @@ router.get('/dashboard-summary',
       ] = await Promise.all([
         // Total Users
         User.countDocuments({}),
-        
+
         // Total Drivers (all drivers)
         Driver.countDocuments(dateFilter),
-        
+
         // Active Drivers (isActive == true)
         Driver.countDocuments({ ...dateFilter, isActive: true }),
-        
+
         // Total Bookings
         Booking.countDocuments(dateFilter),
-        
+
         // Hourly Bookings
         HourlyBooking.countDocuments({ ...dateFilter }),
-        
+
         // Completed Bookings
         Booking.countDocuments({ ...dateFilter, bookingStatus: 'completed' }),
-        
+
         // Pending Bookings
         Booking.countDocuments({ ...dateFilter, bookingStatus: 'pending' }),
-        
+
         // Cancelled Bookings
         Booking.countDocuments({ ...dateFilter, bookingStatus: 'cancelled' }),
-        
+
         // Completed Hourly Bookings
         HourlyBooking.countDocuments({ ...dateFilter, bookingStatus: 'completed' }),
-        
+
         // Pending Hourly Bookings
         HourlyBooking.countDocuments({ ...dateFilter, bookingStatus: 'pending' }),
-        
+
         // Cancelled Hourly Bookings
         HourlyBooking.countDocuments({ ...dateFilter, bookingStatus: 'cancelled' }),
-        
+
         // Total Revenue from Booking (regular bookings)
         Booking.aggregate([
-          { 
-            $match: { 
+          {
+            $match: {
               ...dateFilter
-            } 
+            }
           },
-          { 
-            $group: { 
-              _id: null, 
-              total: { $sum: { $toDouble: "$charge" } } 
-            } 
+          {
+            $group: {
+              _id: null,
+              total: { $sum: { $toDouble: "$charge" } }
+            }
           }
         ]),
-        
+
         // Total Revenue from HourlyBooking (regular charge)
         HourlyBooking.aggregate([
-          { 
-            $match: { 
+          {
+            $match: {
               ...dateFilter
-            } 
+            }
           },
-          { 
-            $group: { 
-              _id: null, 
-              total: { $sum: { $toDouble: "$charge" } } 
-            } 
+          {
+            $group: {
+              _id: null,
+              total: { $sum: { $toDouble: "$charge" } }
+            }
           }
         ]),
-        
+
         // Extra Revenue from HourlyBooking (extraPayment)
         HourlyBooking.aggregate([
-          { 
-            $match: { 
+          {
+            $match: {
               ...dateFilter
-            } 
+            }
           },
-          { 
-            $group: { 
-              _id: null, 
-              total: { $sum: { $toDouble: "$extraPayment" } } 
-            } 
+          {
+            $group: {
+              _id: null,
+              total: { $sum: { $toDouble: "$extraPayment" } }
+            }
           }
         ])
       ]);
@@ -420,7 +421,7 @@ router.get('/dashboard-summary',
       const hourlyChargeRevenue = totalRevenueHourly[0]?.total || 0;
       const hourlyExtraRevenue = extraRevenueHourly[0]?.total || 0;
       const totalRevenueValue = regularRevenue + hourlyChargeRevenue + hourlyExtraRevenue;
-      
+
       const totalBookingsCount = totalBookings + hourlyBookings;
       const totalCompletedBookings = completedBookings + hourlyCompletedBookings;
       const totalPendingBookings = pendingBookings + hourlyPendingBookings;
@@ -434,7 +435,7 @@ router.get('/dashboard-summary',
       //   data: {
       //     totalRevenue: totalRevenueValue,
       //     activeDrivers: activeDrivers,
-   
+
       //     // // Additional useful metrics (optional)
       //     // details: {
       //     //   drivers: {
@@ -458,7 +459,7 @@ router.get('/dashboard-summary',
       //         hourlyCharge: hourlyChargeRevenue,
       //         hourlyExtra: hourlyExtraRevenue
       //       },
-          
+
       //     }
       //   }
       // });
@@ -466,36 +467,36 @@ router.get('/dashboard-summary',
 
 
 
-    res.json({
-      success: true,
-      data: {
-        users: {
-          total: totalUsers
-        },
-        drivers: {
-          total: activeDrivers,
-        },
-      
-        bookings: {
+      res.json({
+        success: true,
+        data: {
+          users: {
+            total: totalUsers
+          },
+          drivers: {
+            total: activeDrivers,
+          },
 
-          total: totalBookingsCount,
-          completed: totalCompletedBookings,
-          pending: totalPendingBookings,
-          cancelled: totalCancelledBookings,
-          completionRate: totalBookingsCount > 0 
-            ? ((totalCompletedBookings / totalBookingsCount) * 100).toFixed(2) 
-            : 0
-        },
-      
-        earnings: {
-          total: totalRevenueValue
+          bookings: {
+
+            total: totalBookingsCount,
+            completed: totalCompletedBookings,
+            pending: totalPendingBookings,
+            cancelled: totalCancelledBookings,
+            completionRate: totalBookingsCount > 0
+              ? ((totalCompletedBookings / totalBookingsCount) * 100).toFixed(2)
+              : 0
+          },
+
+          earnings: {
+            total: totalRevenueValue
+          }
         }
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
 
 
 
@@ -524,9 +525,9 @@ router.post('/refresh-token', async (req, res) => {
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
 
     // Find admin with this refresh token
-    const admin = await Admin.findOne({ 
+    const admin = await Admin.findOne({
       _id: decoded.adminId,
-      refreshToken: refreshToken 
+      refreshToken: refreshToken
     });
 
     if (!admin) {
@@ -604,7 +605,7 @@ router.get('/check-email', async (req, res) => {
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    
+
     const emailRegex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
     if (!emailRegex.test(cleanEmail)) {
       return res.status(400).json({
@@ -673,27 +674,27 @@ router.get('/', verifyToken, async (req, res) => {
   try {
     const { role, isActive, sort, page = 1, limit = 10 } = req.query;
     let query = {};
-    
+
     // Filtering
     if (role) query.role = role;
     if (isActive) query.isActive = isActive === 'true';
-    
+
     // Sorting
     let sortOption = {};
     if (sort === 'newest') sortOption.createdAt = -1;
     else if (sort === 'oldest') sortOption.createdAt = 1;
     else if (sort === 'email') sortOption.email = 1;
     else sortOption.createdAt = -1;
-    
+
     // Pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    
+
     const admins = await Admin.find(query)
       .sort(sortOption)
       .skip(skip)
       .limit(parseInt(limit))
       .select('-refreshToken -__v -password');
-    
+
     const total = await Admin.countDocuments(query);
 
 
@@ -724,14 +725,14 @@ router.get('/:id', verifyToken, async (req, res) => {
   try {
     const admin = await Admin.findById(req.params.id)
       .select('-refreshToken -__v -password');
-    
+
     if (!admin) {
       return res.status(404).json({
         success: false,
         message: 'Admin not found'
       });
     }
-    
+
     res.status(200).json({
       success: true,
       data: admin
@@ -760,10 +761,10 @@ router.get('/:id', verifyToken, async (req, res) => {
 router.put('/:id', verifyToken, async (req, res) => {
   try {
     const { email, password, role, isActive } = req.body;
-    
+
     // Find the admin we want to update
     const adminToUpdate = await Admin.findById(req.params.id);
-    
+
     if (!adminToUpdate) {
       return res.status(404).json({
         success: false,
@@ -781,11 +782,11 @@ router.put('/:id', verifyToken, async (req, res) => {
 
     // Check for duplicate email (if email is being changed)
     if (email && email.toLowerCase() !== adminToUpdate.email) {
-      const existingAdmin = await Admin.findOne({ 
-        email: email.toLowerCase(), 
-        _id: { $ne: req.params.id } 
+      const existingAdmin = await Admin.findOne({
+        email: email.toLowerCase(),
+        _id: { $ne: req.params.id }
       });
-      
+
       if (existingAdmin) {
         return res.status(400).json({
           success: false,
@@ -796,11 +797,11 @@ router.put('/:id', verifyToken, async (req, res) => {
 
     // Prepare update fields
     const updateFields = {};
-    
+
     if (email) updateFields.email = email.toLowerCase();
     if (role && req.admin.role === 'superadmin') updateFields.role = role; // Only superadmin can change role
     if (typeof isActive === 'boolean' && req.admin.role === 'superadmin') updateFields.isActive = isActive; // Only superadmin can change active status
-    
+
     // Handle password update separately
     if (password) {
       const salt = await bcrypt.genSalt(10);
@@ -829,10 +830,10 @@ router.put('/:id', verifyToken, async (req, res) => {
       data: updatedAdmin,
       updated: Object.keys(updateFields)
     });
-    
+
   } catch (error) {
     console.error('Update admin error:', error);
-    
+
     if (error.name === 'CastError') {
       return res.status(400).json({
         success: false,
@@ -846,7 +847,7 @@ router.put('/:id', verifyToken, async (req, res) => {
         message: 'Email already exists'
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Error updating admin',
@@ -879,17 +880,17 @@ router.delete('/:id', verifyToken, async (req, res) => {
     }
 
     const admin = await Admin.findById(req.params.id);
-    
+
     if (!admin) {
       return res.status(404).json({
         success: false,
         message: 'Admin not found'
       });
     }
-    
+
     // Delete admin from database
     await Admin.findByIdAndDelete(req.params.id);
-    
+
     res.status(200).json({
       success: true,
       message: 'Admin deleted successfully'

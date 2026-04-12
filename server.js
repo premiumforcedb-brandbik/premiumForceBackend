@@ -34,7 +34,7 @@ const userRoutes = require('./routes/userRoutes');
 const otpRoutes = require('./routes/otpRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
 const driverRoutes = require('./routes/driverRoutes');
-const assignDriverCar =require('./routes/assign_admin_driver_Routes');
+const assignDriverCar = require('./routes/assign_admin_driver_Routes');
 const schedule = require("./schedule");
 
 // const express = require('express');
@@ -132,22 +132,22 @@ admin.initializeApp({
 
 
 router.post("/api/notification", async function (req, res) {
-    try {
-        const payload = {
-            time: req.body.time,
-            days: req.body.days,
-            title: req.body.title,
-            body: req.body.body,
-        };
-        await schedule.createSchedule(payload);
-        res.json({
-            data: {},
-            message: "Success",
-            success: true,
-        });
-    } catch (e) {
-        res.status(400).json({ message: e.message, success: false});
-    }
+  try {
+    const payload = {
+      time: req.body.time,
+      days: req.body.days,
+      title: req.body.title,
+      body: req.body.body,
+    };
+    await schedule.createSchedule(payload);
+    res.json({
+      data: {},
+      message: "Success",
+      success: true,
+    });
+  } catch (e) {
+    res.status(400).json({ message: e.message, success: false });
+  }
 });
 
 
@@ -230,6 +230,8 @@ const vatRoutes = require('./routes/vatRoutes');
 app.use('/api/vat', vatRoutes);
 
 
+const fcmTokenAdmin = require('./routes/adminFcmToken');
+app.use('/api/fcmTokenAdmin', fcmTokenAdmin);
 
 
 //google sign in 
@@ -254,7 +256,7 @@ app.use('/api/vat', vatRoutes);
 
 //     // If verification is successful, get the payload
 //     const payload = ticket.getPayload();
-    
+
 //     // The payload contains user information
 //     const userId = payload['sub']; // Google's unique ID for the user
 //     const userEmail = payload['email'];
@@ -284,7 +286,7 @@ app.use('/api/vat', vatRoutes);
 //   } catch (error) {
 //     // If verification fails, an error is thrown.
 //     console.error('Error verifying ID token:', error);
-    
+
 //     // A common error is "Invalid token signature", which can happen if the token is malformed, 
 //     // from the wrong client, or if the wrong audience is used [citation:4].
 //     res.status(401).json({ error: 'Invalid ID token' });
@@ -330,7 +332,7 @@ const generateTokens = (user) => {
   const accessToken = jwt.sign(
     accessPayload,
     JWT_SECRET,
-    { 
+    {
       expiresIn: JWT_EXPIRY,
       issuer: 'your-app-name',
       audience: 'your-app-client'
@@ -353,7 +355,7 @@ const findOrCreateUserFromGoogle = async (googlePayload) => {
 
   try {
     // Check if user exists by email or googleId
-    let user = await User.findOne({ 
+    let user = await User.findOne({
       $or: [
         { email: email },
         { googleId: googleId }
@@ -368,10 +370,10 @@ const findOrCreateUserFromGoogle = async (googlePayload) => {
       user.emailVerified = user.emailVerified || email_verified;
       user.lastLogin = new Date();
       user.provider = 'google';
-      
+
       // Increment token version to invalidate old refresh tokens (optional security)
       // user.tokenVersion = (user.tokenVersion || 0) + 1;
-      
+
       await user.save();
       console.log(`✅ Existing user updated: ${email}`);
     } else {
@@ -387,7 +389,7 @@ const findOrCreateUserFromGoogle = async (googlePayload) => {
         lastLogin: new Date(),
         tokenVersion: 0
       });
-      
+
       await user.save();
       console.log(`✅ New user created: ${email}`);
     }
@@ -402,7 +404,7 @@ const findOrCreateUserFromGoogle = async (googlePayload) => {
 // Middleware to verify JWT access token
 const authenticateJWT = (req, res, next) => {
   const authHeader = req.headers.authorization;
-  
+
   if (!authHeader) {
     return res.status(401).json({ error: 'No authorization header provided' });
   }
@@ -418,7 +420,7 @@ const authenticateJWT = (req, res, next) => {
       issuer: 'your-app-name',
       audience: 'your-app-client'
     });
-    
+
     // Attach user info to request object
     req.user = decoded;
     next();
@@ -443,9 +445,9 @@ app.post('/auth/google', async (req, res) => {
   const { idToken } = req.body;
 
   if (!idToken) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       success: false,
-      error: 'ID Token is required' 
+      error: 'ID Token is required'
     });
   }
 
@@ -458,7 +460,7 @@ app.post('/auth/google', async (req, res) => {
 
     // Get Google user info
     const googlePayload = ticket.getPayload();
-    
+
     // Find or create user in database
     const user = await findOrCreateUserFromGoogle(googlePayload);
 
@@ -492,23 +494,23 @@ app.post('/auth/google', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Google sign-in error:', error);
-    
+
     // Handle specific error types
     if (error.message.includes('audience')) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Invalid client ID configuration' 
+        error: 'Invalid client ID configuration'
       });
     }
-    
+
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Google token expired' 
+        error: 'Google token expired'
       });
     }
-    
-    res.status(401).json({ 
+
+    res.status(401).json({
       success: false,
       error: 'Invalid ID token',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -529,9 +531,9 @@ app.post('/auth/refresh-token', async (req, res) => {
   const { refreshToken } = req.body;
 
   if (!refreshToken) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       success: false,
-      error: 'Refresh token is required' 
+      error: 'Refresh token is required'
     });
   }
 
@@ -541,19 +543,19 @@ app.post('/auth/refresh-token', async (req, res) => {
 
     // Find user by ID from refresh token
     const user = await User.findById(decoded.userId);
-    
+
     if (!user) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'User not found' 
+        error: 'User not found'
       });
     }
 
     // Optional: Check token version to invalidate old refresh tokens
     if (user.tokenVersion !== decoded.tokenVersion) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Refresh token has been revoked' 
+        error: 'Refresh token has been revoked'
       });
     }
 
@@ -573,17 +575,17 @@ app.post('/auth/refresh-token', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Refresh token error:', error);
-    
+
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Refresh token expired' 
+        error: 'Refresh token expired'
       });
     }
-    
-    res.status(401).json({ 
+
+    res.status(401).json({
       success: false,
-      error: 'Invalid refresh token' 
+      error: 'Invalid refresh token'
     });
   }
 });
@@ -610,9 +612,9 @@ app.post('/auth/logout', authenticateJWT, async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Logout error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Error during logout' 
+      error: 'Error during logout'
     });
   }
 });
@@ -629,11 +631,11 @@ app.post('/auth/logout', authenticateJWT, async (req, res) => {
 app.get('/auth/me', authenticateJWT, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId).select('-password -__v');
-    
+
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'User not found' 
+        error: 'User not found'
       });
     }
 
@@ -643,9 +645,9 @@ app.get('/auth/me', authenticateJWT, async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Get user error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Server error' 
+      error: 'Server error'
     });
   }
 });
@@ -655,8 +657,8 @@ app.get('/auth/me', authenticateJWT, async (req, res) => {
 
 
 app.get('/api/test', (req, res) => {
-  res.json({ 
-    success: true, 
+  res.json({
+    success: true,
     message: 'API is working',
     timestamp: new Date().toISOString()
   });
@@ -732,7 +734,7 @@ router.post('/login', async (req, res) => {
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       // secure: process.env.NODE_ENV === 'production', // Set secure flag in production
-           secure: false, // Set secure flag in production
+      secure: false, // Set secure flag in production
       sameSite: 'Strict',
       maxAge: COOKIEEXPIRY
     });

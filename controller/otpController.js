@@ -4,6 +4,7 @@ const twilio = require('twilio');
 const jwt = require('jsonwebtoken');
 
 
+
 const client = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
@@ -49,20 +50,41 @@ const sendOTP = async (req, res) => {
       purpose
     });
 
-    await client.messages.create({
-      body: `Your OTP is: ${otpCode}`,
-      from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`, // whatsapp:+14155238886
-      to: `whatsapp:${countryCode}${phoneNumber}`
+    // await client.messages.create({
+    //   to: `whatsapp:${countryCode}${phoneNumber}`,
+    //   channel: 'whatsapp',
+    //   body: `Your OTP is: ${otpCode}`,
+    //   from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`, // whatsapp:+14155238886
+    // });
 
-    });
+    await client.messages
+      .create({
+        from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
+        contentSid: "HX5cc7b3c65ecbe6d5754aabbe3cccb551",
+        contentVariables: `{"1":"${otpCode}","2":"${purpose}"}`,
+        to: `whatsapp:${countryCode}${phoneNumber}`
+      })
+      .then(message => console.log(message.sid))
+    // .done();
 
 
 
-    res.json({ success: true, message: 'OTP sent' });
+    // const verification = await client.verify.v2
+    //   .services("MG2db0d1b9fbf2ba40ed47579ae105a2df")
+    //   .verifications.create({
+    //     channel: "whatsapp",
+    //     to: `${countryCode}${phoneNumber}`
+    //   });
+
+
+    // console.log(verification);
+    // res.json({ success: true, message: 'OTP sent' });
+    res.json({ success: true, message: 'OTP sent via WhatsApp' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
 
 
 

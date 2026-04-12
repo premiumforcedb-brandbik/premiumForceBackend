@@ -1355,9 +1355,9 @@ router.post('/complete-trip/HourlyBooking',
             booking.customerID,
             '✅ Action Required!',
             'Extra hours detected . Balance SAR ${booking.extraPayment} is pending for ${booking.extraHours}hours'
-           ,
+            ,
             {
-             
+
               type: 'paymentPending',
               bookingId: bookingID.toString(),
               status: 'paymentPending',
@@ -1404,7 +1404,7 @@ router.post('/complete-trip/HourlyBooking',
               }
             }
           });
-          
+
 
           await notifyUser(
             booking.customerID,
@@ -2878,5 +2878,54 @@ router.post('/logout', verifyDriverToken, async (req, res) => {
     });
   }
 });
+
+
+
+// DELETE /api/airports/:id - Delete airport and associated image
+router.delete('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid diver ID format'
+      });
+    }
+
+    const driver = await Driver.findById(id);
+
+    if (!driver) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found'
+      });
+    }
+
+
+    // Delete image from S3 if exists
+    if (driver.image?.key) {
+      await deleteFromS3(driver.profileImage.key);
+
+      await deleteFromS3(driver.licenseImage.key);
+    }
+
+    await Driver.findByIdAndDelete(id);
+
+    res.json({
+      success: true,
+      message: 'Driver deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete Driver error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting airport',
+      error: error.message
+    });
+  }
+});
+
+
 
 module.exports = router;

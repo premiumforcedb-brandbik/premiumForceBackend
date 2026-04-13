@@ -331,6 +331,12 @@ router.post('/',
           }
         );
 
+        await notifyAllAdmins(
+          'Booking Already exist!',
+          `Review and assign a driver`,
+          ""
+        );
+
         return res.status(400).json({
           success: false,
           message: 'You already have a booking scheduled for this date',

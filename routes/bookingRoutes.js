@@ -69,7 +69,7 @@ async function notifyAllAdmins(title, body, data = {}) {
       return;
     }
 
-    const { sendPushNotification } = require('../fcm');
+    const { sendPushNotificationAdmin } = require('../fcm');
 
     // Send notifications to all admins in parallel
     await Promise.allSettled(

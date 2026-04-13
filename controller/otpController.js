@@ -35,6 +35,7 @@ const generateTokens = (user) => {
 };
 
 
+
 // Send OTP
 const sendOTP = async (req, res) => {
   try {

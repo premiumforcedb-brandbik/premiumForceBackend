@@ -50,22 +50,22 @@ const sendOTP = async (req, res) => {
       purpose
     });
 
-    // await client.messages.create({
-    //   to: `whatsapp:${countryCode}${phoneNumber}`,
-    //   channel: 'whatsapp',
-    //   body: `Your OTP is: ${otpCode}`,
-    //   from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`, // whatsapp:+14155238886
-    // });
+    await client.messages.create({
+      to: `${countryCode}${phoneNumber}`,
 
-    await client.messages
-      .create({
-        from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
-        contentSid: "HX5cc7b3c65ecbe6d5754aabbe3cccb551",
-        contentVariables: `{"1":"${otpCode}","2":"${purpose}"}`,
-        to: `whatsapp:${countryCode}${phoneNumber}`
-      })
-      .then(message => console.log(message.sid))
-    // .done();
+      body: `Your OTP is: ${otpCode}`,
+      from: `${process.env.TWILIO_PHONE_NUMBER}`, // whatsapp:+14155238886
+    });
+
+    // await client.messages
+    //   .create({
+    //     from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
+    //     contentSid: "HX5cc7b3c65ecbe6d5754aabbe3cccb551",
+    //     contentVariables: `{"1":"${otpCode}","2":"${purpose}"}`,
+    //     to: `whatsapp:${countryCode}${phoneNumber}`
+    //   })
+    //   .then(message => console.log(message.sid))
+
 
 
 

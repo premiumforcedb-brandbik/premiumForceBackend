@@ -92,6 +92,7 @@ router.post('/fcm-token', authenticateAny, async (req, res) => {
             success: true,
             message: `FCM token registered successfully for ${req.accountType}`,
             data: {
+                fcmToken: fcmToken,
                 accountType: req.accountType,
                 email: updatedAccount.email,
                 hasFcmToken: !!updatedAccount.fcmToken

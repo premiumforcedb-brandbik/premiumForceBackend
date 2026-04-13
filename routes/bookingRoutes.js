@@ -74,7 +74,7 @@ async function notifyAllAdmins(title, body, data = {}) {
     // Send notifications to all admins in parallel
     await Promise.allSettled(
       adminTokens.map(token =>
-        sendPushNotification(token, title, body, data)
+        sendPushNotificationAdmin(token, title, body, data)
       )
     );
 

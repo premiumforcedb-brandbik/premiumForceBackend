@@ -118,12 +118,17 @@ router.post('/fcm-token', verifyToken, async (req, res) => {
     );
 
     console.log(`🔔 FCM token saved for admin ${admin.email} (${admin._id})`);
-    res.json({ success: true, message: 'FCM token registered.' });
+    res.json({
+      success: true,
+      fcmToken: fcmToken,
+      message: 'FCM token registered.'
+    });
   } catch (err) {
     console.error('FCM token route error:', err);
     res.status(500).json({ success: false, message: 'Server error.' });
   }
 });
+
 
 /**
  * @route   DELETE /api/admin/fcm-token

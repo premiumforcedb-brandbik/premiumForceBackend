@@ -329,11 +329,17 @@ router.post('/',
           }
         );
 
-        // await notifyAllAdmins(
-        //   'Booking Already exist!',
-        //   `Review and assign a driver`,
-        //   ""
-        // );
+
+        await notifyAdmin(
+          'Booking Already exist!',
+          `Review and assign a driver`,
+          {
+            type: 'booking_exists',
+            bookingId: existingBooking._id.toString(),
+            status: existingBooking.bookingStatus,
+          }
+        );
+
 
         return res.status(400).json({
           success: false,
@@ -788,14 +794,17 @@ router.put('/:id',
           }
           console.log('Updated arrival date:', parsedDate);
         } catch (dateError) {
+
           if (req.files) {
             if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
           }
+
           return res.status(400).json({
             success: false,
             message: 'Invalid date format for arrival. Use ISO format (YYYY-MM-DDTHH:mm:ss.sssZ)'
           });
+
         }
       }
 

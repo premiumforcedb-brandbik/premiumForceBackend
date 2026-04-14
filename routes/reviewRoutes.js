@@ -116,8 +116,6 @@ router.post('/', authenticateToken, async (req, res) => {
       }
     );
 
-
-
     await notifyDriver(
       String(driverID).trim(),
       '📅 Booking Reviewed!',

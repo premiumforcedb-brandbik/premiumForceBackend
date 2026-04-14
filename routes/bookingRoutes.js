@@ -330,7 +330,7 @@ router.post('/',
         );
 
 
-        await notifyAdmin(
+        await notifyAllAdmins(
           'Booking Already exist!',
           `Review and assign a driver`,
           {
@@ -609,10 +609,10 @@ router.post('/',
       };
 
 
-      await notifyUserAdmin(
+      await notifyAllAdmins(
         'New Booking Alert!',
         `Review and assign a driver`,
-        ""
+        adminNotificationData
       );
 
       // await notifyAllAdmins(
@@ -807,6 +807,7 @@ router.put('/:id',
 
         }
       }
+
 
       // Parse passengerNames if provided
       let parsedPassengerNames = existingBooking.passengerNames;

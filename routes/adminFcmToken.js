@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const router = express.Router();
 
 
+
 // Authentication middleware that works for BOTH users and admins
 const authenticateAny = async (req, res, next) => {
     try {

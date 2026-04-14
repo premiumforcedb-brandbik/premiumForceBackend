@@ -37,7 +37,7 @@ const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
 const NotificationService = require('../services/notificationService');
 
 
-const { notifyUser, notifyUsers, notifyUserAdmin } = require('../fcm');
+const { notifyUser, notifyUsers, notifyAdmin, sendPushNotificationAdmin } = require('../fcm');
 
 
 
@@ -68,8 +68,6 @@ async function notifyAllAdmins(title, body, data = {}) {
       console.log('No admin FCM tokens found');
       return;
     }
-
-    const { sendPushNotificationAdmin } = require('../fcm');
 
     // Send notifications to all admins in parallel
     await Promise.allSettled(
@@ -331,11 +329,11 @@ router.post('/',
           }
         );
 
-        await notifyAllAdmins(
-          'Booking Already exist!',
-          `Review and assign a driver`,
-          ""
-        );
+        // await notifyAllAdmins(
+        //   'Booking Already exist!',
+        //   `Review and assign a driver`,
+        //   ""
+        // );
 
         return res.status(400).json({
           success: false,

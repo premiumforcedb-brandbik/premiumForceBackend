@@ -377,7 +377,12 @@ async function notifyAdmin(userIds, title, body, data = {}) {
 
 
 module.exports = {
-  sendPushNotification, notifyUser, notifyUsers, notifyAdmin,
+  sendPushNotification,
+  sendPushNotificationDriver,
+  sendPushNotificationAdmin,
+  notifyUser,
+  notifyUsers,
+  notifyAdmin,
   notifyDriver
 };
 

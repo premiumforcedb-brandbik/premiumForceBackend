@@ -603,17 +603,17 @@ router.post('/',
       };
 
 
-      // await  notifyUserAdmin(
-      //     'New Booking Alert!',
-      //    `Review and assign a driver`,
-      //     ""
-      //   );
-
-      await notifyAllAdmins(
+      await notifyUserAdmin(
         'New Booking Alert!',
         `Review and assign a driver`,
         ""
       );
+
+      // await notifyAllAdmins(
+      //   'New Booking Alert!',
+      //   `Review and assign a driver`,
+      //   ""
+      // );
 
 
 

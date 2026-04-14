@@ -348,6 +348,7 @@ async function notifyUsers(userIds, title, body, data = {}) {
   await Promise.allSettled(
     users.map((u) => sendPushNotification(u.fcmToken, title, body, data))
   );
+
 }
 
 

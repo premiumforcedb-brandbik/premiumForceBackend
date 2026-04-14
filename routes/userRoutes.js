@@ -16,6 +16,49 @@ const router = express.Router();
 
 
 
+
+
+// ============= Helper function to get all admin users =============
+async function getAllAdminFcmTokens() {
+  try {
+    const Admin = require('../models/adminModel');
+    const admins = await Admin.find({
+      isActive: true,
+      fcmToken: { $ne: null, $exists: true }
+    }).select('fcmToken').lean();
+
+    return admins.map(admin => admin.fcmToken).filter(token => token);
+  } catch (error) {
+    console.error('Error fetching admin tokens:', error);
+    return [];
+  }
+}
+
+// ============= Helper function to notify all admins =============
+async function notifyAllAdmins(title, body, data = {}) {
+  try {
+    const adminTokens = await getAllAdminFcmTokens();
+
+    if (adminTokens.length === 0) {
+      console.log('No admin FCM tokens found');
+      return;
+    }
+
+    // Send notifications to all admins in parallel
+    await Promise.allSettled(
+      adminTokens.map(token =>
+        sendPushNotificationAdmin(token, title, body, data)
+      )
+    );
+
+    console.log(`Notifications sent to ${adminTokens.length} admins`);
+  } catch (error) {
+    console.error('Error notifying admins:', error);
+  }
+}
+
+
+
 /**
  * @route   PATCH /api/users/cancel/booking/:bookingID
  * @desc    Cancel a booking (Customer initiated)
@@ -84,6 +127,8 @@ router.patch('/cancel/booking/:bookingID',
 
           // Notify driver about cancellation
           if (typeof notifyUser === 'function') {
+
+
             await notifyUser(
               driver._id,
               '❌ Booking Cancelled',
@@ -113,6 +158,17 @@ router.patch('/cancel/booking/:bookingID',
       }
 
       console.log(`Booking ${bookingID} cancelled. Previous status: ${oldStatus}`);
+
+
+      await notifyAllAdmins(
+        'Booking Cancelled!',
+        `Booking ${existingBooking._id} and was Cancelled by a customer`,
+        {
+          type: 'booking_cancelled',
+          bookingId: existingBooking._id.toString(),
+          status: existingBooking.bookingStatus,
+        }
+      );
 
       res.status(200).json({
         success: true,

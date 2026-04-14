@@ -608,19 +608,15 @@ router.post('/',
         hasSpecialRequest: !!specialRequestText
       };
 
-
       await notifyAllAdmins(
         'New Booking Alert!',
         `Review and assign a driver`,
-        adminNotificationData
+        {
+          type: 'new_booking',
+          bookingId: existingBooking._id.toString(),
+          status: existingBooking.bookingStatus,
+        }
       );
-
-      // await notifyAllAdmins(
-      //   'New Booking Alert!',
-      //   `Review and assign a driver`,
-      //   ""
-      // );
-
 
 
 

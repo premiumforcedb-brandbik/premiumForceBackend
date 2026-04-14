@@ -10,6 +10,46 @@ const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddle
 
 
 
+// ============= Helper function to get all admin users =============
+async function getAllAdminFcmTokens() {
+  try {
+    const Admin = require('../models/adminModel');
+    const admins = await Admin.find({
+      isActive: true,
+      fcmToken: { $ne: null, $exists: true }
+    }).select('fcmToken').lean();
+
+    return admins.map(admin => admin.fcmToken).filter(token => token);
+  } catch (error) {
+    console.error('Error fetching admin tokens:', error);
+    return [];
+  }
+}
+
+// ============= Helper function to notify all admins =============
+async function notifyAllAdmins(title, body, data = {}) {
+  try {
+    const adminTokens = await getAllAdminFcmTokens();
+
+    if (adminTokens.length === 0) {
+      console.log('No admin FCM tokens found');
+      return;
+    }
+
+    // Send notifications to all admins in parallel
+    await Promise.allSettled(
+      adminTokens.map(token =>
+        sendPushNotificationAdmin(token, title, body, data)
+      )
+    );
+
+    console.log(`Notifications sent to ${adminTokens.length} admins`);
+  } catch (error) {
+    console.error('Error notifying admins:', error);
+  }
+}
+
+
 // ============= CREATE REVIEW =============
 // POST /api/reviews - Create a new review (simplified)
 router.post('/', authenticateToken, async (req, res) => {
@@ -66,17 +106,26 @@ router.post('/', authenticateToken, async (req, res) => {
       .populate({ path: 'createdBy', select: 'username email', model: 'User' });
 
 
+    await notifyAllAdmins(
+      'Booking Reviewed!',
+      `A customer Reviewed there experience with you .`,
+      {
+        type: 'booking_reviewed',
+        bookingId: existingBooking._id.toString(),
+        status: existingBooking.bookingStatus,
+      }
+    );
 
 
 
     await notifyDriver(
       String(driverID).trim(),
       '📅 Booking Reviewed!',
-      `A customer Reviewed there experience with you .`,
+      `A customer Reviewed there experience with us .`,
       {
-        type: 'booking_assigned',
+        type: 'booking_reviewed',
         bookingId: existingAssignment._id.toString(),
-        status: existingAssignment.status
+        status: existingAssignment.bookingStatus
       }
     );
 

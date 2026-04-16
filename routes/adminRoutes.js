@@ -152,7 +152,7 @@ router.delete('/fcm-token', verifyToken, async (req, res) => {
  */
 router.post('/register', async (req, res) => {
   try {
-    const { email, password, role = 'admin' } = req.body;
+    const { email, password, role = 'admin', accessLevel, phoneNumber, countryCode, zone } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
@@ -173,7 +173,10 @@ router.post('/register', async (req, res) => {
     const newAdmin = new Admin({
       email: email.toLowerCase(),
       password,  // Plain text - auto-hashed by pre-save
-      role
+      role,
+      accessLevel,
+      phoneNumber,
+      countryCode, zone
     });
 
     const savedAdmin = await newAdmin.save();  // Triggers pre-save hashing
@@ -765,7 +768,7 @@ router.get('/:id', verifyToken, async (req, res) => {
  */
 router.put('/:id', verifyToken, async (req, res) => {
   try {
-    const { email, password, role, isActive } = req.body;
+    const { email, password, role, isActive, accessLevel, phoneNumber, countryCode, zone } = req.body;
 
     // Find the admin we want to update
     const adminToUpdate = await Admin.findById(req.params.id);
@@ -803,6 +806,7 @@ router.put('/:id', verifyToken, async (req, res) => {
     // Prepare update fields
     const updateFields = {};
 
+
     if (email) updateFields.email = email.toLowerCase();
     if (role && req.admin.role === 'superadmin') updateFields.role = role; // Only superadmin can change role
     if (typeof isActive === 'boolean' && req.admin.role === 'superadmin') updateFields.isActive = isActive; // Only superadmin can change active status
@@ -812,7 +816,10 @@ router.put('/:id', verifyToken, async (req, res) => {
       const salt = await bcrypt.genSalt(10);
       updateFields.password = await bcrypt.hash(password, salt);
     }
-
+    if (accessLevel) updateFields.accessLevel = accessLevel;
+    if (phoneNumber) updateFields.phoneNumber = phoneNumber;
+    if (countryCode) updateFields.countryCode = countryCode;
+    if (zone) updateFields.zone = zone;
     // Check if there's anything to update
     if (Object.keys(updateFields).length === 0) {
       return res.status(200).json({

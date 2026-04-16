@@ -875,13 +875,23 @@ router.put('/:id', verifyToken, async (req, res) => {
  */
 router.delete('/:id', verifyToken, async (req, res) => {
   try {
+
+    console.log(req.admin);
+
+
     // Check if user is superadmin
-    if (req.admin.role !== 'superadmin') {
+    if (req.admin.accessLevel !== 0) {
       return res.status(403).json({
         success: false,
         message: 'Only superadmin can delete admin accounts'
       });
     }
+
+    // return res.status(201).json({
+    //   success: true,
+    //   message: 'delete admin accounts possible'
+    // });
+    // return;
 
     // Prevent deleting yourself
     if (req.admin._id.toString() === req.params.id) {

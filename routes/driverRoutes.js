@@ -899,7 +899,7 @@ router.get('/drivers/hourly-bookings',
 
 
 // Mark booking as completed by driver, start  tracking veichcle
-router.post('/complete-booking/tracking', authenticateDriver, async (req, res) => {
+router.post('/start-tracking/tracking', authenticateDriver, async (req, res) => {
   try {
     const { bookingID } = req.body;
     const driverId = req.driver.driverId;
@@ -1012,7 +1012,7 @@ router.post('/complete-booking/tracking', authenticateDriver, async (req, res) =
 
 
 // Mark booking as completed by driver
-router.post('/complete-booking/tracking/HourlyBooking', authenticateDriver, async (req, res) => {
+router.post('/start-tracking/tracking/HourlyBooking', authenticateDriver, async (req, res) => {
   try {
     const { bookingID } = req.body;
     const driverId = req.driver.driverId;

@@ -58,6 +58,11 @@ const adminRoutes = require('./routes/adminRoutes');
 
 const cookieParser = require('cookie-parser'); // Add this
 
+
+
+const companyRoutes = require('./routes/companyRouter');
+
+
 const bannerRoutes = require('./routes/bannerRoutes');
 
 const categoryRoutes = require('./routes/categoryRoutes');
@@ -232,6 +237,14 @@ app.use('/api/vat', vatRoutes);
 
 const fcmTokenAdmin = require('./routes/adminFcmToken');
 app.use('/api/fcmTokenAdmin', fcmTokenAdmin);
+
+
+
+
+app.use('/api/companies', companyRoutes);
+
+
+
 
 
 //google sign in 

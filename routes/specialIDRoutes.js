@@ -160,7 +160,7 @@ router.get('/code/:code', async (req, res) => {
 // @desc    Create new special ID (Admin only)
 router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
-        const { code, companyID, text, discountPercentage, usedCount, isActive } = req.body;
+        const { code, companyID, text, discountPercentage, usedCount, maxUsage, isActive } = req.body;
 
         if (!companyID) {
             return res.status(400).json({
@@ -209,6 +209,7 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
             text: text || '',
             companyID: companyID,
             discountPercentage: discount,
+            maxUsage: maxUsage || 0,
             usedCount: usedCount || 0,
             isActive: isActive !== undefined ? isActive : true
         });
@@ -256,7 +257,7 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
 // authenticateToken, authorizeAdmin,
 router.put('/:id', async (req, res) => {
     try {
-        const { code, text, companyID, discountPercentage, usedCount, isActive } = req.body;
+        const { code, text, companyID, discountPercentage, usedCount, maxUsage, isActive } = req.body;
 
         // Find the special ID
         const specialID = await SpecialID.findById(req.params.id);
@@ -314,7 +315,7 @@ router.put('/:id', async (req, res) => {
         }
         if (isActive !== undefined) specialID.isActive = isActive;
         specialID.companyID = companyID;
-
+        if (maxUsage !== undefined) specialID.maxUsage = maxUsage;
         await specialID.save();
 
         res.json({
@@ -412,6 +413,7 @@ router.patch('/:id/increment', async (req, res) => {
         });
     }
 });
+
 
 
 

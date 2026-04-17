@@ -11,6 +11,11 @@ const driverSchema = new mongoose.Schema({
     required: [true, 'Country code is required'],
     default: '+966'
   },
+  isWorkstarted: {
+    type: Boolean,
+    default: false
+  },
+
   phoneNumber: {
     type: String,
     required: [true, 'Phone number is required'],

@@ -413,6 +413,80 @@ router.patch('/:id/busy-status',
 
 
 /**
+ * @route   GET /api/drivers/list/working
+ * @desc    Get list of drivers who have started work (isWorkstarted: true)
+ * @access  Private (Admin or Driver)
+ */
+router.get('/list/working', async (req, res) => {
+  try {
+    const drivers = await Driver.find({ isWorkstarted: true })
+      .select('_id driverName phoneNumber countryCode licenseNumber isWorkstarted isActive')
+      .sort({ driverName: 1 });
+
+    res.status(200).json({
+      success: true,
+      count: drivers.length,
+      data: drivers
+    });
+  } catch (error) {
+    console.error('Get working drivers list error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching working drivers list',
+      error: error.message
+    });
+  }
+});
+
+
+/**
+ * @route   PATCH /api/drivers/:id/work-status
+ * @desc    Set driver's work started status (true or false)
+ * @access  Private (Driver or Admin)
+ */
+router.patch('/:id/work-status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isWorkstarted } = req.body;
+
+    // Validate parameter
+    if (typeof isWorkstarted !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'isWorkstarted must be a boolean (true or false)'
+      });
+    }
+
+    const driver = await Driver.findByIdAndUpdate(
+      id,
+      { isWorkstarted },
+      { new: true, runValidators: true }
+    ).select('_id driverName isWorkstarted');
+
+    if (!driver) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Work status updated to ${driver.isWorkstarted}`,
+      data: driver
+    });
+  } catch (error) {
+    console.error('Update driver work status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating driver work status',
+      error: error.message
+    });
+  }
+});
+
+
+/**
  * @route   GET /api/drivers/availability/date-wise
  * @desc    Get drivers with their availability status for specific dates
  * @access  Public/Admin (can be used by both)

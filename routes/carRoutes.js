@@ -20,12 +20,80 @@ const adminMiddleware = async (req, res, next) => {
 };
 
 
+
+// ============= FILTER CAR BY LICENSE NUMBER =============
+// GET /api/cars/filterByLicenseNumber?licenseNumber=XXX
+router.get('/filterByLicenseNumber', async (req, res) => {
+  try {
+    const { licenseNumber } = req.query;
+    if (!licenseNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'licenseNumber query parameter is required'
+      });
+    }
+
+    const query = { carLicenseNumber: { $regex: new RegExp(licenseNumber, 'i') } };
+    const cars = await Car.find(query)
+      .populate('brandID', 'brandName brandIcon')
+      .populate('categoryID', 'name image');
+
+    res.json({
+      success: true,
+      count: cars.length,
+      data: cars
+    });
+  } catch (error) {
+    console.error('Filter by license error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error filtering cars by license number',
+      error: error.message
+    });
+  }
+});
+
+// ============= FILTER CAR BY BUSY STATUS =============
+// GET /api/cars/filterByBusyStatus?isBusyCar=true/false
+router.get('/filterByBusyStatus', async (req, res) => {
+  try {
+    const { isBusyCar } = req.query;
+    if (isBusyCar === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'isBusyCar query parameter is required (true or false)'
+      });
+    }
+
+    const isBusy = isBusyCar === 'true' || isBusyCar === true;
+    const query = { isBusyCar: isBusy };
+    
+    const cars = await Car.find(query)
+      .populate('brandID', 'brandName brandIcon')
+      .populate('categoryID', 'name image');
+
+    res.json({
+      success: true,
+      count: cars.length,
+      data: cars
+    });
+  } catch (error) {
+    console.error('Filter by busy status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error filtering cars by busy status',
+      error: error.message
+    });
+  }
+});
+
+
 // ============= CREATE CAR =============
 // POST /api/cars - Create a new car with image
-router.post('/', 
-  authMiddleware, 
+router.post('/',
+  authMiddleware,
   adminMiddleware,
-  upload.single('carImage'), 
+  upload.single('carImage'),
   async (req, res) => {
     try {
       console.log('========== CREATE CAR DEBUG ==========');
@@ -33,7 +101,7 @@ router.post('/',
       console.log('Request file:', req.file);
       console.log('Content-Type:', req.headers['content-type']);
 
-      
+
       // Check if car image is uploaded FIRST
       if (!req.file) {
         return res.status(400).json({
@@ -48,24 +116,26 @@ router.post('/',
         const cleanKey = key.trim();
         cleanBody[cleanKey] = typeof req.body[key] === 'string' ? req.body[key].trim() : req.body[key];
       });
-      
+
       console.log('Cleaned body:', cleanBody);
 
       const {
-        carName, 
-        brandID, 
-        model, 
+        carName,
+        brandID,
+        model,
         numberOfPassengers,
-        minimumChargeDistance, 
+        minimumChargeDistance,
         // minCharge, 
         categoryID,
         // vat
+        carLicenseNumber
       } = cleanBody;
 
       console.log('Category ID received:', categoryID);
 
       // Validation for required fields
       const missingFields = [];
+      if (!carLicenseNumber) missingFields.push('carLicenseNumber');
       if (!carName) missingFields.push('carName');
       if (!brandID) missingFields.push('brandID');
       if (!model) missingFields.push('model');
@@ -143,7 +213,7 @@ router.post('/',
 
       if (existingCar) {
         await deleteFromS3(req.file.key);
-        
+
         return res.status(409).json({
           success: false,
           message: 'Car with this name and model already exists',
@@ -154,6 +224,7 @@ router.post('/',
             model: existingCar.model,
             categoryID: existingCar.categoryID,
             numberOfPassengers: existingCar.numberOfPassengers,
+            carLicenseNumber: existingCar.carLicenseNumber,
             // minCharge: existingCar.minCharge,
             minimumChargeDistance: existingCar.minimumChargeDistance,
             // vat: existingCar.vat
@@ -168,6 +239,7 @@ router.post('/',
         model: String(model),
         categoryID: categoryID, // Use as string, MongoDB will handle conversion
         numberOfPassengers: passengers,
+        carLicenseNumber: String(carLicenseNumber),
         // minCharge: String(minCharge),
         minimumChargeDistance: String(minimumChargeDistance),
         // vat: String(vat),
@@ -199,7 +271,7 @@ router.post('/',
 
     } catch (error) {
       console.error('Create car error:', error);
-      
+
       // Clean up uploaded file if error occurs
       if (req.file) {
         await deleteFromS3(req.file.key).catch(console.error);
@@ -240,23 +312,24 @@ router.post('/',
         error: error.message
       });
     }
-});
+  });
 
 
 
 // ============= UPDATE CAR =============
 // PUT /api/cars/:id - Update car details
-router.put('/:id', 
-  authMiddleware, 
+router.put('/:id',
+  authMiddleware,
   adminMiddleware,
-  upload.single('carImage'), 
+  upload.single('carImage'),
   async (req, res) => {
     try {
       const { id } = req.params;
       const {
         carName, brand, model, category, numberOfPassengers,
         //  minCharge,
-          minimumChargeDistance,
+        minimumChargeDistance,
+        carLicenseNumber,
         // vat
       } = req.body;
 
@@ -291,7 +364,7 @@ router.put('/:id',
       if (carName || model) {
         const newCarName = carName ? String(carName).trim() : car.carName;
         const newModel = model ? String(model).trim() : car.model;
-        
+
         const existingCar = await Car.findOne({
           _id: { $ne: id },
           carName: { $regex: new RegExp(`^${newCarName}$`, 'i') },
@@ -302,7 +375,7 @@ router.put('/:id',
           if (req.file) {
             await deleteFromS3(req.file.key);
           }
-          
+
           return res.status(409).json({
             success: false,
             message: 'Another car with this name and model already exists',
@@ -313,6 +386,7 @@ router.put('/:id',
               model: existingCar.model,
               category: existingCar.category,
               numberOfPassengers: existingCar.numberOfPassengers,
+              carLicenseNumber: existingCar.carLicenseNumber,
               // minCharge: existingCar.minCharge,
               minimumChargeDistance: existingCar.minimumChargeDistance,
               // vat: existingCar.vat
@@ -335,13 +409,14 @@ router.put('/:id',
 
       // Update fields if provided
       if (carName) car.carName = String(carName).trim();
+      if (carLicenseNumber) car.carLicenseNumber = String(carLicenseNumber).trim();
       if (brand) car.brand = String(brand).trim();
       if (model) car.model = String(model).trim();
       if (category) car.category = String(category).trim();
       if (numberOfPassengers) car.numberOfPassengers = passengers;
       // if (minCharge) car.minCharge = String(minCharge).trim();
       if (minimumChargeDistance) car.minimumChargeDistance = String(minimumChargeDistance).trim();
-// if (vat) car.vat = String(vat).trim();
+      // if (vat) car.vat = String(vat).trim();
       // Handle image update if new image is uploaded
       if (req.file) {
         const oldImageKey = car.carImage?.key;
@@ -357,7 +432,7 @@ router.put('/:id',
         await car.save();
 
         if (oldImageKey) {
-          await deleteFromS3(oldImageKey).catch(err => 
+          await deleteFromS3(oldImageKey).catch(err =>
             console.error('Error deleting old car image:', err)
           );
         }
@@ -372,7 +447,7 @@ router.put('/:id',
       });
     } catch (error) {
       console.error('Update car error:', error);
-      
+
       if (req.file) {
         await deleteFromS3(req.file.key).catch(console.error);
       }
@@ -415,7 +490,7 @@ router.put('/:id',
         error: error.message
       });
     }
-});
+  });
 
 
 
@@ -424,7 +499,7 @@ router.put('/:id',
 // GET /api/cars - Get all cars with filtering and search
 router.get('/', async (req, res) => {
   try {
-    const { 
+    const {
       search,
       brand,
       category,
@@ -466,18 +541,18 @@ router.get('/', async (req, res) => {
 
 
 
- // Populate the response with brand and category details
-      // const populatedCar = await Car.find()
-      //   .populate('brandID', 'brandName brandIcon')
-      //   .populate('categoryID', 'name image');
+    // Populate the response with brand and category details
+    // const populatedCar = await Car.find()
+    //   .populate('brandID', 'brandName brandIcon')
+    //   .populate('categoryID', 'name image');
 
 
 
 
 
     const cars = await Car.find(query)
-     .populate('brandID', 'brandName brandIcon')
-        .populate('categoryID', 'name image')
+      .populate('brandID', 'brandName brandIcon')
+      .populate('categoryID', 'name image carLicenseNumber')
       // .populate('createdBy', 'username email')
       .sort(sort)
       .limit(parseInt(limit))
@@ -606,7 +681,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const car = await Car.findById(req.params.id)
-      .populate('createdBy', 'username email');
+      .populate('createdBy', 'username email carLicenseNumber');
 
     if (!car) {
       return res.status(404).json({
@@ -616,10 +691,10 @@ router.get('/:id', async (req, res) => {
     }
 
 
-   // Populate the response with brand and category details
-      const populatedCar = await Car.findById(req.params.id)
-        .populate('brandID', 'brandName brandIcon')
-        .populate('categoryID', 'name image');
+    // Populate the response with brand and category details
+    const populatedCar = await Car.findById(req.params.id)
+      .populate('brandID', 'brandName brandIcon')
+      .populate('categoryID', 'name image carLicenseNumber');
 
 
 
@@ -713,7 +788,7 @@ router.patch('/:id/min-charge', authMiddleware, async (req, res) => {
 
     const updatedCar = await Car.findByIdAndUpdate(
       id,
-      { 
+      {
         minCharge: minChargeValue,
         updatedAt: new Date()
       },
@@ -728,7 +803,7 @@ router.patch('/:id/min-charge', authMiddleware, async (req, res) => {
         carName: updatedCar.carName,
         brand: updatedCar.brand,
         model: updatedCar.model,
-       category: updatedCar.category,
+        category: updatedCar.category,
         minCharge: updatedCar.minCharge,
         previousMinCharge: existingCar.minCharge,
         updatedAt: updatedCar.updatedAt
@@ -737,7 +812,7 @@ router.patch('/:id/min-charge', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Update minimum charge error:', error);
-    
+
     if (error.name === 'ValidationError') {
       const errors = {};
       for (let field in error.errors) {
@@ -786,8 +861,8 @@ router.patch('/:id/min-charge-distance', authMiddleware, async (req, res) => {
       });
     }
 
-    const minDistanceValue = typeof minimumChargeDistance === 'number' 
-      ? minimumChargeDistance.toString() 
+    const minDistanceValue = typeof minimumChargeDistance === 'number'
+      ? minimumChargeDistance.toString()
       : minimumChargeDistance;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -807,7 +882,7 @@ router.patch('/:id/min-charge-distance', authMiddleware, async (req, res) => {
 
     const updatedCar = await Car.findByIdAndUpdate(
       id,
-      { 
+      {
         minimumChargeDistance: minDistanceValue,
         updatedAt: new Date()
       },
@@ -831,7 +906,7 @@ router.patch('/:id/min-charge-distance', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Update minimum charge distance error:', error);
-    
+
     if (error.name === 'ValidationError') {
       const errors = {};
       for (let field in error.errors) {
@@ -861,10 +936,10 @@ router.patch('/:id/min-charge-distance', authMiddleware, async (req, res) => {
 
 // ============= UPDATE CAR IMAGE ONLY =============
 // PATCH /api/cars/:id/image - Update only car image
-router.patch('/:id/image', 
-  authMiddleware, 
+router.patch('/:id/image',
+  authMiddleware,
   adminMiddleware,
-  upload.single('carImage'), 
+  upload.single('carImage'),
   async (req, res) => {
     try {
       if (!req.file) {
@@ -884,7 +959,7 @@ router.patch('/:id/image',
       }
 
       if (car.carImage?.key) {
-        await deleteFromS3(car.carImage.key).catch(err => 
+        await deleteFromS3(car.carImage.key).catch(err =>
           console.error('Error deleting old car image:', err)
         );
       }
@@ -923,7 +998,66 @@ router.patch('/:id/image',
         error: error.message
       });
     }
+  });
+
+// ============= TOGGLE IS BUSY CAR =============
+// PATCH /api/cars/:id/busy - Toggle isBusyCar status
+router.patch('/:id/busy', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid car ID format'
+      });
+    }
+
+    const car = await Car.findById(id);
+    if (!car) {
+      return res.status(404).json({
+        success: false,
+        message: 'Car not found'
+      });
+    }
+
+    // Determine the new status
+    let newStatus;
+    if (req.body.isBusyCar !== undefined) {
+      newStatus = req.body.isBusyCar === true || req.body.isBusyCar === 'true';
+    } else {
+      newStatus = !car.isBusyCar;
+    }
+
+    // Update ONLY the isBusyCar field to avoid validation errors for other fields
+    const updatedCar = await Car.findByIdAndUpdate(
+      id,
+      { $set: { isBusyCar: newStatus } },
+      { new: true, runValidators: false }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `Car status updated to ${updatedCar.isBusyCar ? 'Busy' : 'Available'}`,
+      data: {
+        _id: updatedCar._id,
+        carName: updatedCar.carName,
+        isBusyCar: updatedCar.isBusyCar
+      }
+    });
+
+  } catch (error) {
+    console.error('Toggle isBusyCar error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error toggling car busy status',
+      error: error.message
+    });
+  }
 });
+
+
+
 
 // ============= DELETE CAR =============
 // DELETE /api/cars/:id - Delete car and associated image
@@ -982,7 +1116,7 @@ router.delete('/:id', authMiddleware, adminMiddleware, async (req, res) => {
 router.get('/:id/image', authMiddleware, async (req, res) => {
   try {
     const car = await Car.findById(req.params.id).select('carImage carName brand model Category');
-    
+
     if (!car) {
       return res.status(404).json({
         success: false,
@@ -1112,5 +1246,6 @@ router.get('/passengers/:count', authMiddleware, async (req, res) => {
     });
   }
 });
+
 
 module.exports = router;

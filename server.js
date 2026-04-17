@@ -219,6 +219,11 @@ const zoneRoutes = require('./routes/zoneRoutes');
 app.use('/api/zone', zoneRoutes);
 
 
+const fleetRoutes = require('./routes/fleetRoutes');
+app.use('/', fleetRoutes);
+
+
+
 
 const zonePrceRoutes = require('./routes/zonePriceRoutes');
 app.use('/api/zonePrice', zonePrceRoutes);

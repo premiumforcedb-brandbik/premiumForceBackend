@@ -4,15 +4,15 @@ const carSchema = new mongoose.Schema({
 
 
 
-categoryID: {
+  categoryID: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Category',
-  // brand: {
-  //   type: String,
-  //   required: [true, 'Brand is required'],
-  //   trim: true,
-  //   maxlength: [50, 'Brand cannot exceed 50 characters']
-  // },
+    // brand: {
+    //   type: String,
+    //   required: [true, 'Brand is required'],
+    //   trim: true,
+    //   maxlength: [50, 'Brand cannot exceed 50 characters']
+    // },
   },
   brandID: {
     type: mongoose.Schema.Types.ObjectId,
@@ -25,12 +25,22 @@ categoryID: {
   //   trim: true,
   //   maxlength: [100, 'Category cannot exceed 100 characters']
   // },
- carName: {
+  carName: {
     type: String,
     required: [true, 'Car name is required'],
     trim: true,
     maxlength: [100, 'Car name cannot exceed 100 characters']
   },
+  // carLicenseNumber: {
+  //   type: String,
+  //   required: [true, 'Car license number is required'],
+  //   trim: true,
+  //   maxlength: [50, 'Car license number cannot exceed 50 characters']
+  // },
+  // isBusyCar: {
+  //   type: Boolean,
+  //   default: false
+  // },
   // brand: {
   //   type: String,
   //   required: [true, 'Brand is required'],
@@ -52,7 +62,7 @@ categoryID: {
   // },
   minimumChargeDistance: {
     type: String,
-    required:false,
+    required: false,
     trim: true,
     maxlength: [50, 'Minimum charge distance cannot exceed 50 characters']
   },
@@ -91,7 +101,7 @@ categoryID: {
 });
 
 
- 
+
 
 
 // Index for search functionality

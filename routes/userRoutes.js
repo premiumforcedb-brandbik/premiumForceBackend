@@ -326,7 +326,7 @@ router.patch('/:id/discount-approval',
         req.params.id,
         { isDiscountApproved },
         { new: true, runValidators: true }
-      ).select('_id username isDiscountApproved');
+      ).select('_id username isDiscountApproved phoneNumber countryCode');
 
       if (!user) {
         return res.status(404).json({

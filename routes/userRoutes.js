@@ -10,6 +10,11 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const { notifyUser } = require('../fcm');
 
+const { authenticateToken,
+  authorizeAdmin,
+} = require('../middleware/adminmiddleware');
+
+
 const router = express.Router();
 
 
@@ -295,6 +300,56 @@ router.patch('/:id/phone', verifyOTP, upload.none(), async (req, res) => {
     });
   }
 });
+
+
+
+/**
+ * @route   PATCH /api/users/:id/discount-approval
+ * @desc    Set user's discount approval status (true or false)
+ * @access  Public (Should be Admin only)
+ */
+
+router.patch('/:id/discount-approval',
+  authenticateToken, authorizeAdmin, async (req, res) => {
+    try {
+      const { isDiscountApproved } = req.body;
+
+      // Validate that the parameter is a boolean
+      if (typeof isDiscountApproved !== 'boolean') {
+        return res.status(400).json({
+          success: false,
+          message: 'isDiscountApproved must be a boolean (true or false)'
+        });
+      }
+
+      const user = await User.findByIdAndUpdate(
+        req.params.id,
+        { isDiscountApproved },
+        { new: true, runValidators: true }
+      ).select('_id username isDiscountApproved');
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: `Discount approval status updated to ${user.isDiscountApproved}`,
+        data: user
+      });
+    } catch (error) {
+      console.error('Update discount approval error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error updating discount approval status',
+        error: error.message
+      });
+    }
+  });
+
 
 
 

@@ -40,6 +40,11 @@ const specialIDSchema = new mongoose.Schema({
         default: 0,
         min: [0, 'Used count cannot be negative']
     },
+    maxUsage: {
+        type: Number,
+        default: 0,
+        min: [0, 'Max usage cannot be negative']
+    },
     isActive: {
         type: Boolean,
         default: true

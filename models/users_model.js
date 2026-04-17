@@ -6,7 +6,7 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null
   },
-  
+
   username: {
     type: String,
     required: [true, 'Username is required'],
@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema({
     minlength: [3, 'Username must be at least 3 characters long'],
     maxlength: [50, 'Username cannot exceed 50 characters']
   },
-  
+
   email: {
     type: String,
     trim: true,
@@ -23,33 +23,36 @@ const userSchema = new mongoose.Schema({
     sparse: true,
     // NO unique:true here - we'll define in schema.index
     validate: {
-      validator: function(v) {
+      validator: function (v) {
         return !v || /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/.test(v);
       },
       message: 'Please enter a valid email'
     }
   },
-  
+
   countryCode: {
     type: String,
     required: [true, 'Country code is required'],
     trim: true,
     maxlength: [5, 'Country code cannot exceed 5 characters']
   },
-  
+
   phoneNumber: {
     type: String,
     required: [true, 'Phone number is required'],
     trim: true,
     // NO unique:true here - we'll define in schema.index
     validate: {
-      validator: function(v) {
+      validator: function (v) {
         return /^[0-9]{5,15}$/.test(v);
       },
       message: 'Phone number must contain 5-15 digits'
     }
   },
-  
+  isDiscountApproved: {
+    type: Boolean,
+    default: false
+  },
   profileImage: {
     key: {
       type: String,
@@ -67,7 +70,7 @@ const userSchema = new mongoose.Schema({
       default: Date.now
     }
   },
-  
+
   location: {
     lat: {
       type: Number,
@@ -80,39 +83,39 @@ const userSchema = new mongoose.Schema({
       max: [180, 'Longitude must be between -180 and 180']
     }
   },
-  
+
   specialId: {
     type: String,
     trim: true,
     sparse: true
   },
-  
+
   role: {
     type: String,
     enum: ['customer', 'admin', 'driver'],
     default: 'customer'
   },
-  
+
   isActive: {
     type: Boolean,
     default: true
   },
-  
+
   lastLogin: {
     type: Date
   },
-  
-  fcmToken: { 
-    type: String, 
-    default: null 
+
+  fcmToken: {
+    type: String,
+    default: null
   },
-  
+
 }, {
   timestamps: true
 });
 
 // Virtual for full phone number with country code
-userSchema.virtual('fullPhoneNumber').get(function() {
+userSchema.virtual('fullPhoneNumber').get(function () {
   return `${this.countryCode}${this.phoneNumber}`;
 });
 

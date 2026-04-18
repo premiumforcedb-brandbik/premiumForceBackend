@@ -134,11 +134,15 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
             });
         }
 
+        // Extract booking date
+        const bookingDateStr = booking.arrival ? new Date(booking.arrival).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+
         // Create new assignment
         const assignment = new AdminAssignCar({
             adminID: adminID.toString(),
             vehicleID: vehicleID,
             bookingID: bookingID,
+            bookingDate: bookingDateStr,
             assignedAt: new Date()
         });
 
@@ -333,11 +337,15 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
                 });
             }
 
+            // Extract booking date
+            const bookingDateStr = booking.pickupDateTime ? new Date(booking.pickupDateTime).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+
             // Create new assignment
             const assignment = new AdminAssignCar({
                 adminID: adminID.toString(),
                 vehicleID: vehicleID,
                 bookingID: bookingID,
+                bookingDate: bookingDateStr,
                 assignedAt: new Date()
             });
 
@@ -457,34 +465,39 @@ router.get('/check-assignment',
             // Support both query parameters (standard for GET) and body
             const vehicleID = req.query.vehicleID || req.body.vehicleID;
             const bookingID = req.query.bookingID || req.body.bookingID;
+            const bookingDate = req.query.bookingDate || req.body.bookingDate;
 
-            console.log('Checking assignment for:', { vehicleID, bookingID });
+            console.log('Checking assignment for:', { vehicleID, bookingID, bookingDate });
 
-            if (!vehicleID || !bookingID) {
+            if (!vehicleID) {
                 return res.status(400).json({
                     success: false,
-                    message: 'vehicleID and bookingID are required (pass in query params or body)'
+                    message: 'vehicleID is required'
                 });
             }
 
-            const assignment = await AdminAssignCar.findOne({
-                vehicleID: vehicleID.toString().trim(),
-                bookingID: bookingID.toString().trim()
-            });
+            // Build query
+            const query = { vehicleID: vehicleID.toString().trim() };
+
+            if (bookingID) query.bookingID = bookingID.toString().trim();
+            if (bookingDate) query.bookingDate = bookingDate.toString().trim();
+
+            const assignment = await AdminAssignCar.findOne(query);
 
             if (assignment) {
                 return res.status(200).json({
                     success: true,
                     isAssigned: true,
-                    message: 'This car is already assigned to this booking',
+                    message: `This car is already assigned ${bookingDate ? 'on ' + bookingDate : 'to this booking'}`,
                     data: assignment
                 });
             }
 
+
             return res.status(200).json({
                 success: true,
                 isAssigned: false,
-                message: 'This car is not assigned to this booking'
+                message: 'This car is available for this criteria'
             });
 
         } catch (error) {
@@ -513,13 +526,12 @@ router.get('/assignments', authenticateToken, authorizeAdmin, async (req, res) =
             query.status = status;
         }
 
-        const assignments = await AdminAssignDriver.find(query)
-            .populate('driverID', 'driverName phoneNumber email vehicleName vehicleImage')
+        const assignments = await AdminAssignCar.find(query)
             .sort({ createdAt: -1 })
             .limit(limit * 1)
             .skip((page - 1) * limit);
 
-        const total = await AdminAssignDriver.countDocuments(query);
+        const total = await AdminAssignCar.countDocuments(query);
 
         res.status(200).json({
             success: true,
@@ -550,7 +562,7 @@ router.put('/assignments/:id', authenticateToken, authorizeAdmin, async (req, re
         const { status, notes } = req.body;
         const adminID = req.admin._id;
 
-        const assignment = await AdminAssignDriver.findOne({
+        const assignment = await AdminAssignCar.findOne({
             _id: id,
             adminID
         });
@@ -567,11 +579,6 @@ router.put('/assignments/:id', authenticateToken, authorizeAdmin, async (req, re
         if (notes !== undefined) assignment.notes = notes;
 
         await assignment.save();
-
-        await assignment.populate([
-            { path: 'driverID', select: 'driverName phoneNumber email' },
-            { path: 'adminID', select: 'name email' }
-        ]);
 
         res.status(200).json({
             success: true,
@@ -597,7 +604,7 @@ router.delete('/assignments/:id', authenticateToken, authorizeAdmin, async (req,
         const { id } = req.params;
         const adminID = req.admin._id;
 
-        const assignment = await AdminAssignDriver.findOneAndDelete({
+        const assignment = await AdminAssignCar.findOneAndDelete({
             _id: id,
             adminID
         });
@@ -624,35 +631,46 @@ router.delete('/assignments/:id', authenticateToken, authorizeAdmin, async (req,
     }
 });
 
-// @desc    Get all unassigned drivers (available for assignment)
-// @route   GET /api/admin/available-drivers
+// @desc    Get all available cars for a specific date
+// @route   GET /api/assign-car/available-cars
 // @access  Private (Admin only)
 router.get('/available-drivers', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
-        // Find all drivers that are not actively assigned
-        const activeAssignments = await AdminAssignDriver.find({
-            status: 'active'
-        }).distinct('driverID');
+        const { date } = req.query; // YYYY-MM-DD
 
-        const availableDrivers = await Driver.find({
-            _id: { $nin: activeAssignments },
-            isActive: true
-        }).select('driverName phoneNumber email vehicleName vehicleImage');
+        let query = { isActive: true };
+
+        // If specific date is provided, exclude cars already assigned on that date
+        if (date) {
+            const assignedVehicleIDs = await AdminAssignCar.find({
+                bookingDate: date
+            }).distinct('vehicleID');
+
+            query._id = { $nin: assignedVehicleIDs };
+        } else {
+            // If no date, just return cars that are not currently busy
+            query.isBusyCar = false;
+        }
+
+        const availableCars = await CarFleet.find(query);
 
         res.status(200).json({
             success: true,
-            data: availableDrivers
+            count: availableCars.length,
+            date: date || 'current_status',
+            data: availableCars
         });
 
     } catch (error) {
-        console.error('Get available drivers error:', error);
+        console.error('Get available cars error:', error);
         res.status(500).json({
             success: false,
-            message: 'Error fetching available drivers',
+            message: 'Error fetching available cars',
             error: error.message
         });
     }
 });
+
 
 
 

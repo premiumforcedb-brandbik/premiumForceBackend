@@ -16,6 +16,10 @@ const adminAssignCarSchema = new mongoose.Schema(
             type: String,
             required: true
         },
+        bookingDate: {
+            type: String,
+            required: true
+        },
 
         // assignedAt: {
         //     required: [true, 'Assigned date and time is required'],

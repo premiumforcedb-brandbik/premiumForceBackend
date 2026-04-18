@@ -30,14 +30,14 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
         console.log('========== ASSIGN DRIVER DEBUG ==========');
         console.log('1. Request body:', req.body);
 
-        const { vechileID, bookingID } = req.body;
+        const { vehicleID, bookingID } = req.body;
 
         // Validate required fields
-        if (!vechileID || !bookingID) {
+        if (!vehicleID || !bookingID) {
 
             return res.status(400).json({
                 success: false,
-                message: 'vechileID and bookingID are required'
+                message: 'vehicleID and bookingID are required'
             });
         }
 
@@ -54,7 +54,7 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
         }
 
         // Check if driver exists
-        const car = await CarFleet.findOne({ carID: vechileID });
+        const car = await CarFleet.findOne({ carID: vehicleID });
         if (!car) {
             return res.status(404).json({
                 success: false,
@@ -95,7 +95,7 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
 
         // Check for existing assignment
         const existingAssignment = await AdminAssignCar.findOne({
-            vechileID: vechileID,
+            vehicleID: vehicleID,
             bookingID: bookingID
         });
 
@@ -137,7 +137,7 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
         // Create new assignment
         const assignment = new AdminAssignCar({
             adminID: adminID.toString(),
-            vechileID: vechileID,
+            vehicleID: vehicleID,
             bookingID: bookingID,
             assignedAt: new Date()
         });
@@ -244,13 +244,13 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
             console.log('========== ASSIGN DRIVER DEBUG ==========');
             console.log('1. Request body:', req.body);
 
-            const { vechileID, bookingID } = req.body;
+            const { vehicleID, bookingID } = req.body;
 
             // Validate required fields
-            if (!vechileID || !bookingID) {
+            if (!vehicleID || !bookingID) {
                 return res.status(400).json({
                     success: false,
-                    message: 'vechileID and bookingID are required'
+                    message: 'vehicleID and bookingID are required'
                 });
             }
 
@@ -265,7 +265,7 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
             }
 
             // Check if driver exists
-            const car = await CarFleet.findOne({ carID: vechileID });
+            const car = await CarFleet.findOne({ carID: vehicleID });
             if (!car) {
                 return res.status(404).json({
                     success: false,
@@ -311,7 +311,7 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
 
             // Check if driver is already assigned to this booking
             const existingAssignment = await AdminAssignCar.findOne({
-                vechileID: vechileID,
+                vehicleID: vehicleID,
                 bookingID: bookingID
             });
 
@@ -336,7 +336,7 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
             // Create new assignment
             const assignment = new AdminAssignCar({
                 adminID: adminID.toString(),
-                vechileID: vechileID,
+                vehicleID: vehicleID,
                 bookingID: bookingID,
                 assignedAt: new Date()
             });
@@ -439,6 +439,64 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
             });
         }
     });
+
+
+
+
+// @desc    Check if a car is already assigned to a booking
+// @route   GET /api/assign-car/check-assignment
+// @access  Private (Admin only)
+// router.get('/check-assignment',
+
+// Updated Check Assignment Route
+router.get('/check-assignment',
+
+    //  authenticateToken, authorizeAdmin,
+    async (req, res) => {
+        try {
+            // Support both query parameters (standard for GET) and body
+            const vehicleID = req.query.vehicleID || req.body.vehicleID;
+            const bookingID = req.query.bookingID || req.body.bookingID;
+
+            console.log('Checking assignment for:', { vehicleID, bookingID });
+
+            if (!vehicleID || !bookingID) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'vehicleID and bookingID are required (pass in query params or body)'
+                });
+            }
+
+            const assignment = await AdminAssignCar.findOne({
+                vehicleID: vehicleID.toString().trim(),
+                bookingID: bookingID.toString().trim()
+            });
+
+            if (assignment) {
+                return res.status(200).json({
+                    success: true,
+                    isAssigned: true,
+                    message: 'This car is already assigned to this booking',
+                    data: assignment
+                });
+            }
+
+            return res.status(200).json({
+                success: true,
+                isAssigned: false,
+                message: 'This car is not assigned to this booking'
+            });
+
+        } catch (error) {
+            console.error('❌ Check assignment error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Error checking assignment',
+                error: error.message
+            });
+        }
+    });
+
 
 
 

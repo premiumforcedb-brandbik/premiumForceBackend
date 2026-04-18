@@ -7,7 +7,7 @@ const adminAssignCarSchema = new mongoose.Schema(
             type: String,
             required: true
         },
-        vechileID: {
+        vehicleID: {
             type: String,
             required: true
         },

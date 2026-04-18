@@ -6,6 +6,8 @@ const CarFleet = require('../models/FleetModel');
 const Booking = require('../models/booking_model');
 
 const HourlyBooking = require('../models/hourlyBookingModel');
+const Driver = require('../models/driver_model');
+const Car = require('../models/car_model');
 const { notifyDriver, notifyUser } = require('../fcm');
 
 
@@ -671,6 +673,83 @@ router.get('/available-drivers', authenticateToken, authorizeAdmin, async (req, 
     }
 });
 
+// @desc    Get assignment history for a vehicle
+// @route   GET /api/assign-car/history/:vehicleID
+// @access  Private (Admin only)
+router.get('/history/:vehicleID',
+    // authenticateToken, authorizeAdmin, 
+    async (req, res) => {
+        try {
+            const { vehicleID } = req.params;
+
+            const history = await AdminAssignCar.find({ vehicleID: vehicleID.toString() })
+                .sort({ createdAt: -1 });
+
+            // Optionally populate booking details for each history item
+            // This is complex because bookingID could be regular or hourly
+            // For now, we return the IDs and dates
+
+            const populatedHistory = await Promise.all(
+                history.map(async (assignment) => {
+                    const booking = await Booking.findById(assignment.bookingID);
+                    const hourlyBooking = await HourlyBooking.findById(assignment.bookingID);
+
+                    return {
+                        ...assignment._doc,
+                        booking,
+                        hourlyBooking
+                    };
+                })
+            );
+
+            res.status(200).json({
+                success: true,
+                vehicleID: vehicleID,
+                history: populatedHistory,
+                total: history.length,
+                // data: history
+            });
+
+        } catch (error) {
+            console.error('Get history error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Error fetching assignment history',
+                error: error.message
+            });
+        }
+    });
+
+// @desc    Get all cars with driver and car details
+// @route   GET /api/assign-car/drivers-details
+// @access  Private (Admin only)
+router.get('/drivers-details', authenticateToken, authorizeAdmin, async (req, res) => {
+    try {
+        const fleet = await CarFleet.find()
+            .populate({
+                path: 'carID',
+                select: 'carName model carImage numberOfPassengers'
+            })
+            .populate({
+                path: 'driverID',
+                select: 'driverName phoneNumber email profileImage licenseNumber'
+            });
+
+        res.status(200).json({
+            success: true,
+            count: fleet.length,
+            data: fleet
+        });
+
+    } catch (error) {
+        console.error('Get drivers details error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching fleet details',
+            error: error.message
+        });
+    }
+});
 
 
 

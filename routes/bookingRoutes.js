@@ -614,8 +614,8 @@ router.post('/',
         `Review and assign a driver`,
         {
           type: 'new_booking',
-          bookingId: existingBooking._id.toString(),
-          status: existingBooking.bookingStatus,
+          bookingId: booking._id.toString(),
+          status: booking.bookingStatus,
         }
       );
 

@@ -32,6 +32,13 @@ const bookingSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  stoppedAt: {
+    type: Date,
+    default: null
+  },
+  lastTakenOutAt: {
+    type: Date
+  },
   flightNumber: {
     type: String
   },

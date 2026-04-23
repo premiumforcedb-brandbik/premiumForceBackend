@@ -11,6 +11,14 @@ const carSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Driver',
     },
+    lastTakenOutAt: {
+        type: Date,
+        required: false,
+    },
+    lastReturnAt: {
+        type: Date,
+        required: false,
+    },
     carLicenseNumber: {
         type: String,
         required: [true, 'Car license number is required'],

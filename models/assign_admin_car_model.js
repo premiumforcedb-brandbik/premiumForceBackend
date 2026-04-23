@@ -8,12 +8,19 @@ const adminAssignCarSchema = new mongoose.Schema(
             required: true
         },
         vehicleID: {
-            type: String,
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Fleet',
+            required: true
+        },
+        driverID: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Driver',
             required: true
         },
 
         bookingID: {
-            type: String,
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Booking',
             required: true
         },
         bookingDate: {

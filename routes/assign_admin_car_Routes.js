@@ -1,5 +1,6 @@
 // routes/adminAssignDriverRoutes.js
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 const AdminAssignCar = require('../models/assign_admin_car_model');
 const CarFleet = require('../models/FleetModel');
@@ -23,6 +24,9 @@ const { authenticateToken,
     authenticateRefreshToken,
     refreshAccessToken, } = require('../middleware/adminmiddleware');
 
+// Driver Middleware
+const { authenticate: authenticateDriver } = require('../middleware/authMiddlewareDriver');
+
 // @desc    Assign a driver to admin
 // @route   POST /api/admin/assign-driver
 // @access  Private (Admin only)
@@ -32,14 +36,14 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
         console.log('========== ASSIGN DRIVER DEBUG ==========');
         console.log('1. Request body:', req.body);
 
-        const { vehicleID, bookingID } = req.body;
+        const { vehicleID, bookingID, driverID } = req.body;
 
         // Validate required fields
-        if (!vehicleID || !bookingID) {
+        if (!vehicleID || !bookingID || !driverID) {
 
             return res.status(400).json({
                 success: false,
-                message: 'vehicleID and bookingID are required'
+                message: 'vehicleID and bookingID and driverID are required'
             });
         }
 
@@ -64,6 +68,9 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
             });
         }
 
+
+        console.log("The car 68", car);
+        // return;
         // Check if driver is already busy
         if (car.isBusyCar) {
             return res.status(400).json({
@@ -93,14 +100,17 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
         console.log(booking.bookingStatus);
 
 
-        // return;
+
+
 
         // Check for existing assignment
         const existingAssignment = await AdminAssignCar.findOne({
             vehicleID: vehicleID,
-            bookingID: bookingID
+            bookingID: bookingID,
+            driverID: driverID
         });
 
+        console.log("The existingAssignment 108", existingAssignment);
 
         if (existingAssignment) {
 
@@ -144,6 +154,7 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
             adminID: adminID.toString(),
             vehicleID: vehicleID,
             bookingID: bookingID,
+            driverID: driverID,
             bookingDate: bookingDateStr,
             assignedAt: new Date()
         });
@@ -155,8 +166,10 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
         const updatedBooking = await Booking.findByIdAndUpdate(
             bookingID,
             {
-                driverID: car.driverID,
-                bookingStatus: 'assigned', // Change status to assigned when driver assigned
+                driverID: driverID,
+                bookingStatus: 'assigned',
+
+                // Change status to assigned when driver assigned
                 driverAssignedAt: new Date(),
                 updatedAt: new Date()
             },
@@ -166,6 +179,29 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
         // Update car as busy
         car.isBusyCar = true;
         await car.save();
+
+
+
+        // Find the car assigned to this driver
+        const fleetRecord = await CarFleet.findOne({
+            carID: new mongoose.Types.ObjectId(vehicleID)
+        });
+
+        console.log("The fleetRecord 781", fleetRecord);
+        if (!fleetRecord) {
+            return res.status(404).json({
+                success: false,
+                message: 'No car fleet record found for this driver'
+            });
+        }
+
+
+        // fleetRecord.lastTakenOutAt = new Date();
+        // fleetRecord.isBusyCar = true;
+        fleetRecord.driverID = driverID;
+        await fleetRecord.save();
+
+
 
         // Fetch additional related data
         const [bookingData, adminData] = await Promise.all([
@@ -250,10 +286,10 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
             console.log('========== ASSIGN DRIVER DEBUG ==========');
             console.log('1. Request body:', req.body);
 
-            const { vehicleID, bookingID } = req.body;
+            const { vehicleID, bookingID, driverID } = req.body;
 
             // Validate required fields
-            if (!vehicleID || !bookingID) {
+            if (!vehicleID || !bookingID || !driverID) {
                 return res.status(400).json({
                     success: false,
                     message: 'vehicleID and bookingID are required'
@@ -269,6 +305,7 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
                     message: 'Authentication failed - admin not found'
                 });
             }
+
 
             // Check if driver exists
             const car = await CarFleet.findOne({ carID: vehicleID });
@@ -318,8 +355,11 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
             // Check if driver is already assigned to this booking
             const existingAssignment = await AdminAssignCar.findOne({
                 vehicleID: vehicleID,
-                bookingID: bookingID
+                bookingID: bookingID,
+                driverID: driverID
             });
+
+            console.log("The existingAssignment 332", existingAssignment);
 
             if (existingAssignment) {
                 return res.status(400).json({
@@ -347,18 +387,20 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
                 adminID: adminID.toString(),
                 vehicleID: vehicleID,
                 bookingID: bookingID,
+                driverID: driverID,
                 bookingDate: bookingDateStr,
                 assignedAt: new Date()
             });
 
             await assignment.save();
 
-            // Update booking with driver and status
+            // Update hourly booking with driver and status
             const updatedBooking = await HourlyBooking.findByIdAndUpdate(
                 bookingID,
                 {
-                    driverID: car.driverID,
-                    bookingStatus: 'assigned', // Change status to assigned when driver assigned
+                    driverID: driverID,
+                    bookingStatus: 'assigned',
+                    // Change status to assigned when driver assigned
                     updatedAt: new Date()
                 },
                 { new: true }
@@ -368,6 +410,31 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
             // Update car as busy
             car.isBusyCar = true;
             await car.save();
+
+
+
+
+
+            // Find the car assigned to this driver
+            const fleetRecord = await CarFleet.findOne({
+                carID: new mongoose.Types.ObjectId(vehicleID)
+            });
+
+            console.log("The fleetRecord 781", fleetRecord);
+            if (!fleetRecord) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'No car fleet record found for this driver'
+                });
+            }
+
+
+            // fleetRecord.lastTakenOutAt = new Date();
+            // fleetRecord.isBusyCar = true;
+            fleetRecord.driverID = driverID;
+            await fleetRecord.save();
+
+
 
             // Fetch related data for response
             const [bookingData, adminData] = await Promise.all([
@@ -449,6 +516,7 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
             });
         }
     });
+
 
 
 
@@ -743,6 +811,115 @@ router.get('/drivers-details', authenticateToken, authorizeAdmin, async (req, re
 
     } catch (error) {
         console.error('Get drivers details error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching fleet details',
+            error: error.message
+        });
+    }
+});
+
+// @desc    Driver marks car as taken out
+// @route   POST /api/assign-car/driver/take-out
+// @access  Private (Driver only)
+router.post('/driver/take-out', authenticateDriver, async (req, res) => {
+    try {
+        const driverID = req.driver._id || req.driver.id;
+
+        // Find and update the car assigned to this driver
+        const fleetRecord = await CarFleet.findOne({
+            driverID: new mongoose.Types.ObjectId(driverID)
+        }).populate('carID driverID');
+
+        if (!fleetRecord) {
+            return res.status(404).json({
+                success: false,
+                message: 'No car fleet record found for this driver'
+            });
+        }
+
+        fleetRecord.lastTakenOutAt = new Date();
+        fleetRecord.isBusyCar = true;
+        await fleetRecord.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Car marked as taken out successfully',
+            data: fleetRecord
+        });
+
+    } catch (error) {
+        console.error('Driver take-out error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error marking car as taken out',
+            error: error.message
+        });
+    }
+});
+
+
+// @desc    Driver marks car as returned
+// @route   POST /api/assign-car/driver/return-car
+// @access  Private (Driver only)
+router.post('/driver/return-car', authenticateDriver, async (req, res) => {
+    try {
+        const driverID = req.driver._id || req.driver.id;
+
+        // Find the car assigned to this driver
+        const fleetRecord = await CarFleet.findOne({ 
+            driverID: new mongoose.Types.ObjectId(driverID) 
+        }).populate('carID driverID');
+
+        if (!fleetRecord) {
+            return res.status(404).json({
+                success: false,
+                message: 'No car fleet record found for this driver'
+            });
+        }
+
+        fleetRecord.lastReturnAt = new Date();
+        fleetRecord.isBusyCar = false;
+        await fleetRecord.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Car marked as returned successfully',
+            data: fleetRecord
+        });
+
+    } catch (error) {
+        console.error('Driver return-car error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error marking car as returned',
+            error: error.message
+        });
+    }
+});
+
+// @desc    Get driver's current fleet details
+// @route   GET /api/assign-car/driver/my-fleet
+// @access  Private (Driver only)
+router.get('/driver/my-fleet', authenticateDriver, async (req, res) => {
+    try {
+        const driverID = req.driver._id || req.driver.id;
+        const fleetRecord = await CarFleet.findOne({ driverID: new mongoose.Types.ObjectId(driverID) })
+            .populate('carID');
+
+        if (!fleetRecord) {
+            return res.status(404).json({
+                success: false,
+                message: 'No car assigned to you'
+            });
+        }
+
+
+        res.status(200).json({
+            success: true,
+            data: fleetRecord
+        });
+    } catch (error) {
         res.status(500).json({
             success: false,
             message: 'Error fetching fleet details',

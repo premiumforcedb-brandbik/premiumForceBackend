@@ -223,6 +223,9 @@ const fleetRoutes = require('./routes/fleetRoutes');
 app.use('/', fleetRoutes);
 
 
+const fleetHistoryRoutes = require('./routes/fleetHistoryRoutes');
+app.use('/api/fleetHistory', fleetHistoryRoutes);
+
 const assignDriverCarRoutes = require('./routes/assign_admin_car_Routes');
 app.use('/api/assign-car', assignDriverCarRoutes);
 

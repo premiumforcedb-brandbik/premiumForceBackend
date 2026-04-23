@@ -11,7 +11,7 @@ const Driver = require('../models/driver_model');
 const Car = require('../models/car_model');
 const { notifyDriver, notifyUser } = require('../fcm');
 
-
+const FleetHistory = require('../models/FleetHistoryModel');
 
 const Admin = require('../models/users_model');
 
@@ -152,7 +152,7 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
         // Create new assignment
         const assignment = new AdminAssignCar({
             adminID: adminID.toString(),
-            vehicleID: vehicleID,
+            vehicleID: car._id, // ✅ FIXED: Use the Fleet record ID
             bookingID: bookingID,
             driverID: driverID,
             bookingDate: bookingDateStr,
@@ -385,7 +385,7 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
             // Create new assignment
             const assignment = new AdminAssignCar({
                 adminID: adminID.toString(),
-                vehicleID: vehicleID,
+                vehicleID: car._id, // ✅ FIXED: Use the Fleet record ID
                 bookingID: bookingID,
                 driverID: driverID,
                 bookingDate: bookingDateStr,
@@ -526,9 +526,9 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
 // @access  Private (Admin only)
 // router.get('/check-assignment',
 
+
 // Updated Check Assignment Route
 router.get('/check-assignment',
-
     //  authenticateToken, authorizeAdmin,
     async (req, res) => {
         try {
@@ -705,6 +705,7 @@ router.delete('/assignments/:id', authenticateToken, authorizeAdmin, async (req,
 // @route   GET /api/assign-car/available-cars
 // @access  Private (Admin only)
 router.get('/available-drivers', authenticateToken, authorizeAdmin, async (req, res) => {
+
     try {
         const { date } = req.query; // YYYY-MM-DD
 
@@ -823,6 +824,7 @@ router.get('/drivers-details', authenticateToken, authorizeAdmin, async (req, re
 // @route   POST /api/assign-car/driver/take-out
 // @access  Private (Driver only)
 router.post('/driver/take-out', authenticateDriver, async (req, res) => {
+
     try {
         const driverID = req.driver._id || req.driver.id;
 
@@ -842,6 +844,20 @@ router.post('/driver/take-out', authenticateDriver, async (req, res) => {
         fleetRecord.isBusyCar = true;
         await fleetRecord.save();
 
+
+        const fleetHistory = new FleetHistory({
+            carID: fleetRecord.carID,
+            driverID: driverID,
+            lastTakenOutAt: fleetRecord.lastTakenOutAt,
+            lastReturnAt: fleetRecord.lastReturnAt,
+            isBusyCar: fleetRecord.isBusyCar,
+            isActive: fleetRecord.isActive
+        });
+
+        await fleetHistory.save();
+
+
+
         res.status(200).json({
             success: true,
             message: 'Car marked as taken out successfully',
@@ -859,6 +875,7 @@ router.post('/driver/take-out', authenticateDriver, async (req, res) => {
 });
 
 
+
 // @desc    Driver marks car as returned
 // @route   POST /api/assign-car/driver/return-car
 // @access  Private (Driver only)
@@ -867,8 +884,8 @@ router.post('/driver/return-car', authenticateDriver, async (req, res) => {
         const driverID = req.driver._id || req.driver.id;
 
         // Find the car assigned to this driver
-        const fleetRecord = await CarFleet.findOne({ 
-            driverID: new mongoose.Types.ObjectId(driverID) 
+        const fleetRecord = await CarFleet.findOne({
+            driverID: new mongoose.Types.ObjectId(driverID)
         }).populate('carID driverID');
 
         if (!fleetRecord) {
@@ -881,6 +898,20 @@ router.post('/driver/return-car', authenticateDriver, async (req, res) => {
         fleetRecord.lastReturnAt = new Date();
         fleetRecord.isBusyCar = false;
         await fleetRecord.save();
+
+
+        const fleetHistory = new FleetHistory({
+            carID: fleetRecord.carID,
+            driverID: driverID,
+            lastTakenOutAt: fleetRecord.lastTakenOutAt,
+            lastReturnAt: fleetRecord.lastReturnAt,
+            isBusyCar: fleetRecord.isBusyCar,
+            isActive: fleetRecord.isActive
+        });
+
+        await fleetHistory.save();
+
+
 
         res.status(200).json({
             success: true,
@@ -927,6 +958,8 @@ router.get('/driver/my-fleet', authenticateDriver, async (req, res) => {
         });
     }
 });
+
+
 
 
 

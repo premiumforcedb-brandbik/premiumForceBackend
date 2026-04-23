@@ -3,7 +3,11 @@ const mongoose = require('mongoose');
 const router = express.Router();
 const Fleet = require('../models/FleetModel');
 const Car = require('../models/car_model');
-const Driver = require('../models/driver_model'); // Adjust path as needed
+const Driver = require('../models/driver_model');
+const Booking = require('../models/booking_model');
+const HourlyBooking = require('../models/hourlyBookingModel');
+const AdminAssignCar = require('../models/assign_admin_car_model');
+
 
 // ==================== CREATE ====================
 // Create a new fleet/car entry
@@ -139,6 +143,8 @@ router.get('/api/fleets', async (req, res) => {
             limit = 10,
             isBusyCar,
             isActive,
+            carID, // Added carID filter
+            search, // Added search (for license number)
             sortBy = 'createdAt',
             sortOrder = 'desc'
         } = req.query;
@@ -148,6 +154,14 @@ router.get('/api/fleets', async (req, res) => {
         if (isBusyCar !== undefined) filter.isBusyCar = isBusyCar === 'true';
         if (isActive !== undefined) filter.isActive = isActive === 'true';
 
+        // Added carID filter logic
+        if (carID) filter.carID = carID;
+
+        // Added search (license number) filter logic using Regex
+        if (search) {
+            filter.carLicenseNumber = { $regex: search, $options: 'i' };
+        }
+
         // Pagination
         const skip = (page - 1) * limit;
 
@@ -156,8 +170,8 @@ router.get('/api/fleets', async (req, res) => {
         sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
         const fleets = await Fleet.find(filter)
-            .populate('carID', 'name model year') // Specify fields to return
-            .populate('driverID', 'name email phone')
+            .populate('carID', 'name model year carName') // Specify fields to return
+            .populate('driverID', 'driverName name email phone')
             .sort(sort)
             .skip(skip)
             .limit(parseInt(limit));
@@ -449,6 +463,10 @@ router.patch('/api/fleets/bulk/status', async (req, res) => {
         });
     }
 });
+
+
+
+
 
 
 

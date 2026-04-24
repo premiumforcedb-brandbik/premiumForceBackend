@@ -29,7 +29,20 @@ const userSchema = new mongoose.Schema({
       message: 'Please enter a valid email'
     }
   },
-
+  companyMail: {
+    type: String,
+    trim: true,
+    lowercase: true,
+    sparse: true,
+    required: [false, 'Company mail is required'],
+    // NO unique:true here - we'll define in schema.index
+    validate: {
+      validator: function (v) {
+        return !v || /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/.test(v);
+      },
+      message: 'Please enter a valid email'
+    }
+  },
   countryCode: {
     type: String,
     required: [true, 'Country code is required'],

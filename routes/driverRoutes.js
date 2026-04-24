@@ -1528,11 +1528,13 @@ router.get('/all', async (req, res) => {
     const {
       isActive,
       isVerified,
+      // Added status query param
       search,
       page = 1,
       limit = 10
     } = req.query;
 
+    var status = "";
     // Build query
     const query = {};
 
@@ -1543,6 +1545,20 @@ router.get('/all', async (req, res) => {
     if (isVerified !== undefined && isVerified !== '') {
       query.isVerified = isVerified === 'true';
     }
+
+
+
+    // Handle status filtering
+    if (query.isWorkstarted == true && query.isBusy == false) {
+      status = "ideal";
+    } else if (query.isWorkstarted == true && query.isBusy == true) {
+      status = "in-trip";
+    } else if (query.isWorkstarted == false && query.isBusy == false) {
+      status = "offline";
+    }
+
+
+
 
     if (search && search.trim() !== '') {
       query.$or = [
@@ -1562,20 +1578,39 @@ router.get('/all', async (req, res) => {
     console.log('Total drivers matching query:', total);
 
     // Get drivers with pagination
-    const drivers = await Driver.find(query)
+    const driversList = await Driver.find(query)
       .sort('-createdAt')
       .skip(skip)
       .limit(limitNum)
       .select('-refreshToken -__v');
 
-    console.log('Drivers returned:', drivers.length);
+    // Add status label to each driver in the response
+    const driversWithStatus = driversList.map(driver => {
+      const driverObj = driver.toObject();
+      let calculatedStatus = 'offline';
+
+      if (driverObj.isWorkstarted === true && driverObj.isBusy === false) {
+        calculatedStatus = 'idle';
+      } else if (driverObj.isWorkstarted === true && driverObj.isBusy === true) {
+        calculatedStatus = 'in-trip';
+      } else if (driverObj.isWorkstarted === false && driverObj.isBusy === false) {
+        calculatedStatus = 'offline';
+      }
+
+      return {
+        ...driverObj,
+        status: calculatedStatus
+      };
+    });
+
+    console.log('Drivers returned:', driversWithStatus.length);
 
     // Calculate pagination info
     const totalPages = Math.ceil(total / limitNum);
 
     res.status(200).json({
       success: true,
-      data: drivers,
+      data: driversWithStatus,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -1659,9 +1694,24 @@ router.get('/:id', async (req, res) => {
       });
     }
 
+    // Calculate status label
+    const driverObj = driver.toObject();
+    let calculatedStatus = 'offline';
+
+    if (driverObj.isWorkstarted === true && driverObj.isBusy === false) {
+      calculatedStatus = 'idle';
+    } else if (driverObj.isWorkstarted === true && driverObj.isBusy === true) {
+      calculatedStatus = 'in-trip';
+    } else if (driverObj.isWorkstarted === false && driverObj.isBusy === false) {
+      calculatedStatus = 'offline';
+    }
+
     res.json({
       success: true,
-      data: driver
+      data: {
+        ...driverObj,
+        status: calculatedStatus
+      }
     });
   } catch (error) {
     console.error('Fetch driver error:', error);

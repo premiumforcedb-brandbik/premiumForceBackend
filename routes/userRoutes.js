@@ -485,7 +485,7 @@ const generateRefreshToken = (user) => {
 
 router.post('/', upload.single('profileImage'), async (req, res) => {
   try {
-    const { username, email, countryCode, phoneNumber, lat, long, specialId, role } = req.body;
+    const { username, email, countryCode, companyMail, phoneNumber, lat, long, specialId, role } = req.body;
 
     console.log('Create user request body:', req.file, req.body);
 
@@ -549,6 +549,7 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
       email: email || undefined,
       countryCode,
       phoneNumber,
+      companyMail,
       profileImage: req.file ? {
         key: req.file.key,
         url: getS3Url(req.file.key),
@@ -972,7 +973,8 @@ router.get('/profile/:phoneNumber', async (req, res) => {
 // PUT /api/users/:id - Update user (allows same data for same user, prevents duplicates across different users)
 router.put('/:id', upload.single('profileImage'), async (req, res) => {
   try {
-    const { username, email, phoneNumber } = req.body;
+    const { username, email, phoneNumber, companyMail } = req.body;
+
 
     // Get all fields from request body
     const updateFields = { ...req.body };
@@ -1000,6 +1002,13 @@ router.put('/:id', upload.single('profileImage'), async (req, res) => {
     //       .then(user => user ? 'username' : null)
     //   );
     // }
+
+    if (companyMail && companyMail !== userToUpdate.companyMail) {
+      // duplicateChecks.push(
+      //   User.findOne({ companyMail, _id: { $ne: req.params.id } })
+      //     .then(user => user ? 'companyMail' : null)
+      // );
+    }
 
     // Check email duplicate (if email is being changed and not empty)
     if (email && email !== userToUpdate.email) {
@@ -1096,6 +1105,7 @@ router.put('/:id', upload.single('profileImage'), async (req, res) => {
         runValidators: false
       }
     ).select('-__v');
+
 
     res.status(200).json({
       success: true,

@@ -2,8 +2,125 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 const SpecialID = require('../models/specialIDModel');
+const User = require('../models/users_model'); // Added User model
 const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddleware');
 const Company = require('../models/companyModel');
+
+
+
+
+
+// ============= PROMO CODE USAGE API =============
+// @route   GET /api/specialids/promocode-usage
+// @desc    Get all users who have applied a promo code with details
+router.get('/promocode-usage',
+    //  authenticateToken, authorizeAdmin,
+    async (req, res) => {
+        try {
+            const { userStatus, page = 1, limit = 20 } = req.query;
+
+            const skipPage = (parseInt(page) - 1) * parseInt(limit);
+            const limitPage = parseInt(limit);
+
+            // Build match stage: list users if specialId is not null or empty
+            let userMatch = {
+                specialId: { $ne: null, $exists: true, $ne: "" }
+            };
+
+            // Optional filter based on user approval status (currently disabled as per request)
+            /*
+            if (userStatus === 'approved') {
+                userMatch.isDiscountApproved = true;
+            }
+            */
+
+            const aggregation = [
+                { $match: userMatch },
+                // Join with SpecialID collection
+                {
+                    $lookup: {
+                        from: "specialidmodels",
+                        localField: "specialId",
+                        foreignField: "code",
+                        as: "promoDetails"
+                    }
+                },
+                // Use preserveNullAndEmptyArrays: true so users aren't hidden if code is missing/invalid
+                {
+                    $unwind: {
+                        path: "$promoDetails",
+                        preserveNullAndEmptyArrays: true
+                    }
+                },
+                // Calculate derived fields
+                {
+                    $addFields: {
+                        isDiscountApplicable: {
+                            $and: [
+                                { $eq: ["$isDiscountApproved", true] },
+                                { $ifNull: ["$promoDetails.isActive", false] } // Fallback to false if promo missing
+                            ]
+                        }
+                    }
+                },
+                // Project the fields needed
+                {
+                    $project: {
+                        _id: 1,
+                        username: 1,
+                        email: 1,
+                        companyMail: 1,
+                        phoneNumber: 1,
+                        countryCode: 1,
+                        isDiscountApproved: 1,
+                        specialId: 1,
+                        promoDetails: 1,
+                        usedAt: "$updatedAt",
+                        usageStatus: {
+                            $cond: { if: "$isDiscountApproved", then: "approved", else: "pending" }
+                        },
+                        isDiscountApplicable: 1
+                    }
+                },
+
+                // Facet for pagination
+                {
+                    $facet: {
+                        metadata: [{ $count: "total" }],
+                        data: [{ $skip: skipPage }, { $limit: limitPage }]
+                    }
+                }
+            ];
+
+            const result = await User.aggregate(aggregation);
+
+            const totalItems = result[0].metadata[0] ? result[0].metadata[0].total : 0;
+            const data = result[0].data;
+
+            res.json({
+                success: true,
+                pagination: {
+                    totalItems,
+                    totalPages: Math.ceil(totalItems / limitPage),
+                    currentPage: parseInt(page),
+                    itemsPerPage: limitPage
+                },
+                data
+            });
+
+        } catch (error) {
+            console.error('PROMO USAGE error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Server error',
+                error: error.message
+            });
+        }
+    });
+
+
+
+
 // ============= GET ALL SPECIAL IDs =============
 // @route   GET /api/specialids
 // @desc    Get all special IDs with filters

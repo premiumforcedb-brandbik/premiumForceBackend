@@ -4,11 +4,6 @@ const router = express.Router();
 const FleetHistory = require('../models/FleetHistoryModel');
 
 
-
-
-
-
-
 // ==================== READ (GET HISTORY BY CAR ID) ====================
 // Get full history of a specific vehicle
 router.get('/fleets/:carID/history', async (req, res) => {

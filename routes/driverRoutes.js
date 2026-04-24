@@ -1523,8 +1523,8 @@ router.post('/complete-trip/HourlyBooking',
  * @access  Private (Admin)
  */
 router.get('/all',
-  // authenticateToken,
-  // authorizeAdmin,
+  authenticateToken,
+  authorizeAdmin,
   async (req, res) => {
     console.log('🔥🔥🔥 /all ROUTE IS EXECUTING! 🔥🔥🔥');
 

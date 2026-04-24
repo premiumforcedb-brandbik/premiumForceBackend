@@ -14,7 +14,8 @@ const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddle
 
 const { authenticateDriver } = require('../middleware/driverware');
 const twilio = require('twilio');
-const mongoose = require('mongoose'); // <-- ADD THIS LINE
+const mongoose = require('mongoose');
+const Fleet = require('../models/FleetModel'); // Added Fleet model
 
 const { notifyUser, notifyUsers } = require('../fcm');
 
@@ -1521,114 +1522,126 @@ router.post('/complete-trip/HourlyBooking',
  * @desc    Get all drivers with pagination (Admin only)
  * @access  Private (Admin)
  */
-router.get('/all', async (req, res) => {
-  console.log('🔥🔥🔥 /all ROUTE IS EXECUTING! 🔥🔥🔥');
+router.get('/all',
+  // authenticateToken,
+  // authorizeAdmin,
+  async (req, res) => {
+    console.log('🔥🔥🔥 /all ROUTE IS EXECUTING! 🔥🔥🔥');
 
-  try {
-    const {
-      isActive,
-      isVerified,
-      // Added status query param
-      search,
-      page = 1,
-      limit = 10
-    } = req.query;
+    try {
+      const {
+        isActive,
+        isVerified,
+        // Added status query param
+        search,
+        page = 1,
+        limit = 10
+      } = req.query;
 
-    var status = "";
-    // Build query
-    const query = {};
+      var status = "";
+      // Build query
+      const query = {};
 
-    if (isActive !== undefined && isActive !== '') {
-      query.isActive = isActive === 'true';
-    }
-
-    if (isVerified !== undefined && isVerified !== '') {
-      query.isVerified = isVerified === 'true';
-    }
-
-
-
-    // Handle status filtering
-    if (query.isWorkstarted == true && query.isBusy == false) {
-      status = "ideal";
-    } else if (query.isWorkstarted == true && query.isBusy == true) {
-      status = "in-trip";
-    } else if (query.isWorkstarted == false && query.isBusy == false) {
-      status = "offline";
-    }
-
-
-
-
-    if (search && search.trim() !== '') {
-      query.$or = [
-        { driverName: { $regex: search.trim(), $options: 'i' } },
-        { phoneNumber: { $regex: search.trim(), $options: 'i' } },
-        { licenseNumber: { $regex: search.trim(), $options: 'i' } }
-      ];
-    }
-
-    // Pagination
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 10;
-    const skip = (pageNum - 1) * limitNum;
-
-    // Get total count
-    const total = await Driver.countDocuments(query);
-    console.log('Total drivers matching query:', total);
-
-    // Get drivers with pagination
-    const driversList = await Driver.find(query)
-      .sort('-createdAt')
-      .skip(skip)
-      .limit(limitNum)
-      .select('-refreshToken -__v');
-
-    // Add status label to each driver in the response
-    const driversWithStatus = driversList.map(driver => {
-      const driverObj = driver.toObject();
-      let calculatedStatus = 'offline';
-
-      if (driverObj.isWorkstarted === true && driverObj.isBusy === false) {
-        calculatedStatus = 'idle';
-      } else if (driverObj.isWorkstarted === true && driverObj.isBusy === true) {
-        calculatedStatus = 'in-trip';
-      } else if (driverObj.isWorkstarted === false && driverObj.isBusy === false) {
-        calculatedStatus = 'offline';
+      if (isActive !== undefined && isActive !== '') {
+        query.isActive = isActive === 'true';
       }
 
-      return {
-        ...driverObj,
-        status: calculatedStatus
-      };
-    });
-
-    console.log('Drivers returned:', driversWithStatus.length);
-
-    // Calculate pagination info
-    const totalPages = Math.ceil(total / limitNum);
-
-    res.status(200).json({
-      success: true,
-      data: driversWithStatus,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        pages: totalPages,
-        hasNextPage: pageNum < totalPages,
-        hasPrevPage: pageNum > 1
+      if (isVerified !== undefined && isVerified !== '') {
+        query.isVerified = isVerified === 'true';
       }
-    });
 
-  } catch (error) {
-    console.error('Fetch drivers error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
+
+
+      // Handle status filtering
+      if (query.isWorkstarted == true && query.isBusy == false) {
+        status = "ideal";
+      } else if (query.isWorkstarted == true && query.isBusy == true) {
+        status = "in-trip";
+      } else if (query.isWorkstarted == false && query.isBusy == false) {
+        status = "offline";
+      }
+
+
+
+
+      if (search && search.trim() !== '') {
+        query.$or = [
+          { driverName: { $regex: search.trim(), $options: 'i' } },
+          { phoneNumber: { $regex: search.trim(), $options: 'i' } },
+          { licenseNumber: { $regex: search.trim(), $options: 'i' } }
+        ];
+      }
+
+      // Pagination
+      const pageNum = parseInt(page) || 1;
+      const limitNum = parseInt(limit) || 10;
+      const skip = (pageNum - 1) * limitNum;
+
+      // Get total count
+      const total = await Driver.countDocuments(query);
+      console.log('Total drivers matching query:', total);
+
+      // Get drivers with pagination
+      const driversList = await Driver.find(query)
+        .sort('-createdAt')
+        .skip(skip)
+        .limit(limitNum)
+        .select('-refreshToken -__v');
+
+      // Add Fleet details and Status label
+      const driversEnhanced = await Promise.all(driversList.map(async (driver) => {
+        const driverObj = driver.toObject();
+
+        // Look for current Fleet assignment
+        const fleetRecord = await Fleet.findOne({ driverID: driver._id })
+          .populate('carID')
+          .populate('driverID', 'driverName phoneNumber');
+
+        let calculatedStatus = 'offline';
+        if (driverObj.isWorkstarted === true && driverObj.isBusy === false) {
+          calculatedStatus = 'idle';
+        } else if (driverObj.isWorkstarted === true && driverObj.isBusy === true) {
+          calculatedStatus = 'in-trip';
+        } else if (driverObj.isWorkstarted === false) {
+          calculatedStatus = 'offline';
+        }
+
+        return {
+          ...driverObj,
+          status: calculatedStatus,
+          fleet: fleetRecord ? fleetRecord : null
+        };
+      }));
+
+
+      console.log('Drivers returned:', driversEnhanced.length);
+
+
+      // Calculate pagination info
+      const totalPages = Math.ceil(total / limitNum);
+
+      res.status(200).json({
+        success: true,
+        data: driversEnhanced,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          pages: totalPages,
+          hasNextPage: pageNum < totalPages,
+          hasPrevPage: pageNum > 1
+        }
+      });
+
+
+    } catch (error) {
+      console.error('Fetch drivers error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  });
 
 /**
  * @route   GET /api/drivers/stats
@@ -1696,13 +1709,18 @@ router.get('/:id', async (req, res) => {
 
     // Calculate status label
     const driverObj = driver.toObject();
-    let calculatedStatus = 'offline';
 
+    // Look for current Fleet assignment
+    const fleetRecord = await Fleet.findOne({ driverID: driver._id })
+      .populate('carID')
+      .populate('driverID', 'driverName phoneNumber');
+
+    let calculatedStatus = 'offline';
     if (driverObj.isWorkstarted === true && driverObj.isBusy === false) {
       calculatedStatus = 'idle';
     } else if (driverObj.isWorkstarted === true && driverObj.isBusy === true) {
       calculatedStatus = 'in-trip';
-    } else if (driverObj.isWorkstarted === false && driverObj.isBusy === false) {
+    } else if (driverObj.isWorkstarted === false) {
       calculatedStatus = 'offline';
     }
 
@@ -1710,7 +1728,8 @@ router.get('/:id', async (req, res) => {
       success: true,
       data: {
         ...driverObj,
-        status: calculatedStatus
+        status: calculatedStatus,
+        fleet: fleetRecord ? fleetRecord : null
       }
     });
   } catch (error) {

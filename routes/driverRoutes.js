@@ -3071,4 +3071,46 @@ router.delete('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
 
 
 
+
+/**
+ * @route   PATCH /api/drivers/location
+ * @desc    Update driver location (Driver only)
+ * @access  Private (Driver)
+ */
+
+router.patch('/location',
+  verifyDriverToken,
+  async (req, res) => {
+    try {
+      const { driverLat, driverLong } = req.body;
+      // Validate coordinates
+      if (driverLat === undefined || driverLong === undefined) {
+        return res.status(400).json({
+          success: false,
+          message: 'driverLat and driverLong are required'
+        });
+      }
+      // Update only the latitude and longitude
+      const driver = await Driver.findByIdAndUpdate(
+        req.driver._id,
+        {
+          driverLat,
+          driverLong
+        },
+        { new: true, runValidators: true }
+      );
+      res.json({
+        success: true,
+        message: 'Location updated successfully',
+        data: driver
+      });
+    } catch (error) {
+      console.error('Update location error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  });
+
 module.exports = router;

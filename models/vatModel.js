@@ -12,8 +12,10 @@ const vatSchema = new mongoose.Schema({
     timestamps: true
 });
 
+
+
 // Static method to get the single VAT document
-vatSchema.statics.getVat = async function() {
+vatSchema.statics.getVat = async function () {
     let vat = await this.findOne();
     if (!vat) {
         vat = await this.create({ vat: 0 });
@@ -22,11 +24,11 @@ vatSchema.statics.getVat = async function() {
 };
 
 // Static method to update VAT value
-vatSchema.statics.updateVat = async function(newVatValue) {
+vatSchema.statics.updateVat = async function (newVatValue) {
     if (typeof newVatValue !== 'number' || newVatValue < 0 || newVatValue > 100) {
         throw new Error('VAT must be a number between 0 and 100');
     }
-    
+
     let vat = await this.findOne();
     if (!vat) {
         vat = await this.create({ vat: newVatValue });

@@ -15,6 +15,14 @@ const driverSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  driverLat: {
+    type: Number,
+    required: false
+  },
+  driverLong: {
+    type: Number,
+    required: false
+  },
 
   phoneNumber: {
     type: String,

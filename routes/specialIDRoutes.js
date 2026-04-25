@@ -9,12 +9,12 @@ const Company = require('../models/companyModel');
 
 
 
-
 // ============= PROMO CODE USAGE API =============
 // @route   GET /api/specialids/promocode-usage
 // @desc    Get all users who have applied a promo code with details
 router.get('/promocode-usage',
-    authenticateToken, authorizeAdmin,
+    // authenticateToken, authorizeAdmin,
+
     async (req, res) => {
         try {
             const { userStatus, page = 1, limit = 20 } = req.query;
@@ -27,12 +27,14 @@ router.get('/promocode-usage',
                 specialId: { $ne: null, $exists: true, $ne: "" }
             };
 
-            // Optional filter based on user approval status (currently disabled as per request)
-            /*
+            // Smart filter to handle both new and legacy status values
             if (userStatus === 'approved') {
-                userMatch.isDiscountApproved = true;
+                userMatch.isDiscountApproved = { $in: ["approved", "true", true] };
+            } else if (userStatus === 'rejected') {
+                userMatch.isDiscountApproved = { $in: ["rejected", "false", false] };
+            } else if (userStatus === 'pending') {
+                userMatch.isDiscountApproved = "pending";
             }
-            */
 
             const aggregation = [
                 { $match: userMatch },
@@ -57,7 +59,7 @@ router.get('/promocode-usage',
                     $addFields: {
                         isDiscountApplicable: {
                             $and: [
-                                { $eq: ["$isDiscountApproved", true] },
+                                { $in: ["$isDiscountApproved", ["approved", "true", true]] },
                                 { $ifNull: ["$promoDetails.isActive", false] } // Fallback to false if promo missing
                             ]
                         }
@@ -72,16 +74,24 @@ router.get('/promocode-usage',
                         companyMail: 1,
                         phoneNumber: 1,
                         countryCode: 1,
-                        isDiscountApproved: 1,
+                        isDiscountApproved: { $in: ["$isDiscountApproved", ["approved", "true", true]] },
+                        isDiscountApprovedAt: 1,
                         specialId: 1,
                         promoDetails: 1,
                         usedAt: "$updatedAt",
                         usageStatus: {
-                            $cond: { if: "$isDiscountApproved", then: "approved", else: "pending" }
+                            $switch: {
+                                branches: [
+                                    { case: { $in: ["$isDiscountApproved", ["approved", "true", true]] }, then: "approved" },
+                                    { case: { $in: ["$isDiscountApproved", ["rejected", "false", false]] }, then: "rejected" }
+                                ],
+                                default: "pending"
+                            }
                         },
                         isDiscountApplicable: 1
                     }
                 },
+
 
                 // Facet for pagination
                 {
@@ -117,6 +127,7 @@ router.get('/promocode-usage',
             });
         }
     });
+
 
 
 
@@ -330,7 +341,7 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
             text: text || '',
             companyID: companyID,
             discountPercentage: discount,
-            maxUsage: maxUsage || 0,
+            maxUsage: maxUsage || null,
             usedCount: usedCount || 0,
             isActive: isActive !== undefined ? isActive : true
         });
@@ -380,7 +391,8 @@ router.put('/:id',
     authenticateToken, authorizeAdmin,
     async (req, res) => {
         try {
-            const { code, text, companyID, discountPercentage, usedCount, maxUsage, isActive } = req.body;
+            const { code, text, companyID,
+                discountPercentage, usedCount, maxUsage, isActive } = req.body;
 
             // Find the special ID
             const specialID = await SpecialID.findById(req.params.id);
@@ -435,10 +447,12 @@ router.put('/:id',
                     });
                 }
                 specialID.usedCount = usedCount;
+
             }
+
             if (isActive !== undefined) specialID.isActive = isActive;
             specialID.companyID = companyID;
-            if (maxUsage !== undefined) specialID.maxUsage = maxUsage;
+            if (maxUsage !== undefined) specialID.maxUsage = maxUsage || null;
             await specialID.save();
 
             res.json({
@@ -446,6 +460,7 @@ router.put('/:id',
                 message: 'Special ID updated successfully',
                 data: specialID
             });
+
 
         } catch (error) {
             console.error('Update error:', error);

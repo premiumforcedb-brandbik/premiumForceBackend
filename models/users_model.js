@@ -62,9 +62,16 @@ const userSchema = new mongoose.Schema({
       message: 'Phone number must contain 5-15 digits'
     }
   },
+
   isDiscountApproved: {
-    type: Boolean,
-    default: false
+    type: String,
+    default: "pending",
+    enum: ["pending", "approved", "rejected"]
+  },
+
+  isDiscountApprovedAt: {
+    type: Date,
+    default: null
   },
   profileImage: {
     key: {

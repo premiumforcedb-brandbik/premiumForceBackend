@@ -305,20 +305,22 @@ router.patch('/:id/phone', verifyOTP, upload.none(), async (req, res) => {
 
 /**
  * @route   PATCH /api/users/:id/discount-approval
- * @desc    Set user's discount approval status (true or false)
+ * @desc    Set user's discount approval status (pending, approved, rejected)
  * @access  Public (Should be Admin only)
  */
 
 router.patch('/:id/discount-approval',
-  authenticateToken, authorizeAdmin, async (req, res) => {
+  authenticateToken, authorizeAdmin,
+  async (req, res) => {
     try {
       const { isDiscountApproved } = req.body;
 
-      // Validate that the parameter is a boolean
-      if (typeof isDiscountApproved !== 'boolean') {
+      // Validate that the parameter is one of the allowed strings
+      const allowedStatuses = ["pending", "approved", "rejected"];
+      if (!allowedStatuses.includes(isDiscountApproved)) {
         return res.status(400).json({
           success: false,
-          message: 'isDiscountApproved must be a boolean (true or false)'
+          message: 'isDiscountApproved must be one of: pending, approved, rejected'
         });
       }
 
@@ -327,6 +329,10 @@ router.patch('/:id/discount-approval',
         { isDiscountApproved },
         { new: true, runValidators: true }
       ).select('_id username isDiscountApproved phoneNumber countryCode');
+
+      if (isDiscountApproved === "approved") {
+        user.isDiscountApprovedAt = Date.now();
+      }
 
       if (!user) {
         return res.status(404).json({
@@ -349,7 +355,6 @@ router.patch('/:id/discount-approval',
       });
     }
   });
-
 
 
 

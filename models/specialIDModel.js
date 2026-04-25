@@ -21,7 +21,7 @@ const specialIDSchema = new mongoose.Schema({
     companyID: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Company',
-        required: true,
+        required: false,
         validate: {
             validator: function (v) {
                 return mongoose.Types.ObjectId.isValid(v);

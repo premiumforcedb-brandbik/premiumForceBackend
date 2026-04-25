@@ -1515,6 +1515,7 @@ router.post('/complete-trip/HourlyBooking',
 
 
 
+
 // ============= ADMIN ROUTES (Admin Auth Required) =============
 
 /**
@@ -1527,6 +1528,7 @@ router.get('/all',
   authorizeAdmin,
   async (req, res) => {
     console.log('🔥🔥🔥 /all ROUTE IS EXECUTING! 🔥🔥🔥');
+
 
     try {
       const {
@@ -1640,6 +1642,85 @@ router.get('/all',
         success: false,
         message: error.message
       });
+    }
+  });
+
+/**
+ * @route   GET /api/drivers/status/:status==
+ * @desc    Get drivers by status (idle, in-trip, offline)
+ * @access  Private (Admin)
+ */
+router.get('/',
+
+  // authenticateToken,
+  // authorizeAdmin,
+  async (req, res) => {
+    try {
+      // const { status } = req.body;
+      const { search, status, page = 1, limit = 10 } = req.query;
+
+      let query = {};
+      let statusLabel = status.toLowerCase();
+
+      // Set query filters based on status parameter
+      if (statusLabel === 'idle' || statusLabel === 'ideal') {
+        query = { isWorkstarted: true, isBusy: false };
+        statusLabel = 'idle'; // Normalize label
+      } else if (statusLabel === 'in-trip') {
+        query = { isWorkstarted: true, isBusy: true };
+      } else if (statusLabel === 'offline') {
+        query = { isWorkstarted: false };
+      } else {
+        return res.status(400).json({ success: false, message: 'Invalid status. Use idle, in-trip, or offline.' });
+      }
+
+
+      if (search && search.trim() !== '') {
+        query.$or = [
+          { driverName: { $regex: search.trim(), $options: 'i' } },
+          { phoneNumber: { $regex: search.trim(), $options: 'i' } }
+        ];
+      }
+
+      const pageNum = parseInt(page) || 1;
+      const limitNum = parseInt(limit) || 10;
+      const skip = (pageNum - 1) * limitNum;
+
+      const total = await Driver.countDocuments(query);
+      const drivers = await Driver.find(query)
+        .sort('-createdAt')
+        .skip(skip)
+        .limit(limitNum)
+        .select('-refreshToken -__v');
+
+      const data = await Promise.all(drivers.map(async (driver) => {
+        const driverObj = driver.toObject();
+
+        // Exact mapping as seen in /all route
+        const fleet = await Fleet.findOne({ driverID: driver._id })
+          .populate('carID')
+          .populate('driverID', 'driverName phoneNumber');
+
+        return {
+          ...driverObj,
+          status: statusLabel,
+          fleet: fleet || null
+        };
+      }));
+
+      res.status(200).json({
+        success: true,
+        data,
+        pagination: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          pages: Math.ceil(total / limitNum)
+        }
+      });
+    } catch (error) {
+      console.error(`Fetch drivers by status (${req.params.status}) error:`, error);
+      res.status(500).json({ success: false, message: error.message });
     }
   });
 

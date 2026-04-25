@@ -14,7 +14,7 @@ const Company = require('../models/companyModel');
 // @route   GET /api/specialids/promocode-usage
 // @desc    Get all users who have applied a promo code with details
 router.get('/promocode-usage',
-    //  authenticateToken, authorizeAdmin,
+    authenticateToken, authorizeAdmin,
     async (req, res) => {
         try {
             const { userStatus, page = 1, limit = 20 } = req.query;
@@ -124,54 +124,56 @@ router.get('/promocode-usage',
 // ============= GET ALL SPECIAL IDs =============
 // @route   GET /api/specialids
 // @desc    Get all special IDs with filters
-router.get('/', async (req, res) => {
-    try {
-        const { active, minDiscount, maxDiscount, sort, limit = 50 } = req.query;
+router.get('/',
+    authenticateToken, authorizeAdmin,
+    async (req, res) => {
+        try {
+            const { active, minDiscount, maxDiscount, sort, limit = 50 } = req.query;
 
-        let query = {};
+            let query = {};
 
-        // Filter by active status
-        if (active !== undefined) {
-            query.isActive = active === 'true';
+            // Filter by active status
+            if (active !== undefined) {
+                query.isActive = active === 'true';
+            }
+
+            // Filter by discount range
+            if (minDiscount || maxDiscount) {
+                query.discountPercentage = {};
+                if (minDiscount) query.discountPercentage.$gte = parseFloat(minDiscount);
+                if (maxDiscount) query.discountPercentage.$lte = parseFloat(maxDiscount);
+            }
+
+            let specialIDsQuery = SpecialID.find(query).populate('companyID');
+
+            // Sorting
+            if (sort) {
+                const sortOrder = sort.startsWith('-') ? -1 : 1;
+                const sortField = sort.replace('-', '');
+                specialIDsQuery = specialIDsQuery.sort({ [sortField]: sortOrder });
+            } else {
+                specialIDsQuery = specialIDsQuery.sort({ createdAt: -1 });
+            }
+
+            // Limit results
+            specialIDsQuery = specialIDsQuery.limit(parseInt(limit));
+
+            const result = await specialIDsQuery.exec();
+
+            res.json({
+                success: true,
+                count: result.length,
+                data: result
+            });
+        } catch (error) {
+            console.error('GET all error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Server error',
+                error: error.message
+            });
         }
-
-        // Filter by discount range
-        if (minDiscount || maxDiscount) {
-            query.discountPercentage = {};
-            if (minDiscount) query.discountPercentage.$gte = parseFloat(minDiscount);
-            if (maxDiscount) query.discountPercentage.$lte = parseFloat(maxDiscount);
-        }
-
-        let specialIDsQuery = SpecialID.find(query).populate('companyID');
-
-        // Sorting
-        if (sort) {
-            const sortOrder = sort.startsWith('-') ? -1 : 1;
-            const sortField = sort.replace('-', '');
-            specialIDsQuery = specialIDsQuery.sort({ [sortField]: sortOrder });
-        } else {
-            specialIDsQuery = specialIDsQuery.sort({ createdAt: -1 });
-        }
-
-        // Limit results
-        specialIDsQuery = specialIDsQuery.limit(parseInt(limit));
-
-        const result = await specialIDsQuery.exec();
-
-        res.json({
-            success: true,
-            count: result.length,
-            data: result
-        });
-    } catch (error) {
-        console.error('GET all error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error',
-            error: error.message
-        });
-    }
-});
+    });
 
 // ============= GET ACTIVE SPECIAL IDs =============
 // @route   GET /api/specialids/active
@@ -197,50 +199,52 @@ router.get('/active', async (req, res) => {
 // ============= GET SPECIAL ID BY ID =============
 // @route   GET /api/specialids/:id
 // @desc    Get single special ID by ID
-router.get('/:id', async (req, res) => {
-    try {
-        const specialID = await SpecialID.findById(req.params.id);
-        const company = await Company.findById(specialID.companyID);
-        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-            return res.status(400).json({
+router.get('/:id',
+    authenticateToken, authorizeAdmin,
+    async (req, res) => {
+        try {
+            const specialID = await SpecialID.findById(req.params.id);
+            const company = await Company.findById(specialID.companyID);
+            if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid ID format'
+                });
+            }
+            if (!specialID) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Special ID not found'
+                });
+            }
+            var data = {
+                specialID: specialID,
+                company: company
+            };
+
+            res.json({
+                success: true,
+                data: data,
+
+            });
+        } catch (error) {
+            console.error('GET by ID error:', error);
+
+            // Handle invalid ObjectId
+            if (error.kind === 'ObjectId' || error.name === 'CastError') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid ID format'
+                });
+            }
+
+            res.status(500).json({
                 success: false,
-                message: 'Invalid ID format'
+                message: 'Server error',
+                error: error.message
             });
         }
-        if (!specialID) {
-            return res.status(404).json({
-                success: false,
-                message: 'Special ID not found'
-            });
-        }
-        var data = {
-            specialID: specialID,
-            company: company
-        };
-
-        res.json({
-            success: true,
-            data: data,
-
-        });
-    } catch (error) {
-        console.error('GET by ID error:', error);
-
-        // Handle invalid ObjectId
-        if (error.kind === 'ObjectId' || error.name === 'CastError') {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid ID format'
-            });
-        }
-
-        res.status(500).json({
-            success: false,
-            message: 'Server error',
-            error: error.message
-        });
-    }
-});
+    });
 
 // ============= GET SPECIAL ID BY CODE =============
 // @route   GET /api/specialids/code/:code
@@ -372,94 +376,96 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
 // @route   PUT /api/specialids/:id
 // @desc    Update special ID (Admin only)
 // authenticateToken, authorizeAdmin,
-router.put('/:id', async (req, res) => {
-    try {
-        const { code, text, companyID, discountPercentage, usedCount, maxUsage, isActive } = req.body;
+router.put('/:id',
+    authenticateToken, authorizeAdmin,
+    async (req, res) => {
+        try {
+            const { code, text, companyID, discountPercentage, usedCount, maxUsage, isActive } = req.body;
 
-        // Find the special ID
-        const specialID = await SpecialID.findById(req.params.id);
+            // Find the special ID
+            const specialID = await SpecialID.findById(req.params.id);
 
-        if (!specialID) {
-            return res.status(404).json({
-                success: false,
-                message: 'Special ID not found'
-            });
-        }
-        if (!mongoose.Types.ObjectId.isValid(companyID)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid company ID'
-            });
-        }
-        // Validate discount percentage if provided
-        if (discountPercentage !== undefined) {
-            const discount = parseFloat(discountPercentage);
-            if (isNaN(discount) || discount < 0 || discount > 100) {
-                return res.status(400).json({
+            if (!specialID) {
+                return res.status(404).json({
                     success: false,
-                    message: 'Discount percentage must be a number between 0 and 100'
+                    message: 'Special ID not found'
                 });
             }
-            specialID.discountPercentage = discount;
-        }
+            if (!mongoose.Types.ObjectId.isValid(companyID)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid company ID'
+                });
+            }
+            // Validate discount percentage if provided
+            if (discountPercentage !== undefined) {
+                const discount = parseFloat(discountPercentage);
+                if (isNaN(discount) || discount < 0 || discount > 100) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Discount percentage must be a number between 0 and 100'
+                    });
+                }
+                specialID.discountPercentage = discount;
+            }
 
-        // Check if code is being changed and if it already exists
-        if (code && code.toUpperCase() !== specialID.code) {
-            const existingCode = await SpecialID.findOne({
-                code: code.toUpperCase(),
-                _id: { $ne: req.params.id }
+            // Check if code is being changed and if it already exists
+            if (code && code.toUpperCase() !== specialID.code) {
+                const existingCode = await SpecialID.findOne({
+                    code: code.toUpperCase(),
+                    _id: { $ne: req.params.id }
+                });
+
+                if (existingCode) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Code already exists'
+                    });
+                }
+                specialID.code = code.toUpperCase();
+            }
+
+            // Update fields
+            if (text !== undefined) specialID.text = text;
+            if (usedCount !== undefined) {
+                if (usedCount < 0) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Used count cannot be negative'
+                    });
+                }
+                specialID.usedCount = usedCount;
+            }
+            if (isActive !== undefined) specialID.isActive = isActive;
+            specialID.companyID = companyID;
+            if (maxUsage !== undefined) specialID.maxUsage = maxUsage;
+            await specialID.save();
+
+            res.json({
+                success: true,
+                message: 'Special ID updated successfully',
+                data: specialID
             });
 
-            if (existingCode) {
+        } catch (error) {
+            console.error('Update error:', error);
+
+            if (error.name === 'ValidationError') {
+                const messages = Object.values(error.errors).map(e => e.message);
                 return res.status(400).json({
                     success: false,
-                    message: 'Code already exists'
+                    message: 'Validation error',
+                    errors: messages
                 });
             }
-            specialID.code = code.toUpperCase();
-        }
 
-        // Update fields
-        if (text !== undefined) specialID.text = text;
-        if (usedCount !== undefined) {
-            if (usedCount < 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Used count cannot be negative'
-                });
-            }
-            specialID.usedCount = usedCount;
-        }
-        if (isActive !== undefined) specialID.isActive = isActive;
-        specialID.companyID = companyID;
-        if (maxUsage !== undefined) specialID.maxUsage = maxUsage;
-        await specialID.save();
-
-        res.json({
-            success: true,
-            message: 'Special ID updated successfully',
-            data: specialID
-        });
-
-    } catch (error) {
-        console.error('Update error:', error);
-
-        if (error.name === 'ValidationError') {
-            const messages = Object.values(error.errors).map(e => e.message);
-            return res.status(400).json({
+            res.status(500).json({
                 success: false,
-                message: 'Validation error',
-                errors: messages
+                message: 'Server error',
+                error: error.message
             });
         }
-
-        res.status(500).json({
-            success: false,
-            message: 'Server error',
-            error: error.message
-        });
-    }
-});
+    });
 
 // ============= INCREMENT USED COUNT =============
 // @route   PATCH /api/specialids/:id/increment

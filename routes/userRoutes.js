@@ -324,15 +324,22 @@ router.patch('/:id/discount-approval',
         });
       }
 
+      // // Prepare update object
+      // const updateData = { isDiscountApproved };
+      // if (isDiscountApproved === "approved") {
+      //   updateData.isDiscountApprovedAt = Date.now();
+      // }
       const user = await User.findByIdAndUpdate(
         req.params.id,
-        { isDiscountApproved },
+        // updateData
+        isDiscountApproved
+        ,
         { new: true, runValidators: true }
-      ).select('_id username isDiscountApproved phoneNumber countryCode');
+      ).select('_id username isDiscountApproved isDiscountApprovedAt phoneNumber countryCode');
 
-      if (isDiscountApproved === "approved") {
-        user.isDiscountApprovedAt = Date.now();
-      }
+
+
+
 
       if (!user) {
         return res.status(404).json({
@@ -490,7 +497,8 @@ const generateRefreshToken = (user) => {
 
 router.post('/', upload.single('profileImage'), async (req, res) => {
   try {
-    const { username, email, countryCode, companyMail, phoneNumber, lat, long, specialId, role } = req.body;
+    const { username, email, countryCode, companyMail, phoneNumber,
+      lat, long, specialId, role } = req.body;
 
     console.log('Create user request body:', req.file, req.body);
 
@@ -555,6 +563,7 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
       countryCode,
       phoneNumber,
       companyMail,
+      isDiscountApprovedAt: Date.now(),
       profileImage: req.file ? {
         key: req.file.key,
         url: getS3Url(req.file.key),
@@ -593,6 +602,7 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
         expiresIn: process.env.JWT_ACCESS_EXPIRY || '1d'
       }
     };
+
 
     // If username was changed, add a note
     if (username !== req.body.username) {

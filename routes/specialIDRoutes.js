@@ -8,13 +8,11 @@ const Company = require('../models/companyModel');
 
 
 
-
 // ============= PROMO CODE USAGE API =============
 // @route   GET /api/specialids/promocode-usage
 // @desc    Get all users who have applied a promo code with details
 router.get('/promocode-usage',
-    authenticateToken, authorizeAdmin,
-
+    // authenticateToken, authorizeAdmin,
     async (req, res) => {
         try {
             const { userStatus, page = 1, limit = 20 } = req.query;
@@ -33,8 +31,10 @@ router.get('/promocode-usage',
             } else if (userStatus === 'rejected') {
                 userMatch.isDiscountApproved = { $in: ["rejected", "false", false] };
             } else if (userStatus === 'pending') {
-                userMatch.isDiscountApproved = "pending";
+                // Handle "pending", null, and missing fields as pending
+                userMatch.isDiscountApproved = { $in: ["pending", null, undefined] };
             }
+
 
             const aggregation = [
                 { $match: userMatch },
@@ -74,12 +74,7 @@ router.get('/promocode-usage',
                         companyMail: 1,
                         phoneNumber: 1,
                         countryCode: 1,
-                        isDiscountApproved: { $in: ["$isDiscountApproved", ["approved", "true", true]] },
-                        isDiscountApprovedAt: 1,
-                        specialId: 1,
-                        promoDetails: 1,
-                        usedAt: "$updatedAt",
-                        usageStatus: {
+                        isDiscountApproved: {
                             $switch: {
                                 branches: [
                                     { case: { $in: ["$isDiscountApproved", ["approved", "true", true]] }, then: "approved" },
@@ -88,10 +83,15 @@ router.get('/promocode-usage',
                                 default: "pending"
                             }
                         },
+                        isDiscountApprovedAt: { $ifNull: ["$isDiscountApprovedAt", null] },
+                        specialId: 1,
+                        promoDetails: 1,
+                        usedAt: "$updatedAt",
                         isDiscountApplicable: 1
                     }
                 },
-
+                // Sort by latest approval date first
+                { $sort: { isDiscountApprovedAt: -1 } },
 
                 // Facet for pagination
                 {
@@ -101,6 +101,7 @@ router.get('/promocode-usage',
                     }
                 }
             ];
+
 
             const result = await User.aggregate(aggregation);
 

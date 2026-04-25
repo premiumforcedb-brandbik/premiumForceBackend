@@ -14,10 +14,12 @@ const carSchema = new mongoose.Schema({
     lastTakenOutAt: {
         type: Date,
         required: false,
+        default: null
     },
     lastReturnAt: {
         type: Date,
         required: false,
+        default: null
     },
     carLicenseNumber: {
         type: String,
@@ -25,6 +27,7 @@ const carSchema = new mongoose.Schema({
         trim: true,
         maxlength: [50, 'Car license number cannot exceed 50 characters']
     },
+
     isBusyCar: {
         type: Boolean,
         default: false

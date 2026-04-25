@@ -141,85 +141,6 @@ router.put('/api/fleets/:id',
     });
 
 
-// ==================== READ (GET ALL) ====================
-// Get all fleets with pagination, filtering, and sorting
-router.get('/api/fleets',
-    // authenticateToken,
-    // authorizeAdmin,
-    async (req, res) => {
-        try {
-            const {
-                page = 1,
-                limit = 10,
-                isBusyCar,
-                isActive,
-                carID, // Added carID filter
-                search, // Added search (for license number)
-                lastTakenOutAt, // Added filter
-                lastReturnAt,   // Added filter
-                sortBy = 'createdAt',
-                sortOrder = 'desc'
-            } = req.query;
-
-            // Build filter object
-            const filter = {};
-            if (isBusyCar !== undefined) filter.isBusyCar = isBusyCar === 'true';
-            if (isActive !== undefined) filter.isActive = isActive === 'true';
-
-            // Added carID filter logic
-            if (carID) filter.carID = carID;
-
-            // Date filtering logic
-            if (lastTakenOutAt === 'null' || lastTakenOutAt === '') {
-                filter.lastTakenOutAt = null;
-            } else if (lastTakenOutAt) {
-                filter.lastTakenOutAt = lastTakenOutAt;
-            }
-
-            if (lastReturnAt === 'null' || lastReturnAt === '') {
-                filter.lastReturnAt = null;
-            } else if (lastReturnAt) {
-                filter.lastReturnAt = lastReturnAt;
-            }
-
-            // Added search (license number) filter logic using Regex
-            if (search) {
-                filter.carLicenseNumber = { $regex: search, $options: 'i' };
-            }
-
-            // Pagination
-            const skip = (page - 1) * limit;
-
-            // Sorting
-            const sort = {};
-            sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-            const fleets = await Fleet.find(filter)
-                .populate('carID', 'name model year carName') // Specify fields to return
-                .populate('driverID', 'driverName name email phone')
-                .sort(sort)
-                .skip(skip)
-                .limit(parseInt(limit));
-
-            const total = await Fleet.countDocuments(filter);
-
-            res.status(200).json({
-                success: true,
-                data: fleets,
-                pagination: {
-                    currentPage: parseInt(page),
-                    totalPages: Math.ceil(total / limit),
-                    totalItems: total,
-                    itemsPerPage: parseInt(limit)
-                }
-            });
-        } catch (error) {
-            res.status(500).json({
-                success: false,
-                message: error.message
-            });
-        }
-    });
 
 
 // ==================== SEPARATE FLEET SORT & STATUS APIS ====================
@@ -281,7 +202,6 @@ router.get('/api/fleets/status-list',
 router.get('/api/fleets/:id',
     authenticateToken,
     authorizeAdmin,
-
     async (req, res) => {
         try {
             const fleet = await Fleet.findById(req.params.id)
@@ -313,6 +233,87 @@ router.get('/api/fleets/:id',
         }
     });
 
+// ==================== READ (GET ALL) ====================
+// Get all fleets with pagination, filtering, and sorting
+router.get('/api/fleets',
+    // authenticateToken,
+    // authorizeAdmin,
+    async (req, res) => {
+        try {
+            const {
+                page = 1,
+                limit = 10,
+                isBusyCar,
+                isActive,
+                carID,
+                search,
+                lastTakenOutAt,
+                lastReturnAt,
+                sortBy = 'createdAt',
+                sortOrder = 'desc'
+            } = req.query;
+
+            const filter = {};
+            if (isBusyCar !== undefined) filter.isBusyCar = isBusyCar === 'true';
+            if (isActive !== undefined) filter.isActive = isActive === 'true';
+            if (carID) filter.carID = carID;
+
+            if (lastTakenOutAt === 'null' || lastTakenOutAt === '') {
+                filter.lastTakenOutAt = null;
+            } else if (lastTakenOutAt) {
+                filter.lastTakenOutAt = lastTakenOutAt;
+            }
+
+            if (lastReturnAt === 'null' || lastReturnAt === '') {
+                filter.lastReturnAt = null;
+            } else if (lastReturnAt) {
+                filter.lastReturnAt = lastReturnAt;
+            }
+
+            if (search) {
+                filter.carLicenseNumber = { $regex: search, $options: 'i' };
+            }
+
+            const skip = (page - 1) * limit;
+            const sort = {};
+            sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+            let fleetsList = await Fleet.find(filter)
+                .populate('carID', 'name model year carName')
+                .populate('driverID', 'driverName name email phone')
+                .sort(sort)
+                .skip(skip)
+                .limit(parseInt(limit))
+                .lean();
+
+            // Ensure lastTakenOutAt and lastReturnAt are present (as null if missing)
+            const fleets = fleetsList.map(fleet => ({
+                ...fleet,
+                lastTakenOutAt: fleet.lastTakenOutAt || null,
+                lastReturnAt: fleet.lastReturnAt || null
+            }));
+
+            const total = await Fleet.countDocuments(filter);
+
+            res.status(200).json({
+                success: true,
+                data: fleets,
+                pagination: {
+                    currentPage: parseInt(page),
+                    totalPages: Math.ceil(total / limit),
+                    totalItems: total,
+                    itemsPerPage: parseInt(limit)
+                }
+            });
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                message: error.message
+            });
+        }
+    });
+
+
 
 
 // ==================== PATCH (PARTIAL UPDATE) ====================
@@ -320,7 +321,6 @@ router.get('/api/fleets/:id',
 router.patch('/api/fleets/:id',
     authenticateToken,
     authorizeAdmin,
-
     async (req, res) => {
         try {
             const updates = req.body;

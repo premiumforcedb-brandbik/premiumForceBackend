@@ -901,6 +901,7 @@ router.put('/:id', verifyToken, async (req, res) => {
 router.delete('/:id', verifyToken, async (req, res) => {
   try {
 
+
     console.log(req.admin);
 
 
@@ -1060,13 +1061,17 @@ router.patch('/:id/toggle-status', verifyToken, async (req, res) => {
   // const { id } = req.params;
   const { isActive } = req.body;
   try {
-    if (req.admin.role !== 'admin') {
+    console.log(req.admin.accessLevel);
+    if (req.admin.accessLevel !== 0) {
       return res.status(403).json({
         success: false,
         message: 'Only superadmin can toggle admin status'
       });
     }
 
+
+
+    // return;
     if (req.admin._id.toString() === req.params.id) {
       return res.status(400).json({
         success: false,

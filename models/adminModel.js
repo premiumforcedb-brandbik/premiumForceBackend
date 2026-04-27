@@ -56,6 +56,12 @@ const adminSchema = new mongoose.Schema({
     type: [zoneSchema],
     required: [false, 'Zone is required'],
   },
+  name: {
+    type: String,
+    required: [true, 'Name is required'],
+    trim: true
+  },
+
   phoneNumber: {
     type: String,
     required: false,

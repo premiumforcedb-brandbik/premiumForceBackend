@@ -556,6 +556,7 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
       }
     }
 
+
     // Create new user with profile image data
     const newUser = new User({
       username: req.body.username, // Use possibly modified username
@@ -563,7 +564,7 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
       countryCode,
       phoneNumber,
       companyMail,
-      isDiscountApprovedAt: Date.now(),
+      isDiscountApprovedAt: specialId ? Date.now() : null,
       profileImage: req.file ? {
         key: req.file.key,
         url: getS3Url(req.file.key),

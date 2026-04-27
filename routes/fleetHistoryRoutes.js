@@ -13,11 +13,25 @@ router.get('/fleets/:carID/history',
         try {
 
             const { carID } = req.params;
-            const { page = 1, limit = 10 } = req.query;
+
+            const { lastTakenOutAt,
+                lastReturnAt, page = 1, limit = 10 } = req.query;
 
             // Build filter object
             const filter = { carID: carID };
 
+
+            if (lastTakenOutAt === 'null' || lastTakenOutAt === '') {
+                filter.lastTakenOutAt = null;
+            } else if (lastTakenOutAt) {
+                filter.lastTakenOutAt = lastTakenOutAt;
+            }
+
+            if (lastReturnAt === 'null' || lastReturnAt === '') {
+                filter.lastReturnAt = null;
+            } else if (lastReturnAt) {
+                filter.lastReturnAt = lastReturnAt;
+            }
             // Pagination
             const skip = (page - 1) * limit;
 

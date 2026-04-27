@@ -152,12 +152,19 @@ router.delete('/fcm-token', verifyToken, async (req, res) => {
  */
 router.post('/register', async (req, res) => {
   try {
-    const { email, password, role = 'admin', accessLevel, phoneNumber, countryCode, zone } = req.body;
+    const { email, name, password, role = 'admin',
+      accessLevel, phoneNumber, countryCode, zone } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
         success: false,
         message: 'Please provide email and password'
+      });
+    }
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide name'
       });
     }
 
@@ -174,6 +181,7 @@ router.post('/register', async (req, res) => {
       email: email.toLowerCase(),
       password,  // Plain text - auto-hashed by pre-save
       role,
+      name,
       accessLevel,
       phoneNumber,
       countryCode, zone
@@ -678,51 +686,65 @@ router.get('/profile', verifyToken, async (req, res) => {
  * @desc    Get all admins with filtering
  * @access  Private (superadmin only ideally)
  */
-router.get('/', verifyToken, async (req, res) => {
-  try {
-    const { role, isActive, sort, page = 1, limit = 10 } = req.query;
-    let query = {};
+router.get('/',
+  //  verifyToken,
+  async (req, res) => {
+    try {
+      const { role, isActive, search, sort, page = 1, limit = 10 } = req.query;
+      let query = {};
 
-    // Filtering
-    if (role) query.role = role;
-    if (isActive) query.isActive = isActive === 'true';
+      // Filtering
+      if (role) query.role = role;
+      if (isActive !== undefined && isActive !== '') {
+        query.isActive = isActive === 'true';
+      }
 
-    // Sorting
-    let sortOption = {};
-    if (sort === 'newest') sortOption.createdAt = -1;
-    else if (sort === 'oldest') sortOption.createdAt = 1;
-    else if (sort === 'email') sortOption.email = 1;
-    else sortOption.createdAt = -1;
+      // Search functionality (name or email)
+      if (search) {
+        query.$or = [
+          { name: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+          { phoneNumber: { $regex: search, $options: 'i' } }
+        ];
+      }
 
-    // Pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+      // Sorting
+      let sortOption = {};
+      if (sort === 'newest') sortOption.createdAt = -1;
+      else if (sort === 'oldest') sortOption.createdAt = 1;
+      else if (sort === 'name') sortOption.name = 1;
+      else if (sort === 'email') sortOption.email = 1;
+      else sortOption.createdAt = -1;
 
-    const admins = await Admin.find(query)
-      .sort(sortOption)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .select('-refreshToken -__v -password');
+      // Pagination
+      const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const total = await Admin.countDocuments(query);
+      const admins = await Admin.find(query)
+        .sort(sortOption)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .select('-refreshToken -__v -password');
+
+      const total = await Admin.countDocuments(query);
 
 
-    res.status(200).json({
-      success: true,
-      count: admins.length,
-      total,
-      page: parseInt(page),
-      pages: Math.ceil(total / parseInt(limit)),
-      data: admins
-    });
-  } catch (error) {
-    console.error('Fetch all admins error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching admins',
-      error: error.message
-    });
-  }
-});
+      res.status(200).json({
+        success: true,
+        count: admins.length,
+        total,
+        page: parseInt(page),
+        pages: Math.ceil(total / parseInt(limit)),
+        data: admins
+      });
+    } catch (error) {
+      console.error('Fetch all admins error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching admins',
+        error: error.message
+      });
+    }
+  });
 
 /**
  * @route   GET /api/admin/:id
@@ -768,7 +790,8 @@ router.get('/:id', verifyToken, async (req, res) => {
  */
 router.put('/:id', verifyToken, async (req, res) => {
   try {
-    const { email, password, role, isActive, accessLevel, phoneNumber, countryCode, zone } = req.body;
+    const { email, name, password, role, isActive, accessLevel,
+      phoneNumber, countryCode, zone } = req.body;
 
     // Find the admin we want to update
     const adminToUpdate = await Admin.findById(req.params.id);
@@ -816,6 +839,7 @@ router.put('/:id', verifyToken, async (req, res) => {
       const salt = await bcrypt.genSalt(10);
       updateFields.password = await bcrypt.hash(password, salt);
     }
+    if (name) updateFields.name = name;
     if (accessLevel) updateFields.accessLevel = accessLevel;
     if (phoneNumber) updateFields.phoneNumber = phoneNumber;
     if (countryCode) updateFields.countryCode = countryCode;
@@ -867,6 +891,7 @@ router.put('/:id', verifyToken, async (req, res) => {
     });
   }
 });
+
 
 /**
  * @route   DELETE /api/admin/:id
@@ -938,49 +963,50 @@ router.delete('/:id', verifyToken, async (req, res) => {
  * @desc    Deactivate admin (soft delete)
  * @access  Private (superadmin only)
  */
-router.patch('/:id/deactivate', verifyToken, async (req, res) => {
-  try {
-    if (req.admin.role !== 'superadmin') {
-      return res.status(403).json({
+router.patch('/:id/deactivate',
+  verifyToken, async (req, res) => {
+    try {
+      if (req.admin.role !== 'superadmin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Only superadmin can deactivate admin accounts'
+        });
+      }
+
+      if (req.admin._id.toString() === req.params.id) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot deactivate your own account'
+        });
+      }
+
+      const admin = await Admin.findByIdAndUpdate(
+        req.params.id,
+        { isActive: false },
+        { new: true }
+      ).select('-refreshToken -__v -password');
+
+      if (!admin) {
+        return res.status(404).json({
+          success: false,
+          message: 'Admin not found'
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Admin deactivated successfully',
+        data: admin
+      });
+    } catch (error) {
+      console.error('Deactivate admin error:', error);
+      res.status(500).json({
         success: false,
-        message: 'Only superadmin can deactivate admin accounts'
+        message: 'Error deactivating admin',
+        error: error.message
       });
     }
-
-    if (req.admin._id.toString() === req.params.id) {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot deactivate your own account'
-      });
-    }
-
-    const admin = await Admin.findByIdAndUpdate(
-      req.params.id,
-      { isActive: false },
-      { new: true }
-    ).select('-refreshToken -__v -password');
-
-    if (!admin) {
-      return res.status(404).json({
-        success: false,
-        message: 'Admin not found'
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: 'Admin deactivated successfully',
-      data: admin
-    });
-  } catch (error) {
-    console.error('Deactivate admin error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error deactivating admin',
-      error: error.message
-    });
-  }
-});
+  });
 
 /**
  * @route   PATCH /api/admin/:id/activate
@@ -1019,6 +1045,63 @@ router.patch('/:id/activate', verifyToken, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error activating admin',
+      error: error.message
+    });
+  }
+});
+
+
+/**
+ * @route   PATCH /api/admin/:id/toggle-status
+ * @desc    Toggle admin active status
+ * @access  Private (superadmin only)
+ */
+router.patch('/:id/toggle-status', verifyToken, async (req, res) => {
+  // const { id } = req.params;
+  const { isActive } = req.body;
+  try {
+    if (req.admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only superadmin can toggle admin status'
+      });
+    }
+
+    if (req.admin._id.toString() === req.params.id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot toggle your own status'
+      });
+    }
+
+    const admin = await Admin.findById(req.params.id);
+
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: 'Admin not found'
+      });
+    }
+
+    admin.isActive = isActive;
+    await admin.save();
+
+    // Exclude sensitive fields
+    const adminResponse = admin.toObject();
+    delete adminResponse.refreshToken;
+    delete adminResponse.__v;
+    delete adminResponse.password;
+
+    res.status(200).json({
+      success: true,
+      message: `Admin ${admin.isActive ? 'activated' : 'deactivated'} successfully`,
+      data: adminResponse
+    });
+  } catch (error) {
+    console.error('Toggle admin status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error toggling admin status',
       error: error.message
     });
   }

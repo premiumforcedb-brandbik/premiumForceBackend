@@ -180,7 +180,8 @@ app.use('/api/admin', assignDriverCar);
 
 app.use('/api/routes', routeRoutes);
 
-app.use('/api/users/admin', adminRoutes);
+app.use('/api/user/admin', adminRoutes);
+
 
 
 // Use car routes

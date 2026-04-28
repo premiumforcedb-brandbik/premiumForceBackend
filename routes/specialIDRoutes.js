@@ -12,7 +12,7 @@ const Company = require('../models/companyModel');
 // @route   GET /api/specialids/promocode-usage
 // @desc    Get all users who have applied a promo code with details
 router.get('/promocode-usage',
-    // authenticateToken, authorizeAdmin,
+    authenticateToken, authorizeAdmin,
     async (req, res) => {
         try {
             const { userStatus, page = 1, limit = 20 } = req.query;

@@ -1530,17 +1530,17 @@ router.get('/all',
     console.log('🔥🔥🔥 /all ROUTE IS EXECUTING! 🔥🔥🔥');
 
 
+
     try {
       const {
         isActive,
         isVerified,
-        // Added status query param
+        status, // Extract status from query params
         search,
         page = 1,
         limit = 10
       } = req.query;
 
-      var status = "";
       // Build query
       const query = {};
 
@@ -1552,15 +1552,18 @@ router.get('/all',
         query.isVerified = isVerified === 'true';
       }
 
-
-
       // Handle status filtering
-      if (query.isWorkstarted == true && query.isBusy == false) {
-        status = "ideal";
-      } else if (query.isWorkstarted == true && query.isBusy == true) {
-        status = "in-trip";
-      } else if (query.isWorkstarted == false && query.isBusy == false) {
-        status = "offline";
+      if (status) {
+        const statusLabel = status.toLowerCase();
+        if (statusLabel === 'idle' || statusLabel === 'ideal') {
+          query.isWorkstarted = true;
+          query.isBusy = false;
+        } else if (statusLabel === 'in-trip') {
+          query.isWorkstarted = true;
+          query.isBusy = true;
+        } else if (statusLabel === 'offline') {
+          query.isWorkstarted = false;
+        }
       }
 
 
@@ -1652,8 +1655,8 @@ router.get('/all',
  */
 router.get('/',
 
-  // authenticateToken,
-  // authorizeAdmin,
+  authenticateToken,
+  authorizeAdmin,
   async (req, res) => {
     try {
       // const { status } = req.body;

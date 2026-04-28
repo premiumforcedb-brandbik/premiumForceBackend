@@ -804,7 +804,8 @@ router.put('/:id', verifyToken, async (req, res) => {
     }
 
     // Check permissions - only superadmin can update other admins, or admin can update themselves
-    if (req.admin.role !== 'superadmin' && req.admin._id.toString() !== req.params.id) {
+    if (req.admin.accessLevel !== 0 && req.admin._id.toString()
+      !== req.params.id) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this admin'

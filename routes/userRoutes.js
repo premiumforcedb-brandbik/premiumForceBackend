@@ -989,7 +989,7 @@ router.get('/profile/:phoneNumber', async (req, res) => {
 // PUT /api/users/:id - Update user (allows same data for same user, prevents duplicates across different users)
 router.put('/:id', upload.single('profileImage'), async (req, res) => {
   try {
-    const { username, email, phoneNumber, companyMail } = req.body;
+    const { username, specialId, email, phoneNumber, companyMail } = req.body;
 
 
     // Get all fields from request body
@@ -1078,6 +1078,16 @@ router.put('/:id', upload.single('profileImage'), async (req, res) => {
         size: req.file.size
       };
     }
+
+    updateFields.specialId = null;
+    updateFields.isDiscountApproved = null;
+    updateFields.isDiscountApprovedAt = null;
+    if (updateFields.specialId !== specialId) {
+      updateFields.isDiscountApproved = "pending";
+      updateFields.isDiscountApprovedAt = Date.now();
+    }
+
+
 
     // Handle location object if lat/long provided
     if (req.body.lat || req.body.long) {

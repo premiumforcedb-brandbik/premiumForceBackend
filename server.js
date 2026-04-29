@@ -164,6 +164,32 @@ mongoose.connect(process.env.MONGODB_URI)
     process.exit(1);
   });
 
+// Redis Setup with safe connection handling
+const { createClient } = require('redis');
+const redisClient = createClient({
+  url: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
+  socket: {
+    reconnectStrategy: (retries) => {
+      if (retries > 10) return false; // Stop retrying after 10 attempts to prevent spam
+      return 5000; // Retry every 5 seconds
+    }
+  }
+});
+
+redisClient.on('error', (err) => {
+  // Silent error log to prevent console spam when Redis is down
+  if (err.code !== 'ECONNREFUSED') console.log('❌ Redis Error:', err.message);
+});
+
+(async () => {
+  try {
+    await redisClient.connect();
+    console.log('✅ Redis connected successfully');
+  } catch (err) {
+    console.log('⚠️ Redis not available, caching disabled. (Start redis-server to enable)');
+  }
+})();
+
 // Routes
 // app.use('/api/items', itemRoutes);
 app.use('/api/users', userRoutes);
@@ -275,6 +301,26 @@ app.post('/api/login', async (req, res) => {
     }
 
 
+    // --- REDIS: Check for existing token ---
+    const redisKey = `afaqy_auth_${username}`;
+    if (redisClient.isOpen) {
+      try {
+        const cachedData = await redisClient.get(redisKey);
+        if (cachedData) {
+          const authData = JSON.parse(cachedData);
+          console.log('✓ Using Afaqy auth data from Redis cache:', authData);
+          return res.json({
+            success: true,
+            token: authData.token,
+            user: authData.user,
+            fromCache: true
+          });
+        }
+      } catch (cacheErr) {
+        console.warn('⚠️ Redis cache read error:', cacheErr);
+      }
+    }
+
     const payload = {
       user: username,
       password: password
@@ -331,8 +377,25 @@ app.post('/api/login', async (req, res) => {
       });
     }
 
+    // --- REDIS: Store token and user data ---
+    if (redisClient.isOpen) {
+      try {
+        const userData = data.user || data.data?.user;
+        const authToCache = { token, user: userData };
+        await redisClient.set(redisKey, JSON.stringify(authToCache), {
+          EX: 86400
+        });
+        console.log('✓ Afaqy auth data stored in Redis');
+        console.log('✓ Afaqy auth data stored in Redis:', authToCache);
+
+      } catch (cacheStoreErr) {
+        console.warn('⚠️ Redis cache store error:', cacheStoreErr);
+      }
+    }
+
     // Success
     res.json({
+
       success: true,
       token: token,
       user: data.user || data.data?.user

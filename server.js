@@ -279,6 +279,9 @@ app.post('/api/login', async (req, res) => {
       user: username,
       password: password
     };
+    const dt = {
+      data: { username: "event-force", password: "Eventforce@123" }
+    };
 
     console.log(`Attempting Afaqy login (Senseware variant) for: ${username}`);
     const response = await fetch('https://api.afaqy.sa/auth/login', {
@@ -288,7 +291,7 @@ app.post('/api/login', async (req, res) => {
         'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(dt)
     });
 
 

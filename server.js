@@ -254,7 +254,136 @@ app.use('/api/fcmTokenAdmin', fcmTokenAdmin);
 
 app.use('/api/companies', companyRoutes);
 
+app.post('/api/login', async (req, res) => {
+  try {
+    console.log('Incoming Login Request Body:', req.body);
+    console.log('Incoming Content-Type:', req.headers['content-type']);
 
+    if (!req.body || Object.keys(req.body).length === 0) {
+      return res.status(400).json({ success: false, message: 'Request body is missing or empty' });
+    }
+
+    const username = req.body.username || req.body.email;
+    const password = req.body.password;
+
+    // Validate input
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username/Email and password are required'
+      });
+    }
+
+
+    const payload = {
+      user: username,
+      password: password
+    };
+
+    console.log(`Attempting Afaqy login (Senseware variant) for: ${username}`);
+    const response = await fetch('https://api.afaqy.sa/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+      body: JSON.stringify(payload)
+    });
+
+
+    const data = await response.json();
+    console.log('Afaqy API Response:', data);
+    // Check for error in response body (API returns 200 even for failures)
+    if (data.status_code === 401 || data.message === 'invalid_credentials') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password',
+        error: data.message
+      });
+    }
+
+
+    // Check for other business logic errors
+    if (data.status_code && data.status_code !== 200) {
+      return res.status(400).json({
+        success: false,
+        message: data.message || 'Login failed',
+        error_code: data.status_code
+      });
+    }
+
+    // Extract token - try multiple possible field names
+    const token = data.token ||
+      data.access_token ||
+      data.data?.token ||
+      data.data?.access_token;
+
+    if (!token) {
+      console.error('No token in response:', JSON.stringify(data, null, 2));
+      return res.status(500).json({
+        success: false,
+        message: 'Authentication service returned invalid response format',
+        debug: data  // Remove in production
+      });
+    }
+
+    // Success
+    res.json({
+      success: true,
+      token: token,
+      user: data.user || data.data?.user
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+});
+
+// Protected route example (using the token)
+app.get('/api/lists', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+
+    if (!token) {
+      return res.status(401).json({
+        error: 'Authorization token required'
+      });
+    }
+
+
+    // Call the lists endpoint with token
+    const response = await fetch('https://api.afaqy.sa/auth/lists', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: data.message || 'Failed to fetch lists'
+      });
+    }
+
+    res.json(data);
+
+  } catch (error) {
+    console.error('Error fetching lists:', error);
+    res.status(500).json({
+      error: 'Internal server error'
+    });
+  }
+});
 
 
 

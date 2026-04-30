@@ -395,7 +395,6 @@ app.post('/api/login', async (req, res) => {
 
     // Success
     res.json({
-
       success: true,
       token: token,
       user: data.user || data.data?.user
@@ -411,6 +410,158 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// GET TOKEN FROM REDIS API
+app.get('/api/units/list', async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    if (!redisClient.isOpen) {
+      return res.status(503).json({
+        success: false,
+        message: 'Redis server is not connected'
+      });
+    }
+
+    // const redisKey = `afaqy_auth_${username}`;
+    const redisKey = `afaqy_auth_event-force`;
+    const cachedData = await redisClient.get(redisKey);
+
+    if (!cachedData) {
+      return res.status(404).json({
+        success: false,
+        message: 'No cached token found for this username'
+      });
+    }
+
+    const authData = JSON.parse(cachedData);
+    console.log(`✓ Manual Redis retrieval for ${username}:`, authData);
+
+
+    console.log(`Attempting Afaqy login (Senseware variant) for: ${username}`);
+    const response = await fetch(`https://api.afaqy.sa/units/lists?token=${authData.token}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+    });
+
+
+    const data = await response.json();
+    console.log('Afaqy API Response Redis Line 452:', data);
+    // Check for error in response body (API returns 200 even for failures)
+    if (data.status_code === 401 || data.message === 'invalid_credentials') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password',
+        error: data.message
+      });
+    }
+
+
+    // Check for other business logic errors
+    if (data.status_code && data.status_code !== 200) {
+      return res.status(400).json({
+        success: false,
+        message: data.message || 'Login failed',
+        error_code: data.status_code
+      });
+    }
+    res.json({
+      success: true,
+      source: data,
+      username: username,
+      data: authData.token
+    });
+
+  } catch (error) {
+    console.error('Redis Toggle Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error retrieving from Redis',
+      error: error.message
+    });
+  }
+});
+
+
+
+
+// GET TOKEN FROM REDIS API
+app.get('/api/units/view', async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    if (!redisClient.isOpen) {
+      return res.status(503).json({
+        success: false,
+        message: 'Redis server is not connected'
+      });
+    }
+
+    // const redisKey = `afaqy_auth_${username}`;
+    const redisKey = `afaqy_auth_event-force`;
+    const cachedData = await redisClient.get(redisKey);
+
+    if (!cachedData) {
+      return res.status(404).json({
+        success: false,
+        message: 'No cached token found for this username'
+      });
+    }
+
+    const authData = JSON.parse(cachedData);
+    console.log(`✓ Manual Redis retrieval for ${username}:`, authData);
+
+
+    console.log(`Attempting Afaqy login (Senseware variant) for: ${username}`);
+    const response = await fetch(`https://api.afaqy.sa/units/lists?token=${authData.token}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+    });
+
+
+    const data = await response.json();
+    console.log('Afaqy API Response Redis Line 452:', data);
+    // Check for error in response body (API returns 200 even for failures)
+    if (data.status_code === 401 || data.message === 'invalid_credentials') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password',
+        error: data.message
+      });
+    }
+
+
+    // Check for other business logic errors
+    if (data.status_code && data.status_code !== 200) {
+      return res.status(400).json({
+        success: false,
+        message: data.message || 'Login failed',
+        error_code: data.status_code
+      });
+    }
+    res.json({
+      success: true,
+      source: data,
+      username: username,
+      data: authData.token
+    });
+
+  } catch (error) {
+    console.error('Redis Toggle Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error retrieving from Redis',
+      error: error.message
+    });
+  }
+});
 // Protected route example (using the token)
 app.get('/api/lists', async (req, res) => {
   try {

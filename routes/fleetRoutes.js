@@ -546,7 +546,29 @@ router.post('/api/fleets/take-out', authenticateDriver, async (req, res) => {
             return res.status(400).json({ success: false, message: 'Fleet ID is required' });
         }
 
-        const fleet = await Fleet.findById(fleetID).session(session);
+        const fleet = await Fleet.findOne({ _id: fleetID, isActive: true }).session(session);
+
+        // 1. Check if driver has started working
+        if (!req.driver.isWorkstarted) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({ success: false, message: 'Please start your work status before taking out a vehicle' });
+        }
+
+        // 2. Check if driver already has another vehicle taken out
+        const driverActiveFleet = await Fleet.findOne({
+            driverID: driverID,
+            isBusyCar: true
+        }).session(session);
+
+        if (driverActiveFleet) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({
+                success: false,
+                message: `You already have vehicle ${driverActiveFleet.carLicenseNumber} taken out. Please return it first.`
+            });
+        }
 
         if (!fleet) {
             await session.abortTransaction();

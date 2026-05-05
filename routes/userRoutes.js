@@ -9,6 +9,8 @@ const HourlyBooking = require('../models/hourlyBookingModel');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const { notifyUser } = require('../fcm');
+const SpecialID = require('../models/specialIDModel');
+
 
 const { authenticateToken,
   authorizeAdmin,
@@ -513,6 +515,41 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
       });
     }
 
+    let validatedPromo = null;
+    if (specialId) {
+
+      validatedPromo = await SpecialID.findOne({
+        code: specialId.toUpperCase(),
+        isActive: true,
+        $or: [{ maxUsage: 0 }, { $expr: { $lt: ['$usedCount', '$maxUsage'] } }]
+      });
+
+      if (!validatedPromo) {
+        if (req.file) await deleteFromS3(req.file.key);
+
+        const promoExists = await SpecialID.findOne({ code: specialId.toUpperCase() });
+
+        if (!promoExists) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid promo code'
+          });
+        }
+
+        if (!promoExists.isActive) {
+          return res.status(400).json({
+            success: false,
+            message: 'This promo code is no longer active'
+          });
+        }
+
+        return res.status(400).json({
+          success: false,
+          message: 'Promo code usage limit has been reached'
+        });
+      }
+    }
+
     // Check for existing user by phone and email FIRST
     const existingUserQuery = [
       { phoneNumber }
@@ -542,24 +579,9 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
       });
     }
 
-    // BEFORE saving, check if username would cause a duplicate key error
-    // This is a workaround while the index still exists
-    if (username) {
-      const userWithSameUsername = await User.findOne({ username });
-      if (userWithSameUsername) {
-        // Instead of failing, we can modify the username slightly
-        // Option 1: Add a random suffix
-        const newUsername = `${username}_${Date.now().toString().slice(-4)}`;
-        req.body.username = newUsername; // Use this for the new user
-
-        console.log(`Username ${username} taken, using ${newUsername} instead`);
-      }
-    }
-
-
     // Create new user with profile image data
     const newUser = new User({
-      username: req.body.username, // Use possibly modified username
+      username: req.body.username,
       email: email || undefined,
       countryCode,
       phoneNumber,
@@ -581,6 +603,16 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
     });
 
     const savedUser = await newUser.save();
+
+    if (validatedPromo) {
+      await SpecialID.findOneAndUpdate(
+        {
+          _id: validatedPromo._id,
+          $or: [{ maxUsage: 0 }, { $expr: { $lt: ['$usedCount', '$maxUsage'] } }]
+        },
+        { $inc: { usedCount: 1 } }
+      );
+    }
 
     // Generate tokens
     const accessToken = generateAccessToken(savedUser);
@@ -989,7 +1021,7 @@ router.get('/profile/:phoneNumber', async (req, res) => {
 // PUT /api/users/:id - Update user (allows same data for same user, prevents duplicates across different users)
 router.put('/:id', upload.single('profileImage'), async (req, res) => {
   try {
-    const { username, specialId, email, phoneNumber, companyMail } = req.body;
+    const { username, email, phoneNumber, companyMail } = req.body;
 
 
     // Get all fields from request body
@@ -1079,16 +1111,6 @@ router.put('/:id', upload.single('profileImage'), async (req, res) => {
       };
     }
 
-    updateFields.specialId = null;
-    updateFields.isDiscountApproved = null;
-    updateFields.isDiscountApprovedAt = null;
-    if (updateFields.specialId !== specialId) {
-      updateFields.isDiscountApproved = "pending";
-      updateFields.isDiscountApprovedAt = Date.now();
-    }
-
-
-
     // Handle location object if lat/long provided
     if (req.body.lat || req.body.long) {
       updateFields.location = {
@@ -1110,6 +1132,10 @@ router.put('/:id', upload.single('profileImage'), async (req, res) => {
     delete updateFields._id;
     delete updateFields.__v;
     delete updateFields.createdAt;
+    delete updateFields.specialId;
+    delete updateFields.isDiscountApproved;
+    delete updateFields.isDiscountApprovedAt;
+    delete updateFields.role;
 
     console.log('Updating user with fields:', updateFields);
 

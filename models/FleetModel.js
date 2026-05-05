@@ -1,15 +1,27 @@
 const mongoose = require('mongoose');
 
-const carSchema = new mongoose.Schema({
-
+const fleetSchema = new mongoose.Schema({
     carID: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Car',
-
+        required: [true, 'Car ID is required']
+    },
+    carLicenseNumber: {
+        type: String,
+        required: [true, 'Car license number is required'],
+        trim: true,
+        maxlength: [50, 'Car license number cannot exceed 50 characters']
     },
     driverID: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Driver',
+        required: false,
+        default: null
+    },
+    activeHistoryID: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'FleetHistory',
+        default: null
     },
     lastTakenOutAt: {
         type: Date,
@@ -21,13 +33,6 @@ const carSchema = new mongoose.Schema({
         required: false,
         default: null
     },
-    carLicenseNumber: {
-        type: String,
-        required: [true, 'Car license number is required'],
-        trim: true,
-        maxlength: [50, 'Car license number cannot exceed 50 characters']
-    },
-
     isBusyCar: {
         type: Boolean,
         default: false
@@ -36,9 +41,13 @@ const carSchema = new mongoose.Schema({
         type: Boolean,
         default: true
     },
-
 }, {
     timestamps: true
 });
 
-module.exports = mongoose.model('Fleet', carSchema);
+// Indexes for performance
+fleetSchema.index({ carID: 1 });
+fleetSchema.index({ driverID: 1 });
+fleetSchema.index({ carLicenseNumber: 1 });
+
+module.exports = mongoose.model('Fleet', fleetSchema);

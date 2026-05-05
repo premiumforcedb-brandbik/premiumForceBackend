@@ -7,7 +7,9 @@ const Driver = require('../models/driver_model');
 const Booking = require('../models/booking_model');
 const HourlyBooking = require('../models/hourlyBookingModel');
 const AdminAssignCar = require('../models/assign_admin_car_model');
+const FleetHistory = require('../models/FleetHistoryModel');
 const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddleware');
+const { authenticateDriver } = require('../middleware/driverware');
 
 
 // ==================== CREATE ====================
@@ -523,6 +525,149 @@ router.patch('/api/fleets/bulk/status', async (req, res) => {
 
 
 
+// ==================== DRIVER OPERATIONS (TAKE OUT / RETURN) ====================
+
+/**
+ * @route   POST /api/fleets/take-out
+ * @desc    Driver picks up a car (Starts a session)
+ * @access  Private (Driver)
+ */
+router.post('/api/fleets/take-out', authenticateDriver, async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        const { fleetID } = req.body;
+        const driverID = req.driver._id;
+
+        if (!fleetID) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({ success: false, message: 'Fleet ID is required' });
+        }
+
+        const fleet = await Fleet.findById(fleetID).session(session);
+
+        if (!fleet) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(404).json({ success: false, message: 'Fleet vehicle not found' });
+        }
+
+        if (fleet.isBusyCar) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({ success: false, message: 'Vehicle is already taken out by another driver' });
+        }
+
+        // 1. Create Fleet History record
+        const historyEntry = new FleetHistory({
+            carID: fleet.carID,
+            driverID: driverID,
+            takenOutAt: new Date()
+        });
+        await historyEntry.save({ session });
+
+        // 2. Update Fleet live state
+        fleet.isBusyCar = true;
+        fleet.driverID = driverID;
+        fleet.lastTakenOutAt = historyEntry.takenOutAt;
+        fleet.activeHistoryID = historyEntry._id;
+        await fleet.save({ session });
+
+        await session.commitTransaction();
+        session.endSession();
+
+        res.status(200).json({
+            success: true,
+            message: 'Vehicle taken out successfully',
+            data: {
+                carLicenseNumber: fleet.carLicenseNumber,
+                takenOutAt: fleet.lastTakenOutAt,
+                sessionID: fleet.activeHistoryID
+            }
+        });
+
+    } catch (error) {
+        await session.abortTransaction();
+        session.endSession();
+        console.error('Take-out error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+/**
+ * @route   POST /api/fleets/return
+ * @desc    Driver returns the car (Ends a session)
+ * @access  Private (Driver)
+ */
+router.post('/api/fleets/return', authenticateDriver, async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        const { fleetID } = req.body;
+
+        if (!fleetID) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({ success: false, message: 'Fleet ID is required' });
+        }
+
+        const fleet = await Fleet.findById(fleetID).session(session);
+
+        if (!fleet) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(404).json({ success: false, message: 'Fleet vehicle not found' });
+        }
+
+        if (!fleet.isBusyCar) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({ success: false, message: 'Vehicle is not currently taken out' });
+        }
+
+        if (!fleet.activeHistoryID) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({ success: false, message: 'No active session found for this vehicle' });
+        }
+
+        const now = new Date();
+
+        // 1. Update Fleet History record using the activeHistoryID
+        const historyEntry = await FleetHistory.findById(fleet.activeHistoryID).session(session);
+        if (historyEntry) {
+            historyEntry.returnedAt = now;
+            await historyEntry.save({ session });
+        }
+
+        // 2. Update Fleet live state
+        fleet.isBusyCar = false;
+        fleet.lastReturnAt = now;
+        fleet.activeHistoryID = null;
+        await fleet.save({ session });
+
+        await session.commitTransaction();
+        session.endSession();
+
+        res.status(200).json({
+            success: true,
+            message: 'Vehicle returned successfully',
+            data: {
+                carLicenseNumber: fleet.carLicenseNumber,
+                returnedAt: fleet.lastReturnAt
+            }
+        });
+
+    } catch (error) {
+        await session.abortTransaction();
+        session.endSession();
+        console.error('Return error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 
 
 

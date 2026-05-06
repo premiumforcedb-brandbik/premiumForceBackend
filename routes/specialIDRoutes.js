@@ -322,7 +322,7 @@ router.post('/validate', authenticateCustomer, async (req, res) => {
         }
 
         // Check usage limits
-        if (specialID.maxUsage > 0 && specialID.usedCount >= specialID.maxUsage) {
+        if (specialID.maxUsage && specialID.maxUsage > 0 && specialID.usedCount >= specialID.maxUsage) {
             return res.status(400).json({
                 success: false,
                 message: 'Promo code usage limit has been reached'

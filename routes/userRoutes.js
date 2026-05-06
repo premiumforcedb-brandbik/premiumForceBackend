@@ -521,7 +521,12 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
       validatedPromo = await SpecialID.findOne({
         code: specialId.toUpperCase(),
         isActive: true,
-        $or: [{ maxUsage: 0 }, { $expr: { $lt: ['$usedCount', '$maxUsage'] } }]
+        $or: [
+          { maxUsage: 0 },
+          { maxUsage: null },
+          { maxUsage: { $exists: false } },
+          { $expr: { $lt: ['$usedCount', '$maxUsage'] } }
+        ]
       });
 
       if (!validatedPromo) {
@@ -608,7 +613,12 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
       await SpecialID.findOneAndUpdate(
         {
           _id: validatedPromo._id,
-          $or: [{ maxUsage: 0 }, { $expr: { $lt: ['$usedCount', '$maxUsage'] } }]
+          $or: [
+            { maxUsage: 0 },
+            { maxUsage: null },
+            { maxUsage: { $exists: false } },
+            { $expr: { $lt: ['$usedCount', '$maxUsage'] } }
+          ]
         },
         { $inc: { usedCount: 1 } }
       );
@@ -658,15 +668,6 @@ router.post('/', upload.single('profileImage'), async (req, res) => {
     console.error('Create user error:', error);
 
     if (error.code === 11000) {
-      if (error.keyPattern && error.keyPattern.username) {
-        // Special handling for username duplicate
-        return res.status(400).json({
-          success: false,
-          message: 'Username already taken. Please choose a different username.',
-          field: 'username',
-          suggestion: 'Add numbers or special characters to make it unique'
-        });
-      }
 
       const field = Object.keys(error.keyPattern)[0];
       return res.status(400).json({

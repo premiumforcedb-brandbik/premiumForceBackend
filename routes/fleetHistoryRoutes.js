@@ -7,18 +7,18 @@ const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddle
 
 // ==================== READ (GET HISTORY BY CAR ID) ====================
 // Get full history of a specific vehicle
-router.get('/fleets/:carID/history',
+router.get('/fleets/:fleetID/history',
     authenticateToken, authorizeAdmin,
     async (req, res) => {
         try {
 
-            const { carID } = req.params;
+            const { fleetID } = req.params;
 
             const { takenOutAt,
                 returnedAt, page = 1, limit = 10 } = req.query;
 
-            // Build filter object
-            const filter = { carID: carID };
+            // Build filter object - Changed carID to fleetID
+            const filter = { fleetID: fleetID };
 
 
             if (takenOutAt === 'null' || takenOutAt === '') {
@@ -36,8 +36,11 @@ router.get('/fleets/:carID/history',
             const skip = (page - 1) * limit;
 
             const history = await FleetHistory.find(filter)
-                .populate('carID', 'carName model carLicenseNumber carImage')
-                .populate('driverID', 'driverName phoneNumber email')
+                .populate({
+                    path: 'fleetID',
+                    populate: { path: 'carID', select: 'carName model carLicenseNumber carImage' }
+                })
+                .populate('driverID', 'driverName name phoneNumber email')
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(parseInt(limit));

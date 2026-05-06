@@ -594,6 +594,7 @@ router.post('/api/fleets/take-out', authenticateDriver, async (req, res) => {
         fleet.isBusyCar = true;
         fleet.driverID = driverID;
         fleet.lastTakenOutAt = historyEntry.takenOutAt;
+        fleet.lastReturnAt = null;
         fleet.activeHistoryID = historyEntry._id;
         await fleet.save({ session });
 
@@ -631,17 +632,17 @@ router.post('/api/fleets/return', authenticateDriver, async (req, res) => {
         const driverID = req.driver.driverId;
 
         // Automatically find the vehicle currently taken out by this driver
-        const fleet = await Fleet.findOne({ 
-            driverID: driverID, 
-            isBusyCar: true 
+        const fleet = await Fleet.findOne({
+            driverID: driverID,
+            isBusyCar: true
         }).session(session);
 
         if (!fleet) {
             await session.abortTransaction();
             session.endSession();
-            return res.status(404).json({ 
-                success: false, 
-                message: 'No active vehicle session found for this driver' 
+            return res.status(404).json({
+                success: false,
+                message: 'No active vehicle session found for this driver'
             });
         }
 
@@ -662,6 +663,7 @@ router.post('/api/fleets/return', authenticateDriver, async (req, res) => {
 
         // 2. Update Fleet live state
         fleet.isBusyCar = false;
+        fleet.driverID = null;
         fleet.lastReturnAt = now;
         fleet.activeHistoryID = null;
         await fleet.save({ session });

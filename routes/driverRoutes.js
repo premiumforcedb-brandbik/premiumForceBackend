@@ -1869,9 +1869,21 @@ router.get('/phone/:phoneNumber', authenticateToken, authorizeAdmin, async (req,
  */
 router.get('/profile/me', verifyDriverToken, async (req, res) => {
   try {
+    const driverData = req.driver.toObject();
+
+    // Check if driver currently has a vehicle taken out
+    const activeFleet = await Fleet.findOne({
+      driverID: driverData._id,
+      isBusyCar: true
+    }).populate('carID');
+
     res.status(200).json({
       success: true,
-      data: req.driver
+      data: {
+        ...driverData,
+        hasActiveVehicle: !!activeFleet,
+        activeVehicle: activeFleet || null
+      }
     });
   } catch (error) {
     console.error('Fetch profile error:', error);

@@ -538,7 +538,7 @@ router.post('/api/fleets/take-out', authenticateDriver, async (req, res) => {
 
     try {
         const { fleetID } = req.body;
-        const driverID = req.driver._id;
+        const driverID = req.driver.driverId;
 
         if (!fleetID) {
             await session.abortTransaction();

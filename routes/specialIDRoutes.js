@@ -5,6 +5,7 @@ const SpecialID = require('../models/specialIDModel');
 const User = require('../models/users_model'); // Added User model
 const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddleware');
 const Company = require('../models/companyModel');
+const { authenticateCustomer } = require('../middleware/customermiddleware');
 
 
 
@@ -280,6 +281,65 @@ router.get('/code/:code', async (req, res) => {
         });
     } catch (error) {
         console.error('GET by code error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error',
+            error: error.message
+        });
+    }
+});
+
+// ============= VALIDATE SPECIAL ID (CUSTOMER) =============
+// @route   POST /api/specialids/validate
+// @desc    Validate promo code for customer usage
+router.post('/validate', authenticateCustomer, async (req, res) => {
+    try {
+        const { code } = req.body;
+
+        if (!code) {
+            return res.status(400).json({
+                success: false,
+                message: 'Promo code is required'
+            });
+        }
+
+        const specialID = await SpecialID.findOne({
+            code: code.toUpperCase()
+        });
+
+        if (!specialID) {
+            return res.status(404).json({
+                success: false,
+                message: 'Invalid promo code'
+            });
+        }
+
+        if (!specialID.isActive) {
+            return res.status(400).json({
+                success: false,
+                message: 'Promo code is no longer active'
+            });
+        }
+
+        // Check usage limits
+        if (specialID.maxUsage > 0 && specialID.usedCount >= specialID.maxUsage) {
+            return res.status(400).json({
+                success: false,
+                message: 'Promo code usage limit has been reached'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Promo code is valid',
+            data: {
+                code: specialID.code,
+                discountPercentage: specialID.discountPercentage,
+                text: specialID.text
+            }
+        });
+    } catch (error) {
+        console.error('Validate promo code error:', error);
         res.status(500).json({
             success: false,
             message: 'Server error',

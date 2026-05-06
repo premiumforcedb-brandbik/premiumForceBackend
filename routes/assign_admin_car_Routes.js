@@ -827,7 +827,7 @@ router.get('/drivers-details', authenticateToken, authorizeAdmin, async (req, re
 // @access  Private (Driver only)
 router.get('/driver/my-fleet', authenticateDriver, async (req, res) => {
     try {
-        const driverID = req.driver._id || req.driver.id;
+        const driverID = req.driver.driverId || req.driver._id || req.driver.id;
         const fleetRecord = await CarFleet.findOne({ driverID: new mongoose.Types.ObjectId(driverID) })
             .populate('carID');
 

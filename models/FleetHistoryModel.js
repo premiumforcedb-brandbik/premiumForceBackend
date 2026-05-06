@@ -1,10 +1,10 @@
 const mongoose = require('mongoose');
 
 const fleetHistorySchema = new mongoose.Schema({
-    carID: {
+    fleetID: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Car',
-        required: [true, 'Car ID is required']
+        ref: 'Fleet',
+        required: [true, 'Fleet ID is required']
     },
     driverID: {
         type: mongoose.Schema.Types.ObjectId,

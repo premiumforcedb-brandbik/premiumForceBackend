@@ -584,7 +584,7 @@ router.post('/api/fleets/take-out', authenticateDriver, async (req, res) => {
 
         // 1. Create Fleet History record
         const historyEntry = new FleetHistory({
-            carID: fleet.carID,
+            fleetID: fleet._id,
             driverID: driverID,
             takenOutAt: new Date()
         });
@@ -628,26 +628,21 @@ router.post('/api/fleets/return', authenticateDriver, async (req, res) => {
     session.startTransaction();
 
     try {
-        const { fleetID } = req.body;
+        const driverID = req.driver.driverId;
 
-        if (!fleetID) {
-            await session.abortTransaction();
-            session.endSession();
-            return res.status(400).json({ success: false, message: 'Fleet ID is required' });
-        }
-
-        const fleet = await Fleet.findById(fleetID).session(session);
+        // Automatically find the vehicle currently taken out by this driver
+        const fleet = await Fleet.findOne({ 
+            driverID: driverID, 
+            isBusyCar: true 
+        }).session(session);
 
         if (!fleet) {
             await session.abortTransaction();
             session.endSession();
-            return res.status(404).json({ success: false, message: 'Fleet vehicle not found' });
-        }
-
-        if (!fleet.isBusyCar) {
-            await session.abortTransaction();
-            session.endSession();
-            return res.status(400).json({ success: false, message: 'Vehicle is not currently taken out' });
+            return res.status(404).json({ 
+                success: false, 
+                message: 'No active vehicle session found for this driver' 
+            });
         }
 
         if (!fleet.activeHistoryID) {

@@ -1057,43 +1057,7 @@ router.patch('/:id/status', authenticateToken, authorizeAdmin, async (req, res) 
   }
 });
 
-// ============= DELETE ROUTE =============
-// DELETE /api/routes/:id
-router.delete('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid route ID format'
-      });
-    }
-
-    const route = await Route.findById(id);
-    if (!route) {
-      return res.status(404).json({
-        success: false,
-        message: 'Route not found'
-      });
-    }
-
-    await Route.findByIdAndDelete(id);
-
-    res.json({
-      success: true,
-      message: 'Route deleted successfully'
-    });
-
-  } catch (error) {
-    console.error('Delete route error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error deleting route',
-      error: error.message
-    });
-  }
-});
 
 // ============= GET ROUTES BY CITY =============
 // GET /api/routes/city/:cityId - Get all routes for a specific city (as from or to)
@@ -1265,6 +1229,7 @@ router.get('/vehicle/:vehicleId', async (req, res) => {
           category: vehicle.categoryID
         },
         pricing: hourlyRoutes.map(route => ({
+          id: route._id,
           hour: route.hour,
           price: route.charge,
           isActive: route.isActive
@@ -1358,5 +1323,44 @@ router.get('/between/:fromCityId/:toCityId/cars', async (req, res) => {
 
 
 
+
+/**
+ * @route   DELETE /api/hourly-routes/:id
+ * @desc    Delete hourly route
+ * @access  Private (Admin only)
+ */
+router.delete('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid route ID format'
+      });
+    }
+
+    const hourlyRoute = await HourlyRoute.findByIdAndDelete(id);
+
+    if (!hourlyRoute) {
+      return res.status(404).json({
+        success: false,
+        message: 'Hourly route not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Hourly route deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete hourly route error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting hourly route',
+      error: error.message
+    });
+  }
+});
 
 module.exports = router;

@@ -12,7 +12,7 @@ async function getAfaqyToken(forceRefresh = false) {
     try {
         redisClient = getRedisClient();
     } catch (e) {
-
+        console.error('❌ Redis client not available');
     }
 
     if (!forceRefresh && redisClient) {
@@ -20,10 +20,13 @@ async function getAfaqyToken(forceRefresh = false) {
         if (cached) return JSON.parse(cached).token;
     }
 
+
     try {
         const response = await axios.post('https://api.afaqy.sa/auth/login', {
-            username: process.env.AFAQY_USERNAME,
-            password: process.env.AFAQY_PASSWORD
+            data: {
+                username: process.env.AFAQY_USERNAME,
+                password: process.env.AFAQY_PASSWORD
+            }
         });
 
         const token = response.data.token || response.data.data?.token;

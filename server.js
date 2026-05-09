@@ -155,6 +155,10 @@ router.post("/api/notification", async function (req, res) {
   }
 });
 
+// Redis Setup
+const { connectRedis } = require('./utils/redisClient');
+connectRedis();
+
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI)
@@ -164,9 +168,7 @@ mongoose.connect(process.env.MONGODB_URI)
     process.exit(1);
   });
 
-// Redis Setup
-const { connectRedis } = require('./utils/redisClient');
-connectRedis();
+
 
 // Routes
 // app.use('/api/items', itemRoutes);

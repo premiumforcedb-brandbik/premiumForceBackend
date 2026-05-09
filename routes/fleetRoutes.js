@@ -653,9 +653,6 @@ router.post('/api/fleets/take-out', authenticateDriver, async (req, res) => {
         fleet.activeHistoryID = historyEntry._id;
         await fleet.save({ session });
 
-        // 3. Update Driver busy state
-        await Driver.findByIdAndUpdate(driverID, { isBusy: true }).session(session);
-
         await session.commitTransaction();
         session.endSession();
 
@@ -726,8 +723,6 @@ router.post('/api/fleets/return', authenticateDriver, async (req, res) => {
         fleet.activeHistoryID = null;
         await fleet.save({ session });
 
-        // 3. Update Driver busy state
-        await Driver.findByIdAndUpdate(driverID, { isBusy: false }).session(session);
 
         await session.commitTransaction();
         session.endSession();

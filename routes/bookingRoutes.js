@@ -2,21 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
-const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const Booking = require('../models/booking_model');
-
-
-const User = require('../models/users_model');
-const City = require('../models/city_model');
-
-const Airport = require('../models/airportsModel');
-const Terminal = require('../models/terminal_model');
-
-
-const Car = require('../models/car_model');
-
-const Driver = require('../models/driver_model');
-const Customer = require('../models/users_model');
 
 const authMiddleware = require('../middleware/authTheMiddle');
 
@@ -34,11 +20,10 @@ const { authenticateCustomer
 // Import S3 configuration from your central config file (like in userRoutes)
 const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
 
-const NotificationService = require('../services/notificationService');
-
 
 const { notifyUser, sendPushNotificationAdmin } = require('../fcm');
 const { applyDispatcherCityFilter } = require('../utils/spatialUtils');
+const { validateAudioFile, cleanupS3Files } = require('../utils/fileUtils');
 
 
 
@@ -90,127 +75,38 @@ async function notifyAllAdmins(title, body, data = {}) {
 router.post('/',
   authenticateCustomer,
   upload.fields([
-    { name: 'carimage', maxCount: 1 },
     { name: 'specialRequestAudio', maxCount: 1 }
   ]),
   async (req, res) => {
     try {
 
-      // FIXED: Check if req.customer exists
-      if (!req.customer) {
-        return res.status(401).json({
-          success: false,
-          message: 'Authentication failed - Customer data not found'
-        });
-      }
-
-      console.log('Authenticated customer:', req.customer);
-
-      // Get customer ID from authenticated user (already an ObjectId)
+      // Get customer id from authenticated user
       const customerID = req.customer.customerId;
-      console.log('Customer ID:', customerID);
-
 
       const {
         category, cityID, airportID, terminalID, flightNumber, arrival,
         pickupLat, pickupLong, pickupAddress, dropOffLat, dropOffLong, dropOffAddress,
-        charge, carID, carmodel,
+        charge,
         specialRequestText,
         passengerCount, passengerNames, passengerMobile, distance,
-        driverID, transactionID, orderID, discountPercentage, vat
+        discountPercentage, vat
       } = req.body;
 
-      // Log the fields for debugging
-      console.log('Raw arrival value:', arrival);
-      console.log('Raw airportID:', airportID);
-      console.log('Raw terminalID:', terminalID);
-      console.log('Type of airportID:', typeof airportID);
-      console.log('Type of terminalID:', typeof terminalID);
 
-      // Check if carimage file is uploaded
-      if (!req.files || !req.files.carimage || !req.files.carimage[0]) {
-        return res.status(400).json({
-          success: false,
-          message: 'Car image is required'
-        });
-      }
-
-      // ========== AUDIO FILE VALIDATION ==========
-      // Allowed audio MIME types
-      const allowedAudioMimeTypes = [
-        'audio/mpeg',      // MP3
-        'audio/mp3',       // MP3 alternative
-        'audio/wav',       // WAV
-        'audio/x-wav',     // WAV alternative
-        'audio/mp4',       // MP4/AAC
-        'audio/m4a',       // M4A
-        'audio/aac',       // AAC
-        'audio/ogg',       // OGG
-        'audio/webm',      // WebM Audio
-        'audio/flac',      // FLAC
-        'audio/x-m4a'      // M4A alternative
-      ];
-
-      // Allowed audio file extensions
-      const allowedAudioExtensions = [
-        'mp3', 'wav', 'mp4', 'm4a', 'aac', 'ogg', 'webm', 'flac', 'mpeg'
-      ];
-
-      // Validate audio file if uploaded
-      if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio[0]) {
-        const audioFile = req.files.specialRequestAudio[0];
-        const fileExtension = audioFile.originalname.split('.').pop().toLowerCase();
-        const mimeType = audioFile.mimetype;
-
-        // Check file size (max 10MB for audio)
-        const maxAudioSize = 10 * 1024 * 1024; // 10MB
-        if (audioFile.size > maxAudioSize) {
-          // Delete uploaded files
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(audioFile.key).catch(console.error);
-
-          return res.status(400).json({
-            success: false,
-            message: `Audio file size too large. Maximum size is 10MB. Your file size: ${(audioFile.size / (1024 * 1024)).toFixed(2)}MB`,
-            field: 'specialRequestAudio'
-          });
-        }
-
-        // Check if MIME type is allowed
-        const isMimeTypeAllowed = allowedAudioMimeTypes.includes(mimeType);
-
-        // Check if file extension is allowed
-        const isExtensionAllowed = allowedAudioExtensions.includes(fileExtension);
-
-        if (!isMimeTypeAllowed && !isExtensionAllowed) {
-          // Delete uploaded files
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(audioFile.key).catch(console.error);
-
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid audio file format. Supported formats: MP3, WAV, M4A, AAC, OGG, WebM, FLAC',
-            field: 'specialRequestAudio',
-            supportedFormats: allowedAudioExtensions,
-            receivedMimeType: mimeType,
-            receivedExtension: fileExtension
-          });
-        }
-
-        console.log('Audio file validated:', {
-          originalName: audioFile.originalname,
-          size: `${(audioFile.size / (1024 * 1024)).toFixed(2)}MB`,
-          mimeType: audioFile.mimetype,
-          extension: fileExtension
-        });
+      // ── Audio validation (optional field) ──────────────────────────────────
+      const audioFile = req.files?.specialRequestAudio?.[0];
+      const audioError = validateAudioFile(audioFile);
+      if (audioError) {
+        await cleanupS3Files(audioFile);
+        return res.status(audioError.status).json(audioError.body);
       }
 
       // Validation for required fields
       const requiredFields = [
         'category', 'cityID', 'arrival', 'pickupLat', 'pickupLong',
-        'dropOffLat', 'dropOffLong', 'dropOffAddress', 'carmodel',
+        'dropOffLat', 'dropOffLong', 'dropOffAddress',
         'passengerCount', 'passengerNames', 'pickupAddress',
-        'passengerMobile', 'distance', 'charge', 'carID', 'transactionID', 'orderID'
+        'passengerMobile', 'distance', 'charge'
       ];
 
       const missingFields = [];
@@ -221,16 +117,11 @@ router.post('/',
       }
 
       if (missingFields.length > 0) {
-        // Delete uploaded files if validation fails
         if (req.files) {
-          if (req.files.carimage) {
-            await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          }
           if (req.files.specialRequestAudio) {
             await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
         }
-
         return res.status(400).json({
           success: false,
           message: 'Please provide all required fields',
@@ -312,7 +203,6 @@ router.post('/',
 
       if (existingBooking) {
         if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
 
@@ -371,97 +261,10 @@ router.post('/',
         parsedPassengerNames = [String(passengerNames)];
       }
 
-      // Helper function to safely convert to ObjectId
-      const safeObjectId = (id, fieldName) => {
-        if (!id || id === 'null' || id === 'undefined' || id === '') {
-          return null;
-        }
-
-        // If it's already an ObjectId, return it
-        if (id instanceof mongoose.Types.ObjectId) {
-          return id;
-        }
-
-        // Try to convert string to ObjectId
-        if (typeof id === 'string' && mongoose.Types.ObjectId.isValid(id)) {
-          return new mongoose.Types.ObjectId(id);
-        }
-
-        console.warn(`Invalid ${fieldName} format:`, id);
-        return null;
-      };
-
-      // Convert IDs to ObjectId with validation
-      let finalCityID = null;
-      let finalAirportID = null;
-      let finalTerminalID = null;
-      let finalCarID = null;
-      let finalDriverID = null;
-
-      // Convert cityID (required)
-      if (cityID && mongoose.Types.ObjectId.isValid(cityID)) {
-        finalCityID = new mongoose.Types.ObjectId(cityID);
-      } else {
-        if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid cityID format. Must be a valid MongoDB ObjectId',
-          received: cityID
-        });
+      if (!cityID) {
+        return res.status(400).json({ success: false, message: 'cityID is required' });
       }
 
-      // Convert airportID (optional) - Handle null/undefined/empty properly
-      if (airportID && airportID !== 'null' && airportID !== 'undefined' && airportID !== '') {
-        if (mongoose.Types.ObjectId.isValid(airportID)) {
-          finalAirportID = new mongoose.Types.ObjectId(airportID);
-          console.log('AirportID converted to ObjectId:', finalAirportID);
-        } else {
-          console.log('Invalid airportID format, setting to null:', airportID);
-          finalAirportID = null;
-        }
-      } else {
-        console.log('airportID is empty or null, setting to undefined');
-        finalAirportID = undefined;
-      }
-
-      // Convert terminalID (optional) - Handle null/undefined/empty properly
-      if (terminalID && terminalID !== 'null' && terminalID !== 'undefined' && terminalID !== '') {
-        if (mongoose.Types.ObjectId.isValid(terminalID)) {
-          finalTerminalID = new mongoose.Types.ObjectId(terminalID);
-          console.log('TerminalID converted to ObjectId:', finalTerminalID);
-        } else {
-          console.log('Invalid terminalID format, setting to null:', terminalID);
-          finalTerminalID = null;
-        }
-      } else {
-        console.log('terminalID is empty or null, setting to undefined');
-        finalTerminalID = undefined;
-      }
-
-      // Convert carID (required)
-      if (carID && mongoose.Types.ObjectId.isValid(carID)) {
-        finalCarID = new mongoose.Types.ObjectId(carID);
-      } else {
-        if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid carID format. Must be a valid MongoDB ObjectId',
-          received: carID
-        });
-      }
-
-      // Convert driverID (optional)
-      if (driverID && driverID !== 'null' && driverID !== 'undefined' && driverID !== '') {
-        if (mongoose.Types.ObjectId.isValid(driverID)) {
-          finalDriverID = new mongoose.Types.ObjectId(driverID);
-        }
-      }
 
       // Parse numeric values
       const pickupLatNum = parseFloat(pickupLat);
@@ -469,12 +272,11 @@ router.post('/',
       const dropOffLatNum = parseFloat(dropOffLat);
       const dropOffLongNum = parseFloat(dropOffLong);
       const passengerCountNum = parseInt(passengerCount);
-      const distanceStr = String(distance).replace(/[^0-9.-]/g, ''); // Remove units like "km"
+      const distanceStr = String(distance).replace(/[^0-9.-]/g, '');
       const chargeStr = String(charge).replace(/[^0-9.-]/g, '');
 
       if (isNaN(pickupLatNum) || isNaN(pickupLongNum) || isNaN(dropOffLatNum) || isNaN(dropOffLongNum)) {
         if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(400).json({
@@ -486,7 +288,6 @@ router.post('/',
 
       if (isNaN(passengerCountNum) || passengerCountNum < 1) {
         if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(400).json({
@@ -499,9 +300,9 @@ router.post('/',
       const bookingData = {
         category: String(category).trim(),
         vat: vat,
-        cityID: finalCityID,
-        airportID: finalAirportID, // Will be undefined if not provided
-        terminalID: finalTerminalID, // Will be undefined if not provided
+        cityID: cityID,
+        airportID: airportID || undefined,
+        terminalID: terminalID || undefined,
         flightNumber: flightNumber ? String(flightNumber).trim() : undefined,
         arrival: parsedDate,
         pickupLat: pickupLatNum,
@@ -510,19 +311,8 @@ router.post('/',
         dropOffLat: dropOffLatNum,
         dropOffLong: dropOffLongNum,
         dropOffAddress: String(dropOffAddress).trim(),
-        carID: finalCarID,
-        transactionID: String(transactionID).trim(),
-        orderID: String(orderID).trim(),
         discountPercentage: discountPercentage || 0,
-        carmodel: String(carmodel).trim(),
         charge: chargeStr,
-        carimage: {
-          key: req.files.carimage[0].key,
-          url: getS3Url(req.files.carimage[0].key),
-          originalName: req.files.carimage[0].originalname,
-          mimeType: req.files.carimage[0].mimetype,
-          size: req.files.carimage[0].size
-        },
         passengerCount: passengerCountNum,
         passengerNames: parsedPassengerNames,
         passengerMobile: String(passengerMobile).trim(),
@@ -531,8 +321,6 @@ router.post('/',
         bookingStatus: 'pending',
         TrackingTimeLine: ['booking_created'],
         paymentStatus: false,
-        rating: {},
-        driverID: finalDriverID
       };
 
       // Remove undefined fields (optional fields that weren't provided)
@@ -556,7 +344,7 @@ router.post('/',
           originalName: audioFile.originalname,
           mimeType: audioFile.mimetype,
           size: audioFile.size,
-          duration: null, // You can add duration if you process audio files
+          duration: null,
           format: audioFile.originalname.split('.').pop().toLowerCase()
         };
 
@@ -566,11 +354,6 @@ router.post('/',
           size: `${(audioFile.size / (1024 * 1024)).toFixed(2)}MB`
         });
       }
-
-      console.log('Booking data to save:', JSON.stringify(bookingData, (key, value) => {
-        if (value instanceof mongoose.Types.ObjectId) return value.toString();
-        return value;
-      }, 2));
 
       const booking = new Booking(bookingData);
       await booking.save();
@@ -588,25 +371,6 @@ router.post('/',
         }
       );
 
-
-
-
-
-      // 2. Send notification to ALL ADMINS
-      const adminNotificationData = {
-        type: 'new_booking',
-        bookingId: booking._id.toString(),
-        customerId: customerID.toString(),
-        arrival: parsedDate.toISOString(),
-        pickupAddress: bookingData.pickupAddress,
-        dropOffAddress: bookingData.dropOffAddress,
-        charge: chargeStr,
-        passengerCount: passengerCountNum,
-        carModel: carmodel,
-        hasAudio: !!bookingData.specialRequestAudio,
-        hasSpecialRequest: !!specialRequestText
-      };
-
       await notifyAllAdmins(
         'New Booking Alert!',
         `Review and assign a driver`,
@@ -616,8 +380,6 @@ router.post('/',
           status: booking.bookingStatus,
         }
       );
-
-
 
 
       res.status(201).json({
@@ -631,9 +393,6 @@ router.post('/',
 
       // Delete uploaded files if error occurs
       if (req.files) {
-        if (req.files.carimage) {
-          await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-        }
         if (req.files.specialRequestAudio) {
           await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }

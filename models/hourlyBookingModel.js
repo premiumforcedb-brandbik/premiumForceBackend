@@ -1,28 +1,27 @@
 const mongoose = require('mongoose');
 
 const hourlyBookingSchema = new mongoose.Schema({
-  category: {
-    type: String,
-    required: false
-    // customize as needed
-  },
   hours: {
     type: Number,
     required: true
   },
   vat: {
     type: Number,
-    required: false
+    default: 0
+  },
+  extraVat: {
+    type: Number,
+    default: 0
   },
   pickupLat: {
     type: Number,
     required: true
   },
-  pickuplong: {
+  pickupLong: {
     type: Number,
     required: true
   },
-  pickupAdddress: {
+  pickupAddress: {
     type: String,
     required: true
   },
@@ -93,22 +92,20 @@ const hourlyBookingSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  passengerNames: [{
+    type: String
+  }],
   carClass: {
     type: String,
     required: true
   },
   carImage: {
     type: String,
-    required: false
+    default: null
   },
   extraPayment: {
     type: Number,
-    default: 0,
-    required: false
-  },
-  extraVat: {
-    type: Number,
-    required: false
+    default: 0
   },
   startedAt: {
     type: Date,
@@ -120,15 +117,15 @@ const hourlyBookingSchema = new mongoose.Schema({
   },
   extraTransactionID: {
     type: String,
-    required: false
+    default: null
   },
   extraOrderID: {
     type: String,
-    required: false
+    default: null
   },
   extraDiscount: {
     type: Number,
-    required: false
+    default: 0
   },
   extraPaymentCompleted: {
     type: Boolean,
@@ -140,16 +137,14 @@ const hourlyBookingSchema = new mongoose.Schema({
   },
   specialRequestAudio: {
     type: String,
-    required: false,
     default: null
   },
   bookingStatus: {
     type: String,
-    default: 'pending'
+    enum: ['pending', 'assigned', 'starttracking', 'completed', 'cancelled'],
+    default: 'pending',
+    required: true
   },
-  passengerNames: [{
-    type: String
-  }],
   isActive: {
     type: Boolean,
     default: true
@@ -157,5 +152,12 @@ const hourlyBookingSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// Indexes for performance
+hourlyBookingSchema.index({ cityID: 1 });
+hourlyBookingSchema.index({ bookingStatus: 1 });
+hourlyBookingSchema.index({ customerID: 1 });
+hourlyBookingSchema.index({ driverID: 1 });
+hourlyBookingSchema.index({ pickupDateTime: 1 });
 
 module.exports = mongoose.model('HourlyBooking', hourlyBookingSchema);

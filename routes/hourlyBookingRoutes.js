@@ -16,6 +16,8 @@ const Driver = require('../models/driver_model');
 const HourlyBooking = require('../models/hourlyBookingModel');
 
 const { authenticateDriver } = require('../middleware/driverware');
+const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddleware');
+const { applyDispatcherCityFilter } = require('../utils/spatialUtils');
 
 // // Helper function for notifications (implement as needed)
 // const notifyUser = async (userId, title, body, data) => {
@@ -72,7 +74,7 @@ router.post('/',
 
       const {
         category,
-        hours, pickupLat, pickuplong, pickupAdddress,
+        hours, pickupLat, pickuplong, pickupAddress,
         extraHours, model, categoryID, brandID, carID, cityID,
         charge, customerID, driverID, passsenrgersCount,
         passengerMobile, carClass, specialRequestText,
@@ -87,8 +89,8 @@ router.post('/',
         // category: category,
         hours: hours,
         pickupLat: pickupLat,
-        pickuplong: pickuplong,
-        pickupAdddress: pickupAdddress,
+        pickupLong: pickupLong,
+        pickupAddress: pickupAddress,
         pickupDateTime: pickupDateTime,
         model: model,
         categoryID: categoryID,
@@ -469,8 +471,8 @@ router.post('/',
         extraVat: extraVat,
         hours: parsedHours,
         pickupLat: parsedPickupLat,
-        pickuplong: parsedPickuplong,
-        pickupAdddress: String(pickupAdddress).trim(),
+        pickupLong: parsedPickupLong,
+        pickupAddress: String(pickupAddress).trim(),
         pickupDateTime: new Date(pickupDateTime),
         extraHours: parsedExtraHours,
         model: String(model).trim(),
@@ -652,7 +654,7 @@ router.put('/:id',
       // Extract fields from request body
       const {
         category,
-        hours, pickupLat, pickuplong, pickupAdddress,
+        hours, pickupLat, pickupLong, pickupAddress,
         extraHours, model, categoryID, brandID, carID, cityID,
         charge, customerID, driverID, passsenrgersCount,
         passengerMobile, carClass, specialRequestText,
@@ -687,12 +689,12 @@ router.put('/:id',
       }
 
       // Handle pickup coordinates
-      if (isValidValue(pickupLat) && isValidValue(pickuplong)) {
+      if (isValidValue(pickupLat) && isValidValue(pickupLong)) {
         const parsedPickupLat = parseFloat(pickupLat);
-        const parsedPickuplong = parseFloat(pickuplong);
-        if (!isNaN(parsedPickupLat) && !isNaN(parsedPickuplong)) {
+        const parsedPickupLong = parseFloat(pickupLong);
+        if (!isNaN(parsedPickupLat) && !isNaN(parsedPickupLong)) {
           updateData.pickupLat = parsedPickupLat;
-          updateData.pickuplong = parsedPickuplong;
+          updateData.pickupLong = parsedPickupLong;
         } else {
           if (req.files) {
             if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
@@ -710,8 +712,8 @@ router.put('/:id',
       // }
 
       // Handle pickup address
-      if (isValidValue(pickupAdddress)) {
-        updateData.pickupAdddress = String(pickupAdddress).trim();
+      if (isValidValue(pickupAddress)) {
+        updateData.pickupAddress = String(pickupAddress).trim();
       }
 
       // Handle pickup date time
@@ -1191,274 +1193,280 @@ router.put('/:id',
 
 
 // READ - Get all hourly bookings with populated references and pagination
-router.get('/', async (req, res) => {
-  try {
-    const {
-      page = 1,
-      limit = 10,
-      sort = '-createdAt',
-      status,
-      customerID,
-      driverID,
-      cityID,
-      fromDate,
-      toDate
-    } = req.query;
+router.get('/',
+  authenticateToken,
+  authorizeAdmin,
+  async (req, res) => {
+    try {
+      const {
+        page = 1,
+        limit = 10,
+        sort = '-createdAt',
+        status,
+        customerID,
+        driverID,
+        cityID,
+        fromDate,
+        toDate
+      } = req.query;
 
-    // Build query filters
-    const query = {};
+      // Build query filters
+      const query = {};
 
-    if (status) query.bookingStatus = status;
-    if (customerID && mongoose.Types.ObjectId.isValid(customerID)) {
-      query.customerID = new mongoose.Types.ObjectId(customerID);
-    }
-    if (driverID && mongoose.Types.ObjectId.isValid(driverID)) {
-      query.driverID = new mongoose.Types.ObjectId(driverID);
-    }
-    if (cityID && mongoose.Types.ObjectId.isValid(cityID)) {
-      query.cityID = new mongoose.Types.ObjectId(cityID);
-    }
-    if (fromDate || toDate) {
-      query.createdAt = {};
-      if (fromDate) query.createdAt.$gte = new Date(fromDate);
-      if (toDate) query.createdAt.$lte = new Date(toDate);
-    }
+      if (status) query.bookingStatus = status;
+      if (customerID && mongoose.Types.ObjectId.isValid(customerID)) {
+        query.customerID = new mongoose.Types.ObjectId(customerID);
+      }
+      if (driverID && mongoose.Types.ObjectId.isValid(driverID)) {
+        query.driverID = new mongoose.Types.ObjectId(driverID);
+      }
+      if (cityID && mongoose.Types.ObjectId.isValid(cityID)) {
+        query.cityID = new mongoose.Types.ObjectId(cityID);
+      }
+      if (fromDate || toDate) {
+        query.createdAt = {};
+        if (fromDate) query.createdAt.$gte = new Date(fromDate);
+        if (toDate) query.createdAt.$lte = new Date(toDate);
+      }
 
-    // Pagination
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const skip = (pageNum - 1) * limitNum;
+      // Apply dispatcher city filter (no-op for superadmins)
+      const finalQuery = applyDispatcherCityFilter(req.admin, query);
 
-    // Get total count for pagination
-    const total = await HourlyBooking.countDocuments(query);
+      // Pagination
+      const pageNum = parseInt(page);
+      const limitNum = parseInt(limit);
+      const skip = (pageNum - 1) * limitNum;
 
-    // Get bookings with full population
-    const bookings = await HourlyBooking.find(query)
-      .populate({
-        path: 'categoryID',
-        model: 'Category',
-        select: '_id name  description descriptionAr image isActive'
-      })
-      .populate({
-        path: 'brandID',
-        model: 'Brand',
-        select: '_id brandName brandNameAr logo isActive'
-      })
-      .populate({
-        path: 'carID',
-        model: 'Car',
-        populate: [
-          {
-            path: 'categoryID',
-            model: 'Category',
-            select: '_id name nameAr'
-          },
-          {
-            path: 'brandID',
-            model: 'Brand',
-            select: '_id brandName brandNameAr'
-          }
-        ],
-        select: '_id categoryID brandID carName model numberOfPassengers carImage minimumChargeDistance hourlyRate isActive'
-      })
-      .populate({
-        path: 'cityID',
-        model: 'City',
-        select: '_id cityName cityNameAr image isActive'
-      })
-      .populate({
-        path: 'customerID',
-        model: 'User',
-        select: '_id username email phoneNumber countryCode profileImage fullPhoneNumber isActive'
-      })
-      .populate({
-        path: 'driverID',
-        model: 'Driver',
-        select: '_id driverName countryCode phoneNumber licenseNumber profileImage rating totalTrips isActive isVerified'
-      })
-      .sort(sort)
-      .skip(skip)
-      .limit(limitNum)
-      .lean();
+      // Get total count for pagination
+      const total = await HourlyBooking.countDocuments(finalQuery);
 
-    // Format the response with full field mapping
-    const formattedBookings = bookings.map(booking => ({
-      _id: booking._id,
-      vat: booking.vat,
-      extraVat: booking.extraVat,
-      // Basic Information
-      bookingType: 'hourly',
-      bookingNumber: booking.bookingNumber || `HB${booking._id.toString().slice(-8)}`,
+      // Get bookings with full population
+      const bookings = await HourlyBooking.find(finalQuery)
+        .populate({
+          path: 'categoryID',
+          model: 'Category',
+          select: '_id name  description descriptionAr image isActive'
+        })
+        .populate({
+          path: 'brandID',
+          model: 'Brand',
+          select: '_id brandName brandNameAr logo isActive'
+        })
+        .populate({
+          path: 'carID',
+          model: 'Car',
+          populate: [
+            {
+              path: 'categoryID',
+              model: 'Category',
+              select: '_id name nameAr'
+            },
+            {
+              path: 'brandID',
+              model: 'Brand',
+              select: '_id brandName brandNameAr'
+            }
+          ],
+          select: '_id categoryID brandID carName model numberOfPassengers carImage minimumChargeDistance hourlyRate isActive'
+        })
+        .populate({
+          path: 'cityID',
+          model: 'City',
+          select: '_id cityName cityNameAr image isActive'
+        })
+        .populate({
+          path: 'customerID',
+          model: 'User',
+          select: '_id username email phoneNumber countryCode profileImage fullPhoneNumber isActive'
+        })
+        .populate({
+          path: 'driverID',
+          model: 'Driver',
+          select: '_id driverName countryCode phoneNumber licenseNumber profileImage rating totalTrips isActive isVerified'
+        })
+        .sort(sort)
+        .skip(skip)
+        .limit(limitNum)
+        .lean();
 
-      // Category Details
-      category: booking.categoryID ? {
-        _id: booking.categoryID._id,
-        name: booking.categoryID.name,
-        nameAr: booking.categoryID.nameAr,
-        description: booking.categoryID.description,
-        descriptionAr: booking.categoryID.descriptionAr,
-        image: booking.categoryID.image,
-        isActive: booking.categoryID.isActive
-      } : null,
+      // Format the response with full field mapping
+      const formattedBookings = bookings.map(booking => ({
+        _id: booking._id,
+        vat: booking.vat,
+        extraVat: booking.extraVat,
+        // Basic Information
+        bookingType: 'hourly',
+        bookingNumber: booking.bookingNumber || `HB${booking._id.toString().slice(-8)}`,
 
-      // Brand Details
-      brand: booking.brandID ? {
-        _id: booking.brandID._id,
-        brandName: booking.brandID.brandName,
-        brandNameAr: booking.brandID.brandNameAr,
-        logo: booking.brandID.logo,
-        isActive: booking.brandID.isActive
-      } : null,
-
-      // Car Details with nested relations
-      car: booking.carID ? {
-        _id: booking.carID._id,
-        carName: booking.carID.carName,
-        model: booking.carID.model,
-        numberOfPassengers: booking.carID.numberOfPassengers,
-        carImage: booking.carID.carImage,
-        minimumChargeDistance: booking.carID.minimumChargeDistance,
-        hourlyRate: booking.carID.hourlyRate,
-        category: booking.carID.categoryID ? {
-          _id: booking.carID.categoryID._id,
-          name: booking.carID.categoryID.name,
-          nameAr: booking.carID.categoryID.nameAr
+        // Category Details
+        category: booking.categoryID ? {
+          _id: booking.categoryID._id,
+          name: booking.categoryID.name,
+          nameAr: booking.categoryID.nameAr,
+          description: booking.categoryID.description,
+          descriptionAr: booking.categoryID.descriptionAr,
+          image: booking.categoryID.image,
+          isActive: booking.categoryID.isActive
         } : null,
-        brand: booking.carID.brandID ? {
-          _id: booking.carID.brandID._id,
-          brandName: booking.carID.brandID.brandName,
-          brandNameAr: booking.carID.brandID.brandNameAr
+
+        // Brand Details
+        brand: booking.brandID ? {
+          _id: booking.brandID._id,
+          brandName: booking.brandID.brandName,
+          brandNameAr: booking.brandID.brandNameAr,
+          logo: booking.brandID.logo,
+          isActive: booking.brandID.isActive
         } : null,
-        isActive: booking.carID.isActive
-      } : null,
 
-      // City Details
-      city: booking.cityID ? {
-        _id: booking.cityID._id,
-        cityName: booking.cityID.cityName,
-        cityNameAr: booking.cityID.cityNameAr,
-        image: booking.cityID.image,
-        isActive: booking.cityID.isActive
-      } : null,
+        // Car Details with nested relations
+        car: booking.carID ? {
+          _id: booking.carID._id,
+          carName: booking.carID.carName,
+          model: booking.carID.model,
+          numberOfPassengers: booking.carID.numberOfPassengers,
+          carImage: booking.carID.carImage,
+          minimumChargeDistance: booking.carID.minimumChargeDistance,
+          hourlyRate: booking.carID.hourlyRate,
+          category: booking.carID.categoryID ? {
+            _id: booking.carID.categoryID._id,
+            name: booking.carID.categoryID.name,
+            nameAr: booking.carID.categoryID.nameAr
+          } : null,
+          brand: booking.carID.brandID ? {
+            _id: booking.carID.brandID._id,
+            brandName: booking.carID.brandID.brandName,
+            brandNameAr: booking.carID.brandID.brandNameAr
+          } : null,
+          isActive: booking.carID.isActive
+        } : null,
 
-      // Customer Details
-      customer: booking.customerID ? {
-        _id: booking.customerID._id,
-        username: booking.customerID.username,
-        email: booking.customerID.email,
-        phoneNumber: booking.customerID.phoneNumber,
-        countryCode: booking.customerID.countryCode,
-        fullPhoneNumber: booking.customerID.fullPhoneNumber ||
-          `${booking.customerID.countryCode || ''}${booking.customerID.phoneNumber || ''}`,
-        profileImage: booking.customerID.profileImage,
-        isActive: booking.customerID.isActive
-      } : null,
+        // City Details
+        city: booking.cityID ? {
+          _id: booking.cityID._id,
+          cityName: booking.cityID.cityName,
+          cityNameAr: booking.cityID.cityNameAr,
+          image: booking.cityID.image,
+          isActive: booking.cityID.isActive
+        } : null,
 
-      // Driver Details
-      driver: booking.driverID ? {
-        _id: booking.driverID._id,
-        driverName: booking.driverID.driverName,
-        countryCode: booking.driverID.countryCode,
-        phoneNumber: booking.driverID.phoneNumber,
-        fullPhoneNumber: `${booking.driverID.countryCode || ''}${booking.driverID.phoneNumber || ''}`,
-        licenseNumber: booking.driverID.licenseNumber,
-        profileImage: booking.driverID.profileImage,
-        rating: booking.driverID.rating,
-        totalTrips: booking.driverID.totalTrips,
-        isActive: booking.driverID.isActive,
-        isVerified: booking.driverID.isVerified
-      } : null,
+        // Customer Details
+        customer: booking.customerID ? {
+          _id: booking.customerID._id,
+          username: booking.customerID.username,
+          email: booking.customerID.email,
+          phoneNumber: booking.customerID.phoneNumber,
+          countryCode: booking.customerID.countryCode,
+          fullPhoneNumber: booking.customerID.fullPhoneNumber ||
+            `${booking.customerID.countryCode || ''}${booking.customerID.phoneNumber || ''}`,
+          profileImage: booking.customerID.profileImage,
+          isActive: booking.customerID.isActive
+        } : null,
 
-      // Hourly Booking Specific Fields
-      hours: booking.hours,
-      startTime: booking.startTime,
-      endTime: booking.endTime,
-      totalCharge: booking.totalCharge,
-      hourlyRate: booking.hourlyRate,
+        // Driver Details
+        driver: booking.driverID ? {
+          _id: booking.driverID._id,
+          driverName: booking.driverID.driverName,
+          countryCode: booking.driverID.countryCode,
+          phoneNumber: booking.driverID.phoneNumber,
+          fullPhoneNumber: `${booking.driverID.countryCode || ''}${booking.driverID.phoneNumber || ''}`,
+          licenseNumber: booking.driverID.licenseNumber,
+          profileImage: booking.driverID.profileImage,
+          rating: booking.driverID.rating,
+          totalTrips: booking.driverID.totalTrips,
+          isActive: booking.driverID.isActive,
+          isVerified: booking.driverID.isVerified
+        } : null,
 
-      // Location Details
-      pickupLat: booking.pickupLat,
-      pickupLong: booking.pickupLong,
-      pickupAddress: booking.pickupAddress,
-      dropOffLat: booking.dropOffLat,
-      dropOffLong: booking.dropOffLong,
-      dropOffAddress: booking.dropOffAddress,
+        // Hourly Booking Specific Fields
+        hours: booking.hours,
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+        totalCharge: booking.totalCharge,
+        hourlyRate: booking.hourlyRate,
 
-      // Car Details from Booking
-      carModel: booking.carModel,
-      carImage: booking.carImage,
+        // Location Details
+        pickupLat: booking.pickupLat,
+        pickupLong: booking.pickupLong,
+        pickupAddress: booking.pickupAddress,
+        dropOffLat: booking.dropOffLat,
+        dropOffLong: booking.dropOffLong,
+        dropOffAddress: booking.dropOffAddress,
 
-      // Passenger Details
-      passengerCount: booking.passengerCount,
-      passengerNames: booking.passengerNames,
-      passengerMobile: booking.passengerMobile,
+        // Car Details from Booking
+        carModel: booking.carModel,
+        carImage: booking.carImage,
 
-      // Status and Tracking
-      bookingStatus: booking.bookingStatus,
-      trackingTimeline: booking.trackingTimeline || [],
-      paymentStatus: booking.paymentStatus,
-      paymentMethod: booking.paymentMethod,
+        // Passenger Details
+        passengerCount: booking.passengerCount,
+        passengerNames: booking.passengerNames,
+        passengerMobile: booking.passengerMobile,
 
-      // Ratings
-      customerRating: booking.customerRating,
-      driverRating: booking.driverRating,
-      customerReview: booking.customerReview,
-      driverReview: booking.driverReview,
+        // Status and Tracking
+        bookingStatus: booking.bookingStatus,
+        trackingTimeline: booking.trackingTimeline || [],
+        paymentStatus: booking.paymentStatus,
+        paymentMethod: booking.paymentMethod,
 
-      // Special Requests
-      specialRequests: booking.specialRequests,
-      specialRequestAudio: booking.specialRequestAudio,
+        // Ratings
+        customerRating: booking.customerRating,
+        driverRating: booking.driverRating,
+        customerReview: booking.customerReview,
+        driverReview: booking.driverReview,
 
-      // Transaction Details
-      transactionID: booking.transactionID,
-      orderID: booking.orderID,
-      discountApplied: booking.discountApplied,
-      discountAmount: booking.discountAmount,
-      taxAmount: booking.taxAmount,
+        // Special Requests
+        specialRequests: booking.specialRequests,
+        specialRequestAudio: booking.specialRequestAudio,
 
-      // Timestamps
-      createdAt: booking.createdAt,
-      updatedAt: booking.updatedAt,
-      startedAt: booking.startedAt,
-      completedAt: booking.completedAt,
-      cancelledAt: booking.cancelledAt,
+        // Transaction Details
+        transactionID: booking.transactionID,
+        orderID: booking.orderID,
+        discountApplied: booking.discountApplied,
+        discountAmount: booking.discountAmount,
+        taxAmount: booking.taxAmount,
 
-      // Additional Metadata
-      metadata: booking.metadata
-    }));
+        // Timestamps
+        createdAt: booking.createdAt,
+        updatedAt: booking.updatedAt,
+        startedAt: booking.startedAt,
+        completedAt: booking.completedAt,
+        cancelledAt: booking.cancelledAt,
 
-    // Calculate pagination info
-    const totalPages = Math.ceil(total / limitNum);
-    const hasNextPage = pageNum < totalPages;
-    const hasPrevPage = pageNum > 1;
+        // Additional Metadata
+        metadata: booking.metadata
+      }));
 
-    res.status(200).json({
-      success: true,
-      message: 'Hourly bookings fetched successfully',
-      count: formattedBookings.length,
-      total: total,
-      pagination: {
-        currentPage: pageNum,
-        totalPages: totalPages,
-        itemsPerPage: limitNum,
-        totalItems: total,
-        hasNextPage: hasNextPage,
-        hasPrevPage: hasPrevPage,
-        nextPage: hasNextPage ? pageNum + 1 : null,
-        prevPage: hasPrevPage ? pageNum - 1 : null
-      },
-      data: formattedBookings
-    });
+      // Calculate pagination info
+      const totalPages = Math.ceil(total / limitNum);
+      const hasNextPage = pageNum < totalPages;
+      const hasPrevPage = pageNum > 1;
 
-  } catch (error) {
-    console.error('Get hourly bookings error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching hourly bookings',
-      error: error.message
-    });
-  }
-});
+      res.status(200).json({
+        success: true,
+        message: 'Hourly bookings fetched successfully',
+        count: formattedBookings.length,
+        total: total,
+        pagination: {
+          currentPage: pageNum,
+          totalPages: totalPages,
+          itemsPerPage: limitNum,
+          totalItems: total,
+          hasNextPage: hasNextPage,
+          hasPrevPage: hasPrevPage,
+          nextPage: hasNextPage ? pageNum + 1 : null,
+          prevPage: hasPrevPage ? pageNum - 1 : null
+        },
+        data: formattedBookings
+      });
+
+    } catch (error) {
+      console.error('Get hourly bookings error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching hourly bookings',
+        error: error.message
+      });
+    }
+  });
 
 
 

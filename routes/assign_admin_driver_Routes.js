@@ -412,7 +412,7 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
           bookingId: updatedBooking._id.toString(),
           bookingType: 'hourly',
           customerId: updatedBooking.customerID,
-          pickupAddress: updatedBooking.pickupAdddress
+          pickupAddress: updatedBooking.pickupAddress
         }
       );
     } catch (notifyError) {
@@ -429,7 +429,7 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
           booking: {
             _id: updatedBooking._id,
             carName: updatedBooking.carName,
-            pickupAddress: updatedBooking.pickupAdddress,
+            pickupAddress: updatedBooking.pickupAddress,
             hours: updatedBooking.hours,
             charge: updatedBooking.charge,
             bookingStatus: updatedBooking.bookingStatus,
@@ -616,7 +616,7 @@ router.post('/assign-driver/HourlyBooking', authenticateToken, authorizeAdmin, a
 //     // Fetch related data
 //     const [driverData, bookingData, adminData, customerData] = await Promise.all([
 //       Driver.findById(driverID).select('driverName phoneNumber email vehicleName vehicleNumber'),
-//       HourlyBooking.findById(bookingID).select('hours pickupAdddress dropOffAddress bookingStatus carName'),
+//       HourlyBooking.findById(bookingID).select('hours pickupAddress dropOffAddress bookingStatus carName'),
 //       Admin.findById(adminID).select('name email'),
 //       Customer.findById(customerID).select('name email phone address')
 //     ]);

@@ -93,16 +93,6 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
             });
         }
 
-        console.log('Booking status:', booking.bookingStatus);
-
-        console.log("The booking 108", booking.bookingStatus);
-
-        console.log(booking.bookingStatus);
-
-
-
-
-
         // Check for existing assignment
         const existingAssignment = await AdminAssignCar.findOne({
             vehicleID: vehicleID,
@@ -113,32 +103,6 @@ router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
         console.log("The existingAssignment 108", existingAssignment);
 
         if (existingAssignment) {
-
-            // await notifyUser(
-            //     String(booking.customerID).trim(),
-            //     'Driver Assigned',
-            //     `Driver has been assigned to your booking.`,
-            //     {
-            //         type: 'booking_assigned',
-            //         bookingId: existingAssignment._id.toString(),
-            //         status: existingAssignment.status
-            //     }
-            // );
-
-
-
-
-            // await notifyDriver(
-            //     String(driverID).trim(),
-            //     '📅 Already Assigned',
-            //     `You have been already assigned this booking.`,
-            //     {
-            //         type: 'booking_assigned',
-            //         bookingId: existingAssignment._id.toString(),
-            //         status: existingAssignment.status
-            //     }
-            // );
-
             return res.status(400).json({
                 success: false,
                 message: 'This car is already assigned to this booking',
@@ -478,7 +442,7 @@ router.post('/HourlyBooking', authenticateToken, authorizeAdmin,
                         carData: car,
                         booking: {
                             _id: updatedBooking._id,
-                            pickupAddress: updatedBooking.pickupAdddress,
+                            pickupAddress: updatedBooking.pickupAddress,
                             hours: updatedBooking.hours,
                             charge: updatedBooking.charge,
                             bookingStatus: updatedBooking.bookingStatus,

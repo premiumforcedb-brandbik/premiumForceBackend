@@ -37,7 +37,8 @@ const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
 const NotificationService = require('../services/notificationService');
 
 
-const { notifyUser, notifyUsers, notifyAdmin, sendPushNotificationAdmin } = require('../fcm');
+const { notifyUser, sendPushNotificationAdmin } = require('../fcm');
+const { applyDispatcherCityFilter } = require('../utils/spatialUtils');
 
 
 
@@ -2419,8 +2420,11 @@ router.get('/',
         if (toDate) query.arrival.$lte = new Date(toDate);
       }
 
+      // Apply dispatcher city filter (no-op for superadmins)
+      const finalQuery = applyDispatcherCityFilter(req.admin, query);
+
       // First, get the raw bookings to check what's in the database
-      const rawBookings = await Booking.find(query)
+      const rawBookings = await Booking.find(finalQuery)
         .limit(parseInt(limit))
         .skip((parseInt(page) - 1) * parseInt(limit))
         .lean();
@@ -2437,7 +2441,7 @@ router.get('/',
       } : 'No bookings');
 
       // Find bookings with full population
-      const bookings = await Booking.find(query)
+      const bookings = await Booking.find(finalQuery)
         .populate({
           path: 'customerID',
           model: 'User',

@@ -694,7 +694,7 @@ router.get('/availability/date-wise', async (req, res) => {
           status: booking.bookingStatus,
           charge: booking.charge,
           hours: booking.hours,
-          pickupAddress: booking.pickupAddress || booking.pickupAdddress,
+          pickupAddress: booking.pickupAddress || booking.pickupAddress,
           dropOffAddress: booking.dropOffAddress,
           customerID: booking.customerID,
           createdAt: booking.createdAt,
@@ -711,7 +711,7 @@ router.get('/availability/date-wise', async (req, res) => {
       //     status: booking.bookingStatus,
       //     charge: booking.charge,
       //     hours: booking.hours,
-      //     pickupAddress: booking.pickupAddress || booking.pickupAdddress,
+      //     pickupAddress: booking.pickupAddress || booking.pickupAddress,
       //     dropOffAddress: booking.dropOffAddress,
       //     customerID: booking.customerID,
       //     createdAt: booking.createdAt,
@@ -727,7 +727,7 @@ router.get('/availability/date-wise', async (req, res) => {
       //     status: booking.bookingStatus,
       //     charge: booking.charge,
       //     hours: booking.hours,
-      //     pickupAddress: booking.pickupAddress || booking.pickupAdddress,
+      //     pickupAddress: booking.pickupAddress || booking.pickupAddress,
       //     dropOffAddress: booking.dropOffAddress,
       //     customerID: booking.customerID,
       //     createdAt: booking.createdAt
@@ -743,7 +743,7 @@ router.get('/availability/date-wise', async (req, res) => {
       //     status: booking.bookingStatus,
       //     charge: booking.charge,
       //     hours: booking.hours,
-      //     pickupAddress: booking.pickupAddress || booking.pickupAdddress,
+      //     pickupAddress: booking.pickupAddress || booking.pickupAddress,
       //     dropOffAddress: booking.dropOffAddress,
       //     customerID: booking.customerID,
       //     createdAt: booking.createdAt
@@ -759,7 +759,7 @@ router.get('/availability/date-wise', async (req, res) => {
           status: activeBooking.bookingStatus,
           charge: activeBooking.charge,
           hours: activeBooking.hours,
-          pickupAddress: activeBooking.pickupAddress || activeBooking.pickupAdddress,
+          pickupAddress: activeBooking.pickupAddress || activeBooking.pickupAddress,
           dropOffAddress: activeBooking.dropOffAddress,
           customerID: activeBooking.customerID,
           createdAt: activeBooking.createdAt
@@ -1156,7 +1156,7 @@ router.post('/start-tracking/tracking/HourlyBooking', authenticateDriver, async 
           status: 'start tracking',
           completedAt: booking.completedAt,
           bookingDetails: {
-            pickupLocation: booking.pickupAdddress,
+            pickupLocation: booking.pickupAddress,
 
             carName: booking.carName,
             customerName: customer?.name,
@@ -1175,7 +1175,7 @@ router.post('/start-tracking/tracking/HourlyBooking', authenticateDriver, async 
         status: booking.bookingStatus,
         completedAt: booking.completedAt,
         bookingDetails: {
-          pickupLocation: booking.pickupAdddress,
+          pickupLocation: booking.pickupAddress,
 
           carName: booking.carName,
           customerName: customer?.name || booking.customerName
@@ -1415,7 +1415,7 @@ router.post('/complete-trip/HourlyBooking',
               status: 'paymentPending',
               completedAt: booking.completedAt,
               bookingDetails: {
-                pickupLocation: booking.pickupAdddress,
+                pickupLocation: booking.pickupAddress,
                 carName: booking.carName,
                 customerName: customer?.name || booking.customerName
               },
@@ -1440,7 +1440,7 @@ router.post('/complete-trip/HourlyBooking',
               status: 'paymentPending',
               completedAt: booking.completedAt,
               bookingDetails: {
-                pickupLocation: booking.pickupAdddress,
+                pickupLocation: booking.pickupAddress,
                 carName: booking.carName,
                 customerName: customer?.name,
                 driverName: driver?.driverName,
@@ -1534,7 +1534,7 @@ router.get('/all',
       const {
         isActive,
         isVerified,
-        status, // Extract status from query params
+        status,
         search,
         page = 1,
         limit = 10
@@ -2559,37 +2559,6 @@ router.put('/:id',
   }
 );
 
-
-
-
-
-router.get('/debug/all-licenses', async (req, res) => {
-  try {
-    const drivers = await Driver.find({}, 'driverName phoneNumber licenseNumber isActive');
-
-    console.log('All drivers in database:');
-    drivers.forEach(driver => {
-      console.log(`- ${driver.driverName}: ${driver.licenseNumber}`);
-    });
-
-    res.status(200).json({
-      success: true,
-      totalDrivers: drivers.length,
-      drivers: drivers.map(d => ({
-        id: d._id,
-        name: d.driverName,
-        phone: d.phoneNumber,
-        licenseNumber: d.licenseNumber,
-        isActive: d.isActive
-      }))
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
 
 
 /**

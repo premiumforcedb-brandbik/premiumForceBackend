@@ -5,20 +5,26 @@ const bookingSchema = new mongoose.Schema({
   category: {
     type: String,
     required: true
-    // customize as needed
   },
   cityID: {
-    type: String,
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'City',
     required: true
   },
   airportID: {
-    type: String
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Airport',
+    default: null
   },
   terminalID: {
-    type: String
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Terminal',
+    default: null
   },
   carID: {
-    type: String
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Car',
+    default: null
   },
   transactionID: {
     type: String,
@@ -54,8 +60,7 @@ const bookingSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
-  pickupAddress:
-  {
+  pickupAddress: {
     type: String,
     required: true
   },
@@ -71,27 +76,17 @@ const bookingSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  // Make sure these field names match exactly with your code
-  // carclass: {
-  //   type: String,
-  //   required: true
-  // },
-  // carbrand: {
-  //   type: String,
-  //   required: true
-  // },
-
   carmodel: {
     type: String,
     required: true
   },
-  //  carName: {
-  //   type: String,
-  //   required: true
-  // },
   charge: {
     type: Number,
     required: true
+  },
+  vat: {
+    type: Number,
+    default: 0
   },
   carimage: {
     key: String,
@@ -109,28 +104,14 @@ const bookingSchema = new mongoose.Schema({
     originalName: String,
     mimeType: String,
     size: Number,
-    duration: Number // optional: audio duration in seconds
+    duration: Number
   },
-  bookingStatus: {
-    type: String,
-    required: false,
-  },
-  vat: {
+  passengerCount: {
     type: Number,
-    required: false,
-  },
-
-  timeLine: [{
-    type: String,
-    required: false
-  }],
-  passengerMobile: {
-    type: String,
     required: true
   },
   passengerNames: [{
-    type: String,
-    required: true
+    type: String
   }],
   passengerMobile: {
     type: String,
@@ -152,12 +133,15 @@ const bookingSchema = new mongoose.Schema({
   },
   bookingStatus: {
     type: String,
-    required: true,
-
+    enum: ['pending', 'assigned', 'starttracking', 'completed', 'cancelled'],
+    default: 'pending',
+    required: true
   },
   TrackingTimeLine: [{
-    type: String,
-    required: true
+    type: String
+  }],
+  timeLine: [{
+    type: String
   }],
   paymentStatus: {
     type: Boolean,
@@ -166,38 +150,42 @@ const bookingSchema = new mongoose.Schema({
   paymentCompletedAt: {
     type: Date
   },
+  driverAssignedAt: {
+    type: Date
+  },
+  trackingStartedAt: {
+    type: Date
+  },
+  completedAt: {
+    type: Date
+  },
   rating: {
     type: Map,
     of: mongoose.Schema.Types.Mixed,
     default: {}
-    // Example structure:
-    // {
-    //   "driver_rating": 5,
-    //   "service_rating": 4,
-    //   "punctuality": 5,
-    //   "cleanliness": 4,
-    //   "comment": "Great service!"
-    // }
   }
 }, {
-  timestamps: true // Adds createdAt and updatedAt automatically
+  timestamps: true
 });
 
-
-
-
+// Indexes for performance
+bookingSchema.index({ cityID: 1 });
+bookingSchema.index({ bookingStatus: 1 });
+bookingSchema.index({ customerID: 1 });
+bookingSchema.index({ driverID: 1 });
+bookingSchema.index({ arrival: 1 });
 
 // Method to update booking status with timestamps
 bookingSchema.methods.updateStatus = async function (status) {
   const validStatuses = ['pending', 'assigned', 'starttracking', 'completed', 'cancelled'];
 
   if (!validStatuses.includes(status)) {
-    throw new Error('Invalid status');
+    throw new Error(`Invalid status: "${status}". Valid: ${validStatuses.join(', ')}`);
   }
 
   this.bookingStatus = status;
 
-  // Set timestamps based on status
+  // Set timestamps based on status transition
   switch (status) {
     case 'assigned':
       this.driverAssignedAt = new Date();
@@ -213,8 +201,5 @@ bookingSchema.methods.updateStatus = async function (status) {
   await this.save();
   return this;
 };
-
-
-
 
 module.exports = mongoose.model('Booking', bookingSchema);

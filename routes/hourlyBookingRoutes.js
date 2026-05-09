@@ -2251,9 +2251,9 @@ router.get('/customer/:customerId', async (req, res) => {
 
     const bookings = await HourlyBooking.find({ customerID: customerId })
       .populate('categoryID', 'name description')
-      .populate('brandID', 'brandName logo')
+      .populate('brandID', 'brandName brandIcon')
       .populate('carID', 'name model year licensePlate')
-      .populate('cityID', 'cityName cityNameAr country')
+      .populate('cityID', 'cityName cityNameAr')
       .populate('driverID', 'driverName email phoneNumber countryCode rating licenseNumber')
       .sort({ createdAt: -1 });
 
@@ -2296,9 +2296,9 @@ router.get('/driver/:driverId', async (req, res) => {
 
     const bookings = await HourlyBooking.find({ driverID: driverId })
       .populate('categoryID', 'name description')
-      .populate('brandID', 'brandName logo')
+      .populate('brandID', 'brandName brandIcon')
       .populate('carID', 'name model year licensePlate')
-      .populate('cityID', 'cityName cityNameAr country')
+      .populate('cityID', 'cityName cityNameAr')
       .populate('driverID', 'driverName email phoneNumber countryCode rating licenseNumber')
       .populate('customerID', 'username email phoneNumber countryCode profileImage')
       .sort({ createdAt: -1 });
@@ -2334,11 +2334,11 @@ router.get('/status/:status', async (req, res) => {
 
     const bookings = await HourlyBooking.find({ bookingStatus: status })
       .populate('categoryID', 'name description')
-      .populate('brandID', 'name logo')
+      .populate('brandID', 'brandName brandIcon')
       .populate('carID', 'name model year licensePlate')
-      .populate('cityID', 'name country')
-      .populate('customerID', 'name email phone')
-      .populate('driverID', 'name email phone licenseNumber')
+      .populate('cityID', 'cityName cityNameAr')
+      .populate('customerID', 'username email phoneNumber')
+      .populate('driverID', 'driverName phoneNumber licenseNumber')
       .sort({ createdAt: -1 });
 
     res.status(200).json({
@@ -2400,11 +2400,11 @@ router.patch('/:id/status', async (req, res) => {
       },
       { new: true, runValidators: true }
     ).populate('categoryID', 'name description')
-      .populate('brandID', 'name logo')
+      .populate('brandID', 'brandName brandIcon')
       .populate('carID', 'name model year licensePlate')
-      .populate('cityID', 'name country')
-      .populate('customerID', 'name email phone')
-      .populate('driverID', 'name email phone licenseNumber');
+      .populate('cityID', 'cityName cityNameAr')
+      .populate('customerID', 'username email phoneNumber')
+      .populate('driverID', 'driverName phoneNumber licenseNumber');
 
     // Send notification
     try {

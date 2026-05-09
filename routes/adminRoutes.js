@@ -8,98 +8,23 @@ const HourlyBooking = require('../models/hourlyBookingModel');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
-const { authenticateToken,
+const {
+  authenticateToken,
   authorizeAdmin,
-  authorizeRoles,
-  authorizeAny,
-  // New refresh token functions
-
+  authorizeAccessLevel,
+  authenticateRefreshToken
 } = require('../middleware/adminmiddleware');
+const { generateAdminTokens } = require('../utils/adminAuthUtils');
 
 const router = express.Router();
 
-// Generate Access Token
-const generateAccessToken = (admin) => {
-  return jwt.sign(
-    {
-      adminId: admin._id,
-      email: admin.email,
-      role: admin.role
-    },
-    process.env.JWT_ACCESS_SECRET,
-    { expiresIn: process.env.JWT_ACCESS_EXPIRY || '1d' }
-  );
-};
-
-// Generate Refresh Token
-const generateRefreshToken = (admin) => {
-  return jwt.sign(
-    { adminId: admin._id },
-    process.env.JWT_REFRESH_SECRET,
-    { expiresIn: process.env.JWT_REFRESH_EXPIRY || '7d' }
-  );
-};
-
-// Middleware to verify token
-const verifyToken = async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided'
-      });
-    }
-
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
-
-    const admin = await Admin.findById(decoded.adminId).select('-password -__v');
-
-    if (!admin) {
-      return res.status(401).json({
-        success: false,
-        message: 'Admin not found'
-      });
-    }
-
-    if (!admin.isActive) {
-      return res.status(401).json({
-        success: false,
-        message: 'Admin account is deactivated'
-      });
-    }
-
-    req.admin = admin;
-    next();
-  } catch (error) {
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid token'
-      });
-    }
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Token expired'
-      });
-    }
-    return res.status(500).json({
-      success: false,
-      message: 'Error verifying token',
-      error: error.message
-    });
-  }
-};
 
 /**
  * @route   POST /api/admin/fcm-token
  * @desc    Save FCM token for admin
  * @access  Private
  */
-router.post('/fcm-token', verifyToken, async (req, res) => {
+router.post('/fcm-token', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const { fcmToken } = req.body;
 
@@ -135,7 +60,7 @@ router.post('/fcm-token', verifyToken, async (req, res) => {
  * @desc    Clear FCM token on logout
  * @access  Private
  */
-router.delete('/fcm-token', verifyToken, async (req, res) => {
+router.delete('/fcm-token', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     await Admin.findByIdAndUpdate(req.admin._id, { fcmToken: null });
     res.json({ success: true, message: 'FCM token cleared.' });
@@ -150,84 +75,93 @@ router.delete('/fcm-token', verifyToken, async (req, res) => {
  * @desc    Register a new admin
  * @access  Public (or maybe Private with superadmin role)
  */
-router.post('/register', async (req, res) => {
-  try {
-    const { email, name, password, role = 'admin',
-      accessLevel, phoneNumber, countryCode, zone } = req.body;
+router.post('/register',
+  authenticateToken, authorizeAdmin, authorizeAccessLevel(0),
+  async (req, res) => {
+    try {
+      const { email, name, password,
+        accessLevel = 0, phoneNumber, countryCode, cityID } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide email and password'
-      });
-    }
-    if (!name) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide name'
-      });
-    }
-
-    const existingAdmin = await Admin.findOne({ email: email.toLowerCase() });
-    if (existingAdmin) {
-      return res.status(400).json({
-        success: false,
-        message: 'Admin with this email already exists'
-      });
-    }
-
-    // Create with plain password - middleware will hash it
-    const newAdmin = new Admin({
-      email: email.toLowerCase(),
-      password,  // Plain text - auto-hashed by pre-save
-      role,
-      name,
-      accessLevel,
-      phoneNumber,
-      countryCode, zone
-    });
-
-    const savedAdmin = await newAdmin.save();  // Triggers pre-save hashing
-
-    // Rest of your token logic stays the same...
-    const accessToken = generateAccessToken(savedAdmin);
-    const refreshToken = generateRefreshToken(savedAdmin);
-
-    savedAdmin.refreshToken = refreshToken;
-    await savedAdmin.save();  // Triggers pre-save again (but !isModified('password') skips hashing)
-
-    const adminResponse = savedAdmin.toObject();
-    delete adminResponse.refreshToken;
-    delete adminResponse.password;
-
-    res.status(201).json({
-      success: true,
-      message: 'Admin registered successfully',
-      data: {
-        admin: adminResponse,
-        tokens: {
-          accessToken,
-          refreshToken,
-          tokenType: 'Bearer',
-          expiresIn: process.env.JWT_ACCESS_EXPIRY || '1d'
-        }
+      if (!email || !password) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide email and password'
+        });
       }
-    });
-  } catch (error) {
-    console.error('Register admin error:', error);
-    if (error.code === 11000) {
-      return res.status(400).json({
+      if (!name) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide name'
+        });
+      }
+
+      if (accessLevel == 1 && !cityID) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide cityID'
+        });
+      }
+
+      const existingAdmin = await Admin.findOne({ email: email.toLowerCase() });
+      if (existingAdmin) {
+        return res.status(400).json({
+          success: false,
+          message: 'Admin with this email already exists'
+        });
+      }
+
+      // Create with plain password - middleware will hash it
+      const newAdmin = new Admin({
+        email: email.toLowerCase(),
+        password,
+        role: 'admin',
+        name,
+        accessLevel,
+        phoneNumber,
+        countryCode,
+        cityID
+      });
+
+      const savedAdmin = await newAdmin.save();
+
+      // Generate tokens using utility
+      const { accessToken, refreshToken } = generateAdminTokens(savedAdmin);
+
+      savedAdmin.refreshToken = refreshToken;
+      await savedAdmin.save();
+
+      const adminResponse = savedAdmin.toObject();
+      delete adminResponse.refreshToken;
+      delete adminResponse.password;
+
+      res.status(201).json({
+        success: true,
+        message: 'Admin registered successfully',
+        data: {
+          admin: adminResponse,
+          tokens: {
+            accessToken,
+            refreshToken,
+            tokenType: 'Bearer',
+            expiresIn: process.env.JWT_ACCESS_EXPIRY || '1d'
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Register admin error:', error);
+      if (error.code === 11000) {
+        return res.status(400).json({
+          success: false,
+          message: 'Admin with this email already exists'
+        });
+      }
+      res.status(500).json({
         success: false,
-        message: 'Admin with this email already exists'
+        message: 'Error registering admin',
+        error: error.message
       });
     }
-    res.status(500).json({
-      success: false,
-      message: 'Error registering admin',
-      error: error.message
-    });
-  }
-});
+  });
 
 
 /**
@@ -279,9 +213,8 @@ router.post('/login', async (req, res) => {
     admin.lastLogin = new Date();
     await admin.save();
 
-    // Generate tokens
-    const accessToken = generateAccessToken(admin);
-    const refreshToken = generateRefreshToken(admin);
+    // Generate tokens using utility
+    const { accessToken, refreshToken } = generateAdminTokens(admin);
 
     // Save refresh token
     admin.refreshToken = refreshToken;
@@ -322,7 +255,7 @@ router.post('/login', async (req, res) => {
 
 // GET /api/analytics/dashboard-summary
 router.get('/dashboard-summary',
-  // authenticateToken, authorizeAdmin,
+  authenticateToken, authorizeAdmin, authorizeAccessLevel(0),
   async (req, res) => {
     try {
 
@@ -444,45 +377,6 @@ router.get('/dashboard-summary',
       const totalCancelledBookings = cancelledBookings + hourlyCancelledBookings;
 
 
-
-
-      //  res.json({
-      //   success: true,
-      //   data: {
-      //     totalRevenue: totalRevenueValue,
-      //     activeDrivers: activeDrivers,
-
-      //     // // Additional useful metrics (optional)
-      //     // details: {
-      //     //   drivers: {
-      //     //     total: totalDrivers,
-      //     //     active: activeDrivers,
-      //     //     inactive: totalDrivers - activeDrivers
-      //     //   },
-      //       bookings: {
-      //         total: totalBookingsCount,
-      //         regular: totalBookings,
-      //         hourly: hourlyBookings,
-      //         completed: totalCompletedBookings,
-      //         pending: totalPendingBookings,
-      //         cancelled: totalCancelledBookings,
-      //         completionRate: totalBookingsCount > 0 
-      //           ? ((totalCompletedBookings / totalBookingsCount) * 100).toFixed(2) 
-      //           : 0
-      //       },
-      //       revenue: {
-      //         normalBookingCharge: regularRevenue,
-      //         hourlyCharge: hourlyChargeRevenue,
-      //         hourlyExtra: hourlyExtraRevenue
-      //       },
-
-      //     }
-      //   }
-      // });
-
-
-
-
       res.json({
         success: true,
         data: {
@@ -526,51 +420,27 @@ router.get('/dashboard-summary',
  * @desc    Get new access token using refresh token
  * @access  Public
  */
-router.post('/refresh-token', async (req, res) => {
+router.post('/refresh-token', authenticateRefreshToken, async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    const admin = req.admin;
 
-    if (!refreshToken) {
-      return res.status(400).json({
-        success: false,
-        message: 'Refresh token is required'
-      });
-    }
+    // Generate new tokens
+    const { accessToken, refreshToken: newRefreshToken } = generateAdminTokens(admin);
 
-    // Verify refresh token
-    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-
-    // Find admin with this refresh token
-    const admin = await Admin.findOne({
-      _id: decoded.adminId,
-      refreshToken: refreshToken
-    });
-
-    if (!admin) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid refresh token'
-      });
-    }
-
-    // Generate new access token
-    const accessToken = generateAccessToken(admin);
+    // Update refresh token in DB
+    admin.refreshToken = newRefreshToken;
+    await admin.save();
 
     res.status(200).json({
       success: true,
       data: {
         accessToken,
+        refreshToken: newRefreshToken,
         tokenType: 'Bearer',
         expiresIn: process.env.JWT_ACCESS_EXPIRY || '1d'
       }
     });
   } catch (error) {
-    if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid or expired refresh token'
-      });
-    }
     res.status(500).json({
       success: false,
       message: 'Error refreshing token',
@@ -584,7 +454,7 @@ router.post('/refresh-token', async (req, res) => {
  * @desc    Logout admin (clear refresh token)
  * @access  Private
  */
-router.post('/logout', verifyToken, async (req, res) => {
+router.post('/logout', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     // Clear refresh token
     req.admin.refreshToken = null;
@@ -604,68 +474,14 @@ router.post('/logout', verifyToken, async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/admin/check-email
- * @desc    Check if email exists
- * @access  Public
- */
-router.get('/check-email', async (req, res) => {
-  try {
-    const { email } = req.query;
 
-    if (!email || email.trim() === '') {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide an email address'
-      });
-    }
-
-    const cleanEmail = email.trim().toLowerCase();
-
-    const emailRegex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
-    if (!emailRegex.test(cleanEmail)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide a valid email address'
-      });
-    }
-
-    const existingAdmin = await Admin.findOne({ email: cleanEmail })
-      .select('-refreshToken -__v -password');
-
-    if (existingAdmin) {
-      return res.status(200).json({
-        success: true,
-        exists: true,
-        message: 'Email found in database',
-        data: {
-          admin: existingAdmin
-        }
-      });
-    }
-
-    return res.status(404).json({
-      success: false,
-      exists: false,
-      message: `Admin with email ${email} does not exist in our database`
-    });
-
-  } catch (error) {
-    console.error('Check email error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error checking email',
-      error: error.message
-    });
-  }
-});
 
 /**
  * @route   GET /api/admin/profile
  * @desc    Get admin profile
  * @access  Private
  */
-router.get('/profile', verifyToken, async (req, res) => {
+router.get('/profile', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     res.status(200).json({
       success: true,
@@ -686,72 +502,81 @@ router.get('/profile', verifyToken, async (req, res) => {
  * @desc    Get all admins with filtering
  * @access  Private (superadmin only ideally)
  */
-router.get('/',
-  //  verifyToken,
-  async (req, res) => {
-    try {
-      const { role, isActive, search, sort, page = 1, limit = 10 } = req.query;
-      let query = {};
+router.get('/', authenticateToken, authorizeAdmin, authorizeAccessLevel(0), async (req, res) => {
+  try {
+    const { role, isActive, search, sort, page = 1, limit = 10 } = req.query;
+    let query = {};
 
-      // Filtering
-      if (role) query.role = role;
-      if (isActive !== undefined && isActive !== '') {
-        query.isActive = isActive === 'true';
-      }
-
-      // Search functionality (name or email)
-      if (search) {
-        query.$or = [
-          { name: { $regex: search, $options: 'i' } },
-          { email: { $regex: search, $options: 'i' } },
-          { phoneNumber: { $regex: search, $options: 'i' } }
-        ];
-      }
-
-      // Sorting
-      let sortOption = {};
-      if (sort === 'newest') sortOption.createdAt = -1;
-      else if (sort === 'oldest') sortOption.createdAt = 1;
-      else if (sort === 'name') sortOption.name = 1;
-      else if (sort === 'email') sortOption.email = 1;
-      else sortOption.createdAt = -1;
-
-      // Pagination
-      const skip = (parseInt(page) - 1) * parseInt(limit);
-
-      const admins = await Admin.find(query)
-        .sort(sortOption)
-        .skip(skip)
-        .limit(parseInt(limit))
-        .select('-refreshToken -__v -password');
-
-      const total = await Admin.countDocuments(query);
-
-
-      res.status(200).json({
-        success: true,
-        count: admins.length,
-        total,
-        page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
-        data: admins
-      });
-    } catch (error) {
-      console.error('Fetch all admins error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error fetching admins',
-        error: error.message
-      });
+    // Filtering
+    if (role) query.role = role;
+    if (isActive !== undefined && isActive !== '') {
+      query.isActive = isActive === 'true';
     }
-  });
+
+    // Search functionality (name or email)
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phoneNumber: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Sorting
+    let sortOption = {};
+    if (sort === 'newest') sortOption.createdAt = -1;
+    else if (sort === 'oldest') sortOption.createdAt = 1;
+    else if (sort === 'name') sortOption.name = 1;
+    else if (sort === 'email') sortOption.email = 1;
+    else sortOption.createdAt = -1;
+
+    // Pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const admins = await Admin.find(query)
+      .sort(sortOption)
+      .skip(skip)
+      .limit(parseInt(limit))
+      .select('-refreshToken -__v -password')
+      .populate('cityID', 'cityName');
+
+    const total = await Admin.countDocuments(query);
+
+
+    const adminsWithExtraData = admins.map(admin => {
+      const adminObj = admin.toObject();
+
+      return {
+        ...adminObj,
+        city: admin.cityID ? admin.cityID.cityName : null,
+        isMe: admin._id.toString() === req.admin._id.toString()
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      count: admins.length,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / parseInt(limit)),
+      data: adminsWithExtraData
+    });
+  } catch (error) {
+    console.error('Fetch all admins error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching admins',
+      error: error.message
+    });
+  }
+});
 
 /**
  * @route   GET /api/admin/:id
  * @desc    Get admin by ID
  * @access  Private
  */
-router.get('/:id', verifyToken, async (req, res) => {
+router.get('/:id', authenticateToken, authorizeAdmin, authorizeAccessLevel(0), async (req, res) => {
   try {
     const admin = await Admin.findById(req.params.id)
       .select('-refreshToken -__v -password');
@@ -788,10 +613,10 @@ router.get('/:id', verifyToken, async (req, res) => {
  * @desc    Update admin
  * @access  Private
  */
-router.put('/:id', verifyToken, async (req, res) => {
+router.put('/:id', authenticateToken, authorizeAdmin, authorizeAccessLevel(0), async (req, res) => {
   try {
     const { email, name, password, role, isActive, accessLevel,
-      phoneNumber, countryCode, zone } = req.body;
+      phoneNumber, countryCode, cityID } = req.body;
 
     // Find the admin we want to update
     const adminToUpdate = await Admin.findById(req.params.id);
@@ -800,14 +625,6 @@ router.put('/:id', verifyToken, async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Admin not found'
-      });
-    }
-
-    // Check permissions - only superadmin can update other admins, or admin can update themselves
-    if (req.admin.accessLevel !== 0) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to update this admin'
       });
     }
 
@@ -843,7 +660,7 @@ router.put('/:id', verifyToken, async (req, res) => {
     if (accessLevel) updateFields.accessLevel = accessLevel;
     if (phoneNumber) updateFields.phoneNumber = phoneNumber;
     if (countryCode) updateFields.countryCode = countryCode;
-    if (zone) updateFields.zone = zone;
+    if (cityID) updateFields.cityID = cityID;
     // Check if there's anything to update
     if (Object.keys(updateFields).length === 0) {
       return res.status(200).json({
@@ -898,27 +715,8 @@ router.put('/:id', verifyToken, async (req, res) => {
  * @desc    Delete admin
  * @access  Private (superadmin only)
  */
-router.delete('/:id', verifyToken, async (req, res) => {
+router.delete('/:id', authenticateToken, authorizeAdmin, authorizeAccessLevel(0), async (req, res) => {
   try {
-
-
-    console.log(req.admin);
-
-
-    // Check if user is superadmin
-    if (req.admin.accessLevel !== 0) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only superadmin can delete admin accounts'
-      });
-    }
-
-    // return res.status(201).json({
-    //   success: true,
-    //   message: 'delete admin accounts possible'
-    // });
-    // return;
-
     // Prevent deleting yourself
     if (req.admin._id.toString() === req.params.id) {
       return res.status(400).json({
@@ -928,6 +726,13 @@ router.delete('/:id', verifyToken, async (req, res) => {
     }
 
     const admin = await Admin.findById(req.params.id);
+
+    if (admin.role === "superadmin") {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete super admin'
+      });
+    }
 
     if (!admin) {
       return res.status(404).json({
@@ -954,159 +759,6 @@ router.delete('/:id', verifyToken, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error deleting admin',
-      error: error.message
-    });
-  }
-});
-
-/**
- * @route   PATCH /api/admin/:id/deactivate
- * @desc    Deactivate admin (soft delete)
- * @access  Private (superadmin only)
- */
-router.patch('/:id/deactivate',
-  verifyToken, async (req, res) => {
-    try {
-      if (req.admin.role !== 'superadmin') {
-        return res.status(403).json({
-          success: false,
-          message: 'Only superadmin can deactivate admin accounts'
-        });
-      }
-
-      if (req.admin._id.toString() === req.params.id) {
-        return res.status(400).json({
-          success: false,
-          message: 'Cannot deactivate your own account'
-        });
-      }
-
-      const admin = await Admin.findByIdAndUpdate(
-        req.params.id,
-        { isActive: false },
-        { new: true }
-      ).select('-refreshToken -__v -password');
-
-      if (!admin) {
-        return res.status(404).json({
-          success: false,
-          message: 'Admin not found'
-        });
-      }
-
-      res.status(200).json({
-        success: true,
-        message: 'Admin deactivated successfully',
-        data: admin
-      });
-    } catch (error) {
-      console.error('Deactivate admin error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error deactivating admin',
-        error: error.message
-      });
-    }
-  });
-
-/**
- * @route   PATCH /api/admin/:id/activate
- * @desc    Activate admin
- * @access  Private (superadmin only)
- */
-router.patch('/:id/activate', verifyToken, async (req, res) => {
-  try {
-    if (req.admin.role !== 'superadmin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only superadmin can activate admin accounts'
-      });
-    }
-
-    const admin = await Admin.findByIdAndUpdate(
-      req.params.id,
-      { isActive: true },
-      { new: true }
-    ).select('-refreshToken -__v -password');
-
-    if (!admin) {
-      return res.status(404).json({
-        success: false,
-        message: 'Admin not found'
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: 'Admin activated successfully',
-      data: admin
-    });
-  } catch (error) {
-    console.error('Activate admin error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error activating admin',
-      error: error.message
-    });
-  }
-});
-
-
-/**
- * @route   PATCH /api/admin/:id/toggle-status
- * @desc    Toggle admin active status
- * @access  Private (superadmin only)
- */
-router.patch('/:id/toggle-status', verifyToken, async (req, res) => {
-  // const { id } = req.params;
-  const { isActive } = req.body;
-  try {
-    console.log(req.admin.accessLevel);
-    if (req.admin.accessLevel !== 0) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only superadmin can toggle admin status'
-      });
-    }
-
-
-
-    // return;
-    if (req.admin._id.toString() === req.params.id) {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot toggle your own status'
-      });
-    }
-
-    const admin = await Admin.findById(req.params.id);
-
-    if (!admin) {
-      return res.status(404).json({
-        success: false,
-        message: 'Admin not found'
-      });
-    }
-
-    admin.isActive = isActive;
-    await admin.save();
-
-    // Exclude sensitive fields
-    const adminResponse = admin.toObject();
-    delete adminResponse.refreshToken;
-    delete adminResponse.__v;
-    delete adminResponse.password;
-
-    res.status(200).json({
-      success: true,
-      message: `Admin ${admin.isActive ? 'activated' : 'deactivated'} successfully`,
-      data: adminResponse
-    });
-  } catch (error) {
-    console.error('Toggle admin status error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error toggling admin status',
       error: error.message
     });
   }

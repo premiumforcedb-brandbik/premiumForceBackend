@@ -2,66 +2,21 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 
-
-const latLngSchema = new mongoose.Schema({
-  lat: {
-    type: Number,
-    required: false
-  },
-  lng: {
-    type: Number,
-    required: false
-  }
-}, { _id: false });
-
-const zoneSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [false, 'Zone name is required'],
-    trim: true,
-    unique: true
-  },
-  nameAr: {
-    type: String,
-    required: [false, 'Zone Arabic name is required'],
-    trim: true
-  },
-  coordinates: {
-    type: [latLngSchema],
-    required: [false, 'Coordinates are required'],
-    // validate: {
-    //   validator: function (coords) {
-    //     return coords && coords.length >= 1;
-    //   },
-    //   message: 'At least 1 coordinates are required to form a zone'
-    // }
-  },
-  isActive: {
-    type: Boolean,
-    default: true
-  },
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Admin',
-    required: false
-  }
-}, { _id: false });
-
 const adminSchema = new mongoose.Schema({
   accessLevel: {
     type: Number,
     default: 1
   },
-  zone: {
-    type: [zoneSchema],
-    required: [false, 'Zone is required'],
+  cityID: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'City',
+    required: false
   },
   name: {
     type: String,
     required: [true, 'Name is required'],
     trim: true
   },
-
   phoneNumber: {
     type: String,
     required: false,

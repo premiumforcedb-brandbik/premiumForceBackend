@@ -10,6 +10,7 @@ const AdminAssignCar = require('../models/assign_admin_car_model');
 const FleetHistory = require('../models/FleetHistoryModel');
 const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddleware');
 const { authenticateDriver } = require('../middleware/driverware');
+const { getLiveFleetData } = require('../services/afaqyService');
 
 
 // ==================== CREATE ====================
@@ -198,6 +199,36 @@ router.get('/api/fleets/status-list',
             res.status(500).json({ success: false, message: error.message });
         }
     });
+
+/**
+ * @route   GET /api/fleets/:id/details
+ * @desc    Get database details + Live GPS data from Afaqy
+ * @access  Private (Admin)
+ */
+router.get('/api/fleets/:id/details', authenticateToken, authorizeAdmin, async (req, res) => {
+    try {
+        const fleet = await Fleet.findById(req.params.id)
+            .populate('carID')
+            .populate('driverID', 'driverName name phoneNumber email profileImage');
+
+        if (!fleet) {
+            return res.status(404).json({ success: false, message: 'Fleet vehicle not found' });
+        }
+
+        const liveData = await getLiveFleetData(fleet.carLicenseNumber);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                db: fleet,
+                live: liveData || null
+            }
+        });
+    } catch (error) {
+        console.error('Fleet live details error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 
 // ==================== READ (GET SINGLE) ====================
 // Get a single fleet by ID
@@ -528,6 +559,30 @@ router.patch('/api/fleets/bulk/status', async (req, res) => {
 // ==================== DRIVER OPERATIONS (TAKE OUT / RETURN) ====================
 
 /**
+ * @route   GET /api/fleets/list/driver
+ * @desc    Get all active fleets for drivers to pick from
+ * @access  Private (Driver)
+ */
+router.get('/api/fleets/list/driver', authenticateDriver, async (req, res) => {
+    try {
+        const fleets = await Fleet.find({ isActive: true, isBusyCar: false })
+            .populate('carID', 'carName model image')
+            .select('carLicenseNumber isBusyCar isActive');
+
+        res.status(200).json({
+            success: true,
+            count: fleets.length,
+            data: fleets
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+/**
  * @route   POST /api/fleets/take-out
  * @desc    Driver picks up a car (Starts a session)
  * @access  Private (Driver)
@@ -598,6 +653,9 @@ router.post('/api/fleets/take-out', authenticateDriver, async (req, res) => {
         fleet.activeHistoryID = historyEntry._id;
         await fleet.save({ session });
 
+        // 3. Update Driver busy state
+        await Driver.findByIdAndUpdate(driverID, { isBusy: true }).session(session);
+
         await session.commitTransaction();
         session.endSession();
 
@@ -667,6 +725,9 @@ router.post('/api/fleets/return', authenticateDriver, async (req, res) => {
         fleet.lastReturnAt = now;
         fleet.activeHistoryID = null;
         await fleet.save({ session });
+
+        // 3. Update Driver busy state
+        await Driver.findByIdAndUpdate(driverID, { isBusy: false }).session(session);
 
         await session.commitTransaction();
         session.endSession();

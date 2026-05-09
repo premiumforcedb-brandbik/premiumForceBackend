@@ -5,7 +5,7 @@ const crypto = require('crypto');
 // Generate tokens
 const generateTokens = (driver) => {
   const accessToken = jwt.sign(
-    { 
+    {
       id: driver._id,
       phoneNumber: driver.phoneNumber,
       driverName: driver.driverName,

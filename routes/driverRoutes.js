@@ -16,6 +16,8 @@ const { authenticateDriver } = require('../middleware/driverware');
 const twilio = require('twilio');
 const mongoose = require('mongoose');
 const Fleet = require('../models/FleetModel'); // Added Fleet model
+const Zone = require('../models/zoneModel');
+const { getAllLiveFleets } = require('../services/afaqyService');
 
 const { notifyUser, notifyUsers } = require('../fcm');
 
@@ -1579,6 +1581,58 @@ router.get('/all',
       const pageNum = parseInt(page) || 1;
       const limitNum = parseInt(limit) || 10;
       const skip = (pageNum - 1) * limitNum;
+
+      // ── Dispatcher city-scoping ──────────────────────────────────────────
+      // If the admin is a dispatcher (accessLevel === 1), restrict results to
+      // drivers whose assigned fleet vehicle is currently inside the dispatcher's
+      // city zones (resolved via Afaqy live GPS → Zone polygon → Fleet.driverID).
+      if (req.admin?.accessLevel === 1) {
+        const cityID = req.admin.cityID?._id || req.admin.cityID;
+
+        if (!cityID) {
+          return res.status(403).json({
+            success: false,
+            message: 'Dispatcher has no city assigned'
+          });
+        }
+
+        // 1. Get active zones for this city
+        const zones = await Zone.find({ cityID, isActive: true });
+
+        if (!zones.length) {
+          // No zones defined for city → no visibility
+          return res.status(200).json({
+            success: true,
+            data: [],
+            pagination: { page: parseInt(page), limit: limitNum, total: 0, totalPages: 0 }
+          });
+        }
+
+        // 2. Fetch all live Afaqy fleet units
+        const afaqyUnits = await getAllLiveFleets();
+
+        // 3. Filter units whose GPS falls inside any zone of this city
+        const cityPlates = afaqyUnits
+          .filter(unit => {
+            const lat = unit.last_update?.lat;
+            const lng = unit.last_update?.lng;
+            if (!lat || !lng) return false;
+            return zones.some(z => z.containsPoint(lat, lng));
+          })
+          .map(unit => unit.name.trim());
+
+        // 4. Find Fleet records that match those plates and have a driver assigned
+        const cityFleets = await Fleet.find({
+          carLicenseNumber: { $in: cityPlates },
+          driverID: { $ne: null }
+        }).select('driverID');
+
+        const allowedDriverIds = [...new Set(cityFleets.map(f => f.driverID.toString()))];
+
+        // 5. Scope the main query to only those driver IDs
+        query._id = { $in: allowedDriverIds };
+      }
+      // ────────────────────────────────────────────────────────────────────────
 
       // Get total count
       const total = await Driver.countDocuments(query);

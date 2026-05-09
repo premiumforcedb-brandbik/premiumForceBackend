@@ -10,7 +10,8 @@ const AdminAssignCar = require('../models/assign_admin_car_model');
 const FleetHistory = require('../models/FleetHistoryModel');
 const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddleware');
 const { authenticateDriver } = require('../middleware/driverware');
-const { getLiveFleetData } = require('../services/afaqyService');
+const { getLiveFleetData, getAllLiveFleets } = require('../services/afaqyService');
+const Zone = require('../models/zoneModel');
 
 
 // ==================== CREATE ====================
@@ -269,8 +270,8 @@ router.get('/api/fleets/:id',
 // ==================== READ (GET ALL) ====================
 // Get all fleets with pagination, filtering, and sorting
 router.get('/api/fleets',
-    // authenticateToken,
-    // authorizeAdmin,
+    authenticateToken,
+    authorizeAdmin,
     async (req, res) => {
         try {
             const {
@@ -310,6 +311,50 @@ router.get('/api/fleets',
             const skip = (page - 1) * limit;
             const sort = {};
             sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+            // ── Dispatcher city-scoping ──────────────────────────────────────────
+            // If the admin is a dispatcher (accessLevel === 1), restrict the
+            // fleet results to vehicles currently inside the dispatcher's city
+            // zones (resolved via Afaqy live GPS → Zone polygon check).
+            if (req.admin?.accessLevel === 1) {
+                const cityID = req.admin.cityID?._id || req.admin.cityID;
+
+                if (!cityID) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Dispatcher has no city assigned'
+                    });
+                }
+
+                // 1. Get active zones for this city
+                const zones = await Zone.find({ cityID, isActive: true });
+
+                if (!zones.length) {
+                    // No zones defined → no visible fleets
+                    return res.status(200).json({
+                        success: true,
+                        data: [],
+                        pagination: { currentPage: parseInt(page), totalPages: 0, totalItems: 0, itemsPerPage: parseInt(limit) }
+                    });
+                }
+
+                // 2. Fetch all live Afaqy units
+                const afaqyUnits = await getAllLiveFleets();
+
+                // 3. Filter units whose GPS is inside any zone of this city
+                const cityPlates = afaqyUnits
+                    .filter(unit => {
+                        const lat = unit.last_update?.lat;
+                        const lng = unit.last_update?.lng;
+                        if (!lat || !lng) return false;
+                        return zones.some(z => z.containsPoint(lat, lng));
+                    })
+                    .map(unit => unit.name.trim());
+
+                // 4. Scope the filter to only those plate numbers
+                filter.carLicenseNumber = { $in: cityPlates };
+            }
+            // ────────────────────────────────────────────────────────────────────────
 
             let fleetsList = await Fleet.find(filter)
                 .populate('carID', 'name model year carName')

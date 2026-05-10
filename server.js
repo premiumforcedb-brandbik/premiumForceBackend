@@ -31,6 +31,7 @@ const cors = require('cors');
 
 // const itemRoutes = require('./routes/itemRoutes');
 const userRoutes = require('./routes/userRoutes');
+const authRoutes = require('./routes/authRoutes');
 const otpRoutes = require('./routes/otpRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
 const driverRoutes = require('./routes/driverRoutes');
@@ -104,17 +105,6 @@ console.log('AWS Key exists:', !!process.env.AWS_ACCESS_KEY_ID);
 
 const admin = require('firebase-admin');
 
-// --- 1. Initialize Firebase Admin SDK ---
-// Load your downloaded service account key
-// const serviceAccount = require('./serviceAccount.json'); // Update the path!
-
-// admin.initializeApp({
-//   credential: admin.credential.cert(serviceAccount),
-//   // Optional: If you use Realtime Database, add its URL here.
-//   // databaseURL: "https://<YOUR_PROJECT_ID>.firebaseio.com"
-// });
-// console.log('Firebase Admin SDK Initialized.');
-
 
 
 const serviceAccount = {
@@ -173,6 +163,7 @@ mongoose.connect(process.env.MONGODB_URI)
 // Routes
 // app.use('/api/items', itemRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/otp', otpRoutes);
 app.use('/api/bookings', bookingRoutes);
 
@@ -318,57 +309,6 @@ const generateTokens = (user) => {
   return { accessToken, refreshToken };
 };
 
-// Helper function to find or create user from Google data
-const findOrCreateUserFromGoogle = async (googlePayload) => {
-  const { sub: googleId, email, name, picture, email_verified } = googlePayload;
-
-  try {
-    // Check if user exists by email or googleId
-    let user = await User.findOne({
-      $or: [
-        { email: email },
-        { googleId: googleId }
-      ]
-    });
-
-    if (user) {
-      // Update existing user with latest Google info
-      user.googleId = user.googleId || googleId;
-      user.name = user.name || name;
-      user.picture = user.picture || picture;
-      user.emailVerified = user.emailVerified || email_verified;
-      user.lastLogin = new Date();
-      user.provider = 'google';
-
-      // Increment token version to invalidate old refresh tokens (optional security)
-      // user.tokenVersion = (user.tokenVersion || 0) + 1;
-
-      await user.save();
-      console.log(`✅ Existing user updated: ${email}`);
-    } else {
-      // Create new user
-      user = new User({
-        googleId: googleId,
-        email: email,
-        name: name,
-        picture: picture,
-        emailVerified: email_verified,
-        provider: 'google',
-        role: 'user',
-        lastLogin: new Date(),
-        tokenVersion: 0
-      });
-
-      await user.save();
-      console.log(`✅ New user created: ${email}`);
-    }
-
-    return user;
-  } catch (error) {
-    console.error('Error in findOrCreateUserFromGoogle:', error);
-    throw error;
-  }
-};
 
 // Middleware to verify JWT access token
 const authenticateJWT = (req, res, next) => {
@@ -401,91 +341,7 @@ const authenticateJWT = (req, res, next) => {
   }
 };
 
-// ============================================
-// GOOGLE SIGN-IN ENDPOINT
-// ============================================
 
-/**
- * @route   POST /auth/google
- * @desc    Authenticate user with Google ID token
- * @access  Public
- */
-app.post('/auth/google', async (req, res) => {
-  const { idToken } = req.body;
-
-  if (!idToken) {
-    return res.status(400).json({
-      success: false,
-      error: 'ID Token is required'
-    });
-  }
-
-  try {
-    // Verify the Google ID token
-    const ticket = await client.verifyIdToken({
-      idToken: idToken,
-      audience: WEB_CLIENT_ID,
-    });
-
-    // Get Google user info
-    const googlePayload = ticket.getPayload();
-
-    // Find or create user in database
-    const user = await findOrCreateUserFromGoogle(googlePayload);
-
-    // Generate JWT tokens
-    const { accessToken, refreshToken } = generateTokens(user);
-
-    // Prepare user response (exclude sensitive data)
-    const userResponse = {
-      id: user._id,
-      googleId: user.googleId,
-      email: user.email,
-      name: user.name,
-      picture: user.picture,
-      role: user.role,
-      provider: user.provider,
-      emailVerified: user.emailVerified
-    };
-
-    // Send success response with tokens
-    res.status(200).json({
-      success: true,
-      message: 'Authentication successful',
-      user: userResponse,
-      tokens: {
-        accessToken,
-        refreshToken,
-        expiresIn: JWT_EXPIRY,
-        tokenType: 'Bearer'
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Google sign-in error:', error);
-
-    // Handle specific error types
-    if (error.message.includes('audience')) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid client ID configuration'
-      });
-    }
-
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({
-        success: false,
-        error: 'Google token expired'
-      });
-    }
-
-    res.status(401).json({
-      success: false,
-      error: 'Invalid ID token',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
 
 // ============================================
 // REFRESH TOKEN ENDPOINT
@@ -622,16 +478,6 @@ app.get('/auth/me', authenticateJWT, async (req, res) => {
 });
 
 
-
-
-
-app.get('/api/test', (req, res) => {
-  res.json({
-    success: true,
-    message: 'API is working',
-    timestamp: new Date().toISOString()
-  });
-});
 
 
 
@@ -843,7 +689,4 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
 
-// app.listen(PORT, '0.0.0.0', () => {
-//   console.log(`🚀 Server running on port ${PORT} on all interfaces`);
-// });
 

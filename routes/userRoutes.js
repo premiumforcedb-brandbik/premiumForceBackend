@@ -333,9 +333,7 @@ router.patch('/:id/discount-approval',
       // }
       const user = await User.findByIdAndUpdate(
         req.params.id,
-        // updateData
-        isDiscountApproved
-        ,
+        { isDiscountApproved },
         { new: true, runValidators: true }
       ).select('_id username isDiscountApproved isDiscountApprovedAt phoneNumber countryCode');
 

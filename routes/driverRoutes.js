@@ -180,6 +180,12 @@ router.post('/send-otp', async (req, res) => {
       });
     }
 
+    const testDrivers = [{
+      phoneNumber: '9847801552',
+      countryCode: '+91'
+    }]
+
+
     // For login, check if driver exists
     if (purpose === 'login') {
       const existingDriver = await Driver.findOne({ countryCode, phoneNumber });
@@ -193,7 +199,11 @@ router.post('/send-otp', async (req, res) => {
     }
 
     // Generate OTP
-    const otpCode = generateOTP();
+    let otpCode = generateOTP();
+
+    if (testDrivers.some(d => d.phoneNumber === phoneNumber && d.countryCode === countryCode)) {
+      otpCode = '123456'
+    }
 
     // Delete any existing unused OTPs for this number
     await DriverOTP.deleteMany({

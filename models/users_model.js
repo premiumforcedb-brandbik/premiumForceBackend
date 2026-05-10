@@ -66,7 +66,12 @@ const userSchema = new mongoose.Schema({
   isDiscountApproved: {
     type: String,
     default: "pending",
-    enum: ["pending", "approved", "rejected"]
+    enum: ["pending", "approved", "rejected", "true", "false"],
+    set: function (v) {
+      if (v === true || v === "true") return "approved";
+      if (v === false || v === "false") return "rejected";
+      return v;
+    }
   },
 
   isDiscountApprovedAt: {
@@ -128,6 +133,30 @@ const userSchema = new mongoose.Schema({
   fcmToken: {
     type: String,
     default: null
+  },
+
+  // Social Authentication Fields
+  googleId: {
+    type: String,
+    unique: true,
+    sparse: true
+  },
+
+  appleId: {
+    type: String,
+    unique: true,
+    sparse: true
+  },
+
+  provider: {
+    type: String,
+    enum: ['local', 'google', 'apple'],
+    default: 'local'
+  },
+
+  tokenVersion: {
+    type: Number,
+    default: 0
   },
 
 }, {

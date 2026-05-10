@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
+const appleSignin = require('apple-signin-auth');
 
 /**
  * Generate Access and Refresh tokens specifically for Users/Customers
@@ -95,9 +96,65 @@ const verifyFirebaseToken = async (idToken) => {
 };
 
 
+const { OAuth2Client } = require('google-auth-library');
+const googleClient = new OAuth2Client(process.env.GOOGLE_WEB_CLIENT_ID);
+
+/**
+ * Verify Google ID Token (Directly from Google Sign-In)
+ * @param {String} idToken 
+ */
+const verifyGoogleToken = async (idToken) => {
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: idToken,
+      audience: process.env.GOOGLE_WEB_CLIENT_ID,
+    });
+    const decoded = ticket.getPayload();
+
+    return {
+      uid: decoded.sub,
+      email: decoded.email,
+      name: decoded.name,
+      picture: decoded.picture,
+      sub: decoded.sub,
+    };
+  } catch (error) {
+    console.error('Error verifying Google token:', error);
+    return null;
+  }
+};
+
+/**
+ * Verify Apple ID Token
+ * @param {String} idToken 
+ */
+const verifyAppleToken = async (idToken) => {
+  try {
+    // Support multiple Client IDs (iOS Bundle ID and Android Service ID)
+    const clientIds = process.env.APPLE_CLIENT_ID ? process.env.APPLE_CLIENT_ID.split(',') : [];
+
+    const { sub, email } = await appleSignin.verifyIdToken(idToken, {
+      audience: clientIds,
+      ignoreExpiration: false,
+    });
+
+    return {
+      uid: sub,
+      email: email,
+      name: null,
+      sub: sub,
+    };
+  } catch (error) {
+    console.error('Error verifying Apple token:', error);
+    return null;
+  }
+};
+
 module.exports = {
   generateUserTokens,
   verifyUserToken,
   verifyUserRefreshToken,
-  verifyFirebaseToken
+  verifyFirebaseToken,
+  verifyAppleToken,
+  verifyGoogleToken
 };

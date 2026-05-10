@@ -4,6 +4,8 @@ const User = require('../models/users_model');
 const {
   generateUserTokens,
   verifyFirebaseToken,
+  verifyAppleToken,
+  verifyGoogleToken,
   verifyUserRefreshToken
 } = require('../utils/userAuthUtils');
 
@@ -15,24 +17,17 @@ const {
 router.post('/google', async (req, res) => {
   const { idToken } = req.body;
 
-  if (!idToken) {
-    return res.status(400).json({
-      success: false,
-      error: 'ID Token is required'
-    });
-  }
-
   try {
-    const firebaseUser = await verifyFirebaseToken(idToken);
+    const userData = await verifyGoogleToken(idToken);
 
-    if (!firebaseUser) {
+    if (!userData) {
       return res.status(401).json({
         success: false,
         error: 'Invalid or expired ID token'
       });
     }
 
-    const { uid, email, name, sub } = firebaseUser;
+    const { uid, email, name, sub } = userData;
 
     let user = await User.findOne({
       $or: [
@@ -54,10 +49,11 @@ router.post('/google', async (req, res) => {
       })
     }
 
+
     user.lastLogin = new Date();
     user.provider = 'google';
+    user.googleId = uid || sub;
     await user.save();
-    console.log(`✅ Existing user logged in: ${email}`);
 
     // Generate JWT tokens for our backend
     const { accessToken, refreshToken } = generateUserTokens(user);
@@ -84,6 +80,92 @@ router.post('/google', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Google Auth Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Authentication failed',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/auth/apple
+ * @desc    Authenticate user with Apple via direct verification
+ * @access  Public
+ */
+router.post('/apple', async (req, res) => {
+  const { idToken, name: appleName } = req.body;
+
+  if (!idToken) {
+    return res.status(400).json({
+      success: false,
+      error: 'ID Token is required'
+    });
+  }
+
+  try {
+    const appleUser = await verifyAppleToken(idToken);
+
+    if (!appleUser) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid or expired ID token'
+      });
+    }
+
+    const { uid, email, name, sub } = appleUser;
+
+    let user = await User.findOne({
+      $or: [
+        { email: email },
+        { appleId: uid },
+        { appleId: sub }
+      ]
+    });
+
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        message: 'User not found',
+        data: {
+          userExists: false,
+          email: email,
+          name: appleName || name,
+        }
+      });
+    }
+
+    if (user) {
+      user.lastLogin = new Date();
+      user.provider = 'apple';
+      user.appleId = uid || sub;
+      await user.save();
+      console.log(`✅ Existing user logged in via Apple: ${email}`);
+    }
+
+    const { accessToken, refreshToken } = generateUserTokens(user);
+
+    res.status(200).json({
+      success: true,
+      message: 'Authentication successful',
+      data: {
+        userExists: true,
+        user: {
+          id: user._id,
+          email: user.email,
+          username: user.username,
+          role: user.role,
+        },
+        tokens: {
+          accessToken,
+          refreshToken,
+          tokenType: 'Bearer'
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Apple Auth Error:', error);
     res.status(500).json({
       success: false,
       error: 'Authentication failed',

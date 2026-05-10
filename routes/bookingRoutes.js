@@ -84,6 +84,8 @@ router.post('/',
   async (req, res) => {
     try {
       const customerID = req.customer.customerId;
+      const parsedBody = req.body;
+
 
       let finalDiscountPercentage = 0;
       let currentVat = 0;

@@ -3,9 +3,12 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 const Booking = require('../models/booking_model');
-
+const User = require('../models/users_model');
+const SpecialID = require('../models/specialIDModel');
+const Vat = require('../models/vatModel');
+const validate = require('../middleware/validate.middleware');
+const { createBookingSchema } = require('../schemas/bookingSchema');
 const authMiddleware = require('../middleware/authTheMiddle');
-
 const { authenticateToken,
   authorizeAdmin,
 } = require('../middleware/adminmiddleware');
@@ -77,21 +80,30 @@ router.post('/',
   upload.fields([
     { name: 'specialRequestAudio', maxCount: 1 }
   ]),
+  validate(createBookingSchema),
   async (req, res) => {
     try {
-
-      // Get customer id from authenticated user
       const customerID = req.customer.customerId;
 
-      const {
-        category, cityID, airportID, terminalID, flightNumber, arrival,
-        pickupLat, pickupLong, pickupAddress, dropOffLat, dropOffLong, dropOffAddress,
-        charge,
-        specialRequestText,
-        passengerCount, passengerNames, passengerMobile, distance,
-        discountPercentage, vat
-      } = req.body;
+      let finalDiscountPercentage = 0;
+      let currentVat = 0;
 
+      try {
+        // Fetch VAT
+        const vatDoc = await Vat.getVat();
+        currentVat = vatDoc.vat;
+
+        // Fetch User and Discount
+        const user = await User.findById(customerID);
+        if (user && user.specialId && user.isDiscountApproved === 'approved') {
+          const promo = await SpecialID.findOne({ code: user.specialId.toUpperCase(), isActive: true });
+          if (promo) {
+            finalDiscountPercentage = promo.discountPercentage;
+          }
+        }
+      } catch (err) {
+        console.error('Error calculating user discount:', err);
+      }
 
       // ── Audio validation (optional field) ──────────────────────────────────
       const audioFile = req.files?.specialRequestAudio?.[0];
@@ -101,222 +113,33 @@ router.post('/',
         return res.status(audioError.status).json(audioError.body);
       }
 
-      // Validation for required fields
-      const requiredFields = [
-        'category', 'cityID', 'arrival', 'pickupLat', 'pickupLong',
-        'dropOffLat', 'dropOffLong', 'dropOffAddress',
-        'passengerCount', 'passengerNames', 'pickupAddress',
-        'passengerMobile', 'distance', 'charge'
-      ];
-
-      const missingFields = [];
-      for (const field of requiredFields) {
-        if (!req.body[field] || req.body[field] === '') {
-          missingFields.push(field);
-        }
-      }
-
-      if (missingFields.length > 0) {
-        if (req.files) {
-          if (req.files.specialRequestAudio) {
-            await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Please provide all required fields',
-          required: requiredFields,
-          missing: missingFields
-        });
-      }
-
-      // IMPROVED DATE VALIDATION
-      let parsedDate;
-
-      // Handle different date formats
-      try {
-        // Trim whitespace from arrival string
-        const arrivalStr = String(arrival).trim();
-        console.log('Cleaned arrival string:', arrivalStr);
-
-        // Try to parse the date
-        parsedDate = new Date(arrivalStr);
-
-        // Check if date is valid
-        if (isNaN(parsedDate.getTime())) {
-          // Try alternative parsing without milliseconds
-          const alternativeFormat = arrivalStr.replace(/\.\d{3}Z$/, 'Z');
-          if (alternativeFormat !== arrivalStr) {
-            parsedDate = new Date(alternativeFormat);
-          }
-
-          // If still invalid, try parsing with timezone
-          if (isNaN(parsedDate.getTime())) {
-            // Try replacing Z with +00:00
-            const withTimezone = arrivalStr.replace('Z', '+00:00');
-            parsedDate = new Date(withTimezone);
-          }
-        }
-
-        // Final validation
-        if (isNaN(parsedDate.getTime())) {
-          throw new Error('Invalid date format');
-        }
-
-        console.log('Parsed date successfully:', parsedDate);
-        console.log('ISO string:', parsedDate.toISOString());
-
-      } catch (dateError) {
-        console.error('Date parsing error:', dateError);
-        if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid date format for arrival. Use ISO format (YYYY-MM-DDTHH:mm:ss.sssZ)',
-          receivedValue: arrival,
-          example: '2024-12-27T08:45:00.000Z'
-        });
-      }
-
-      // CHECK FOR EXISTING BOOKING
-      const startOfDay = new Date(parsedDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(parsedDate);
-      endOfDay.setHours(23, 59, 59, 999);
-
-      console.log('Checking existing bookings for date range:', {
-        startOfDay: startOfDay.toISOString(),
-        endOfDay: endOfDay.toISOString(),
-        customerID: customerID
-      });
-
-      const existingBooking = await Booking.findOne({
-        customerID: customerID,
-        arrival: {
-          $gte: startOfDay,
-          $lte: endOfDay
-        },
-        bookingStatus: { $nin: ['cancelled', 'completed'] }
-      });
-
-      if (existingBooking) {
-        if (req.files) {
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-
-
-        await notifyUser(
-          customerID,
-          '✅ Booking Already Exists',
-          `You already have a booking scheduled for this date`,
-          {
-            type: 'booking_exists',
-            bookingId: existingBooking._id.toString(),
-            status: existingBooking.bookingStatus,
-          }
-        );
-
-
-        await notifyAllAdmins(
-          'Booking Already exist!',
-          `Review and assign a driver`,
-          {
-            type: 'booking_exists',
-            bookingId: existingBooking._id.toString(),
-            status: existingBooking.bookingStatus,
-          }
-        );
-
-
-        return res.status(400).json({
-          success: false,
-          message: 'You already have a booking scheduled for this date',
-          existingBooking: {
-            id: existingBooking._id,
-            arrival: existingBooking.arrival,
-            status: existingBooking.bookingStatus,
-            driverID: existingBooking.driverID
-          }
-        });
-      }
-
-      // Parse passengerNames - Accept both JSON array and comma-separated
-      let parsedPassengerNames = [];
-      if (typeof passengerNames === 'string') {
-        try {
-          // Try to parse as JSON first
-          parsedPassengerNames = JSON.parse(passengerNames);
-          if (!Array.isArray(parsedPassengerNames)) {
-            parsedPassengerNames = [passengerNames];
-          }
-        } catch {
-          // If JSON parse fails, split by comma
-          parsedPassengerNames = passengerNames.split(',').map(name => name.trim());
-        }
-      } else if (Array.isArray(passengerNames)) {
-        parsedPassengerNames = passengerNames;
-      } else {
-        parsedPassengerNames = [String(passengerNames)];
-      }
-
-      if (!cityID) {
-        return res.status(400).json({ success: false, message: 'cityID is required' });
-      }
-
-
-      // Parse numeric values
-      const pickupLatNum = parseFloat(pickupLat);
-      const pickupLongNum = parseFloat(pickupLong);
-      const dropOffLatNum = parseFloat(dropOffLat);
-      const dropOffLongNum = parseFloat(dropOffLong);
-      const passengerCountNum = parseInt(passengerCount);
-      const distanceStr = String(distance).replace(/[^0-9.-]/g, '');
-      const chargeStr = String(charge).replace(/[^0-9.-]/g, '');
-
-      if (isNaN(pickupLatNum) || isNaN(pickupLongNum) || isNaN(dropOffLatNum) || isNaN(dropOffLongNum)) {
-        if (req.files) {
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid coordinates. Latitude and Longitude must be valid numbers',
-          received: { pickupLat, pickupLong, dropOffLat, dropOffLong }
-        });
-      }
-
-      if (isNaN(passengerCountNum) || passengerCountNum < 1) {
-        if (req.files) {
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid passenger count. Must be a number greater than 0'
-        });
-      }
+      // Calculate actual VAT amount
+      const baseCharge = parseFloat(parsedBody.charge) || 0;
+      const discountAmount = baseCharge * (finalDiscountPercentage / 100);
+      const taxableAmount = baseCharge - discountAmount;
+      const vatAmount = taxableAmount * (currentVat / 100);
 
       // Create booking object with ObjectId fields
       const bookingData = {
-        category: String(category).trim(),
-        vat: vat,
-        cityID: cityID,
-        airportID: airportID || undefined,
-        terminalID: terminalID || undefined,
-        flightNumber: flightNumber ? String(flightNumber).trim() : undefined,
-        arrival: parsedDate,
-        pickupLat: pickupLatNum,
-        pickupLong: pickupLongNum,
-        pickupAddress: String(pickupAddress).trim(),
-        dropOffLat: dropOffLatNum,
-        dropOffLong: dropOffLongNum,
-        dropOffAddress: String(dropOffAddress).trim(),
-        discountPercentage: discountPercentage || 0,
-        charge: chargeStr,
-        passengerCount: passengerCountNum,
-        passengerNames: parsedPassengerNames,
-        passengerMobile: String(passengerMobile).trim(),
-        distance: distanceStr,
+        category: parsedBody.categoryId,
+        vat: vatAmount.toFixed(2),
+        cityID: parsedBody.cityId,
+        airportID: parsedBody.airportId,
+        terminalID: parsedBody.terminalId,
+        flightNumber: parsedBody.flightNumber,
+        arrival: parsedBody.arrival,
+        pickupLat: parsedBody.pickupLat,
+        pickupLong: parsedBody.pickupLong,
+        pickupAddress: parsedBody.pickupAddress,
+        dropOffLat: parsedBody.dropOffLat,
+        dropOffLong: parsedBody.dropOffLong,
+        dropOffAddress: parsedBody.dropOffAddress,
+        discountPercentage: finalDiscountPercentage,
+        charge: baseCharge,
+        passengerCount: parsedBody.passengerCount,
+        passengerNames: parsedBody.passengerNames,
+        passengerMobile: parsedBody.passengerMobile,
+        distance: parsedBody.distance,
         customerID: customerID,
         bookingStatus: 'pending',
         TrackingTimeLine: ['booking_created'],
@@ -1764,168 +1587,6 @@ router.get('/:id',
       res.status(500).json({
         success: false,
         message: 'Error fetching booking',
-        error: error.message
-      });
-    }
-  });
-
-
-
-
-// Optional: PATCH method for partial updates
-router.patch('/:id',
-  authMiddleware,
-  upload.fields([
-    { name: 'carimage', maxCount: 1 },
-    { name: 'specialRequestAudio', maxCount: 1 }
-  ]),
-  async (req, res) => {
-    try {
-      console.log('Partial update booking - ID:', req.params.id);
-      // Similar to PUT but without required field validation
-      // You can implement a more flexible version here
-
-      const bookingId = req.params.id;
-
-      // Validate booking ID
-      if (!mongoose.Types.ObjectId.isValid(bookingId)) {
-        // Delete uploaded files if validation fails
-        if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid booking ID format'
-        });
-      }
-
-      // Check if booking exists
-      const existingBooking = await Booking.findById(bookingId);
-      if (!existingBooking) {
-        // Delete uploaded files if booking not found
-        if (req.files) {
-          if (req.files.carimage) await deleteFromS3(req.files.carimage[0].key);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key);
-        }
-        return res.status(404).json({
-          success: false,
-          message: 'Booking not found'
-        });
-      }
-
-      // Build update object dynamically based on provided fields
-      const updateData = {};
-      const allowedFields = [
-        'category', 'cityID', 'airportID', 'terminalID', 'flightNumber', 'arrival',
-        'pickupLat', 'pickupLong', 'dropOffLat', 'dropOffLong', 'dropOffAddress',
-        'carID', 'charge', 'carmodel', 'specialRequestText',
-        'passengerCount', 'passengerNames', 'passengerMobile', 'distance', 'bookingStatus'
-      ];
-
-      // Process each field if provided
-      for (const field of allowedFields) {
-        if (req.body[field] !== undefined) {
-          switch (field) {
-            case 'arrival':
-              const date = new Date(req.body[field]);
-              if (isNaN(date.getTime())) {
-                return res.status(400).json({
-                  success: false,
-                  message: 'Invalid date format for arrival'
-                });
-              }
-              updateData[field] = date;
-              break;
-
-            case 'pickupLat':
-            case 'pickupLong':
-            case 'dropOffLat':
-            case 'dropOffLong':
-              updateData[field] = parseFloat(req.body[field]);
-              break;
-
-            case 'passengerCount':
-              updateData[field] = parseInt(req.body[field]);
-              break;
-
-            case 'passengerNames':
-              if (typeof req.body[field] === 'string') {
-                try {
-                  updateData[field] = JSON.parse(req.body[field]);
-                } catch {
-                  updateData[field] = req.body[field].split(',').map(name => name.trim());
-                }
-              } else if (Array.isArray(req.body[field])) {
-                updateData[field] = req.body[field];
-              } else {
-                updateData[field] = [String(req.body[field])];
-              }
-              break;
-
-            case 'specialRequestText':
-              if (req.body[field] && req.body[field].trim() !== '') {
-                updateData[field] = String(req.body[field]).trim();
-              } else {
-                updateData.$unset = { ...updateData.$unset, [field]: 1 };
-              }
-              break;
-
-            default:
-              updateData[field] = String(req.body[field]).trim();
-          }
-        }
-      }
-
-      // Handle file updates (same as PUT method)
-      if (req.files && req.files.carimage && req.files.carimage[0]) {
-        if (existingBooking.carimage && existingBooking.carimage.key) {
-          await deleteFromS3(existingBooking.carimage.key).catch(console.error);
-        }
-        updateData.carimage = {
-          key: req.files.carimage[0].key,
-          url: getS3Url(req.files.carimage[0].key),
-          originalName: req.files.carimage[0].originalname,
-          mimeType: req.files.carimage[0].mimetype,
-          size: req.files.carimage[0].size
-        };
-      }
-
-      if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio[0]) {
-        if (existingBooking.specialRequestAudio && existingBooking.specialRequestAudio.key) {
-          await deleteFromS3(existingBooking.specialRequestAudio.key).catch(console.error);
-        }
-        updateData.specialRequestAudio = {
-          key: req.files.specialRequestAudio[0].key,
-          url: getS3Url(req.files.specialRequestAudio[0].key),
-          originalName: req.files.specialRequestAudio[0].originalname,
-          mimeType: req.files.specialRequestAudio[0].mimetype,
-          size: req.files.specialRequestAudio[0].size
-        };
-      }
-
-      // Add update timestamp and tracking
-      updateData.updatedAt = new Date();
-      updateData.$push = { TrackingTimeLine: 'booking_updated' };
-
-      const updatedBooking = await Booking.findByIdAndUpdate(
-        bookingId,
-        updateData,
-        { new: true, runValidators: true }
-      );
-
-      res.status(200).json({
-        success: true,
-        message: 'Booking updated successfully',
-        data: updatedBooking
-      });
-
-    } catch (error) {
-      console.error('Partial update error:', error);
-      // Error handling similar to PUT method
-      res.status(500).json({
-        success: false,
-        message: 'Error updating booking',
         error: error.message
       });
     }

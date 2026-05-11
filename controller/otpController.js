@@ -1,16 +1,7 @@
-const OTP = require('../models/otp_model');
 const User = require('../models/users_model');
-const twilio = require('twilio');
 const jwt = require('jsonwebtoken');
+const twilioVerifyService = require('../services/twilioVerifyService');
 
-
-
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
-
-const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 // Generate tokens
 const generateTokens = (user) => {
@@ -39,50 +30,27 @@ const generateTokens = (user) => {
 // Send OTP
 const sendOTP = async (req, res) => {
   try {
-    const { phoneNumber, countryCode, purpose = 'login' } = req.body;
-    const otpCode = generateOTP();
+    const { phoneNumber, countryCode, channel = 'sms' } = req.body;
 
-    await OTP.deleteMany({ phoneNumber, countryCode, purpose, isUsed: false });
+    if (!phoneNumber || !countryCode) {
+      return res.status(400).json({ success: false, message: 'Phone number and country code are required' });
+    }
 
-    await OTP.create({
-      phoneNumber,
-      countryCode,
-      otp: otpCode,
-      purpose
-    });
+    if (!['sms', 'whatsapp'].includes(channel)) {
+      return res.status(400).json({ success: false, message: 'Invalid channel' });
+    }
 
-    await client.messages.create({
-      to: `${countryCode}${phoneNumber}`,
+    // Use Twilio Verify instead of manual generation and DB storage
+    const result = await twilioVerifyService.sendVerification(phoneNumber, countryCode, channel);
 
-      body: `Your OTP is: ${otpCode}`,
-      from: `${process.env.TWILIO_PHONE_NUMBER}`, // whatsapp:+14155238886
-    });
-
-    // await client.messages
-    //   .create({
-    //     from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
-    //     contentSid: "HX5cc7b3c65ecbe6d5754aabbe3cccb551",
-    //     contentVariables: `{"1":"${otpCode}","2":"${purpose}"}`,
-    //     to: `whatsapp:${countryCode}${phoneNumber}`
-    //   })
-    //   .then(message => console.log(message.sid))
-
-
-
-
-    // const verification = await client.verify.v2
-    //   .services("MG2db0d1b9fbf2ba40ed47579ae105a2df")
-    //   .verifications.create({
-    //     channel: "whatsapp",
-    //     to: `${countryCode}${phoneNumber}`
-    //   });
-
-
-    // console.log(verification);
-    // res.json({ success: true, message: 'OTP sent' });
-    res.json({ success: true, message: 'OTP sent via WhatsApp' });
+    if (result.success) {
+      res.json({ success: true, message: `OTP sent via ${channel}` });
+    } else {
+      res.status(400).json({ success: false, message: 'Failed to send OTP' });
+    }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Send OTP Error:', error);
+    res.status(500).json({ success: false, error: error.message, message: "Failed to send OTP" });
   }
 };
 
@@ -91,34 +59,7 @@ const sendOTP = async (req, res) => {
 
 // Resend OTP
 const resendOTP = async (req, res) => {
-  try {
-    const { phoneNumber, countryCode, purpose } = req.body;
-    const newOTP = generateOTP();
-
-    const otpDoc = await OTP.findOneAndUpdate(
-      { phoneNumber, countryCode, purpose, isUsed: false },
-      {
-        otp: newOTP,
-        attempts: 0,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000)
-      },
-      { new: true }
-    );
-
-    if (!otpDoc) {
-      return res.status(404).json({ success: false, message: 'No active OTP found' });
-    }
-
-    await client.messages.create({
-      body: `Your new OTP is: ${newOTP}`,
-      from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`, // whatsapp:+14155238886
-      to: `whatsapp:${countryCode}${phoneNumber}`
-    });
-
-    res.json({ success: true, message: 'OTP resent' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
+  return sendOTP(req, res);
 };
 
 
@@ -126,77 +67,35 @@ const resendOTP = async (req, res) => {
 
 const verifyOTP = async (req, res) => {
   try {
-    const { phoneNumber, countryCode, otp, purpose } = req.body;
+    const { phoneNumber, countryCode, otp } = req.body;
 
-    console.log('Verifying OTP for:', { phoneNumber, countryCode, otp, purpose });
-
-    // Find valid OTP
-    const otpDoc = await OTP.findOne({
-      phoneNumber,
-      countryCode,
-      purpose,
-      otp,
-      isUsed: false,
-      expiresAt: { $gt: new Date() }
-    });
-
-    if (!otpDoc) {
-      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+    if (!phoneNumber || !countryCode || !otp) {
+      return res.status(400).json({ success: false, message: 'Phone number, country code, OTP and purpose are required' });
     }
 
-    // Mark OTP as used
-    otpDoc.isUsed = true;
-    await otpDoc.save();
+    // Use Twilio Verify to check the code
+    const verifyResult = await twilioVerifyService.checkVerification(phoneNumber, countryCode, otp);
 
-    // DEBUG: Check the CORRECT environment variables
-    console.log('=== ENVIRONMENT VARIABLES CHECK ===');
-    console.log('JWT_ACCESS_SECRET exists:', !!process.env.JWT_ACCESS_SECRET);
-    console.log('JWT_REFRESH_SECRET exists:', !!process.env.JWT_REFRESH_SECRET);
-    console.log('JWT_ACCESS_SECRET length:', process.env.JWT_ACCESS_SECRET ? process.env.JWT_ACCESS_SECRET.length : 0);
-    console.log('JWT_REFRESH_SECRET length:', process.env.JWT_REFRESH_SECRET ? process.env.JWT_REFRESH_SECRET.length : 0);
-    console.log('NODE_ENV:', process.env.NODE_ENV);
-
-    // Find user
-    let user = await User.findOne({ phoneNumber, countryCode });
-
-    // Handle based on purpose
-    if (purpose === 'login') {
-      // LOGIN: User must exist
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'User not found. Please register first.'
-        });
-      }
-      // Update last login
-      user.lastLogin = new Date();
-      await user.save();
-
-    } else if (purpose === 'registration') {
-      // REGISTRATION: Create user if not exists
-      if (!user) {
-        const tempUsername = `user_${phoneNumber.slice(-4)}_${Date.now().toString().slice(-4)}`;
-
-        user = await User.create({
-          username: tempUsername,
-          phoneNumber,
-          countryCode,
-          role: 'customer',
-          isActive: true,
-          lastLogin: new Date()
-        });
-        console.log('New user created:', user._id);
-      } else {
-        // User already exists
-        user.lastLogin = new Date();
-        await user.save();
-      }
-    } else {
+    if (!verifyResult.success) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid purpose'
+        message: 'Invalid or expired OTP',
+        details: verifyResult.error
       });
     }
+
+    let user = await User.findOne({ phoneNumber, countryCode });
+
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found. Please register first.'
+      });
+    }
+
+    user.lastLogin = new Date();
+    await user.save();
 
     // Generate JWT tokens
     const { accessToken, refreshToken } = generateTokens(user);

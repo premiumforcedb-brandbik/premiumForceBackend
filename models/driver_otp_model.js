@@ -14,11 +14,6 @@ const driverOtpSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  purpose: {
-    type: String,
-    enum: ['login', 'registration', 'update-phone'],
-    default: 'login'
-  },
   attempts: {
     type: Number,
     default: 0
@@ -29,7 +24,7 @@ const driverOtpSchema = new mongoose.Schema({
   },
   expiresAt: {
     type: Date,
-    default: () => new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+    default: () => new Date(Date.now() + 10 * 60 * 1000)
   }
 }, {
   timestamps: true

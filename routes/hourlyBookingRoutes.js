@@ -81,7 +81,8 @@ router.post('/',
         bookingStatus, passengerNames, isActive, vat,
         transactionID, orderID, discountPercentage, pickupDateTime,
         stoppedAt, startedAt, extraPayment, extraTransactionID, extraOrderID,
-        extraDiscount, extraPaymentCompleted, extraVat
+        extraDiscount, extraPaymentCompleted, extraVat,
+        allowSimilarVehicle
       } = req.body;
 
       // ========== REQUIRED FIELDS VALIDATION ==========
@@ -498,7 +499,8 @@ router.post('/',
         bookingStatus: bookingStatus && isValidValue(bookingStatus) ? String(bookingStatus).trim().toLowerCase() : 'pending',
         isActive: isActive === 'true' || isActive === true,
         passengerNames: parsedPassengerNames,
-        specialRequestText: specialRequestText && isValidValue(specialRequestText) ? String(specialRequestText).trim() : ''
+        specialRequestText: specialRequestText && isValidValue(specialRequestText) ? String(specialRequestText).trim() : '',
+        allowSimilarVehicle: allowSimilarVehicle === undefined ? true : (String(allowSimilarVehicle) === 'true')
       };
 
       // Add optional fields
@@ -661,7 +663,8 @@ router.put('/:id',
         passengerNames, isActive, vat, extraVat,
         transactionID, orderID, discountPercentage, pickupDateTime,
         stoppedAt, startedAt, extraPayment, extraTransactionID, extraOrderID,
-        extraDiscount, extraPaymentCompleted
+        extraDiscount, extraPaymentCompleted,
+        allowSimilarVehicle
       } = req.body;
 
       // Build update object
@@ -797,6 +800,11 @@ router.put('/:id',
       // Handle special request text
       if (isValidValue(specialRequestText)) {
         updateData.specialRequestText = String(specialRequestText).trim();
+      }
+      
+      // Handle allowSimilarVehicle
+      if (isValidValue(allowSimilarVehicle)) {
+        updateData.allowSimilarVehicle = String(allowSimilarVehicle) === 'true';
       }
 
       // Handle discount percentage

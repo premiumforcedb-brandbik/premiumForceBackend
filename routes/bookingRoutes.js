@@ -117,7 +117,8 @@ router.post('/',
         charge, carID, carmodel,
         specialRequestText,
         passengerCount, passengerNames, passengerMobile, distance,
-        driverID, transactionID, orderID, discountPercentage, vat
+        driverID, transactionID, orderID, discountPercentage, vat,
+        allowSimilarVehicle
       } = req.body;
 
       // Log the fields for debugging
@@ -532,7 +533,8 @@ router.post('/',
         TrackingTimeLine: ['booking_created'],
         paymentStatus: false,
         rating: {},
-        driverID: finalDriverID
+        driverID: finalDriverID,
+        allowSimilarVehicle: allowSimilarVehicle === undefined ? true : (String(allowSimilarVehicle) === 'true')
       };
 
       // Remove undefined fields (optional fields that weren't provided)
@@ -736,7 +738,8 @@ router.put('/:id',
         pickupLat, pickupLong, pickupAddress, dropOffLat, dropOffLong, dropOffAddress,
         carID, charge, carmodel, specialRequestText,
         passengerCount, passengerNames, passengerMobile, distance,
-        bookingStatus, transactionID, orderID, discountPercentage, vat
+        bookingStatus, transactionID, orderID, discountPercentage, vat,
+        allowSimilarVehicle
       } = req.body;
 
       // Helper function to check if value is null/undefined/empty
@@ -849,6 +852,7 @@ router.put('/:id',
       updateData.transactionID = cleanStringField(transactionID, existingBooking.transactionID);
       updateData.orderID = cleanStringField(orderID, existingBooking.orderID);
       updateData.discountPercentage = discountPercentage || 0;
+      updateData.allowSimilarVehicle = allowSimilarVehicle !== undefined ? (String(allowSimilarVehicle) === 'true') : existingBooking.allowSimilarVehicle;
       updateData.updatedAt = new Date();
 
       // Handle booking status update

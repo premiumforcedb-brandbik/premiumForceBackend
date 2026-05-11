@@ -163,6 +163,10 @@ const bookingSchema = new mongoose.Schema({
     type: Map,
     of: mongoose.Schema.Types.Mixed,
     default: {}
+  },
+  allowSimilarVehicle: {
+    type: Boolean,
+    default: true
   }
 }, {
   timestamps: true

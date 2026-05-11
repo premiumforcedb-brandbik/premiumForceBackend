@@ -7,13 +7,13 @@ const Booking = require('../models/booking_model');
 
 const HourlyBooking = require('../models/hourlyBookingModel');
 const Customer = require('../models/users_model');
-const DriverOTP = require('../models/driver_otp_model');
 const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
 const jwt = require('jsonwebtoken');
 const { authenticateToken, authorizeAdmin } = require('../middleware/adminmiddleware');
 
 const { authenticateDriver } = require('../middleware/driverware');
-const twilio = require('twilio');
+const twilioVerifyService = require('../services/twilioVerifyService');
+
 const mongoose = require('mongoose');
 const Fleet = require('../models/FleetModel'); // Added Fleet model
 const Zone = require('../models/zoneModel');
@@ -21,17 +21,7 @@ const { getAllLiveFleets } = require('../services/afaqyService');
 
 const { notifyUser, notifyUsers } = require('../fcm');
 
-
 const router = express.Router();
-
-// Initialize Twilio
-const twilioClient = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
-
-// ============= HELPER FUNCTIONS =============
-const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 const generateAccessToken = (driver) => {
   return jwt.sign(
@@ -171,80 +161,37 @@ router.delete('/:id/driver/fcm-token', async (req, res) => {
  */
 router.post('/send-otp', async (req, res) => {
   try {
-    const { phoneNumber, countryCode = '+966', purpose = 'login' } = req.body;
+    const { phoneNumber, countryCode } = req.body;
 
-    if (!phoneNumber) {
+    if (!phoneNumber || !countryCode) {
       return res.status(400).json({
         success: false,
-        message: 'Phone number is required'
+        message: 'Phone number and country code are required'
       });
     }
 
-    const testDrivers = [{
-      phoneNumber: '9847801552',
-      countryCode: '+91'
-    }]
+    const existingDriver = await Driver.findOne({ countryCode, phoneNumber });
 
-
-    // For login, check if driver exists
-    if (purpose === 'login') {
-      const existingDriver = await Driver.findOne({ countryCode, phoneNumber });
-      console.log(`Checking driver existence for ${countryCode}${phoneNumber}:`, existingDriver);
-      if (!existingDriver) {
-        return res.status(404).json({
-          success: false,
-          message: 'Driver not found. Please register first.'
-        });
-      }
-    }
-
-    // Generate OTP
-    let otpCode = generateOTP();
-
-    if (testDrivers.some(d => d.phoneNumber === phoneNumber && d.countryCode === countryCode)) {
-      otpCode = '123456'
-    }
-
-    // Delete any existing unused OTPs for this number
-    await DriverOTP.deleteMany({
-      phoneNumber,
-      countryCode,
-      purpose,
-      isUsed: false
-    });
-
-    // Save new OTP
-    await DriverOTP.create({
-      phoneNumber,
-      countryCode,
-      otp: otpCode,
-      purpose
-    });
-
-    // Send OTP via SMS (Twilio)
-    try {
-      await twilioClient.messages.create({
-        body: `Your driver OTP is: ${otpCode}. Valid for 10 minutes.`,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: `${countryCode}${phoneNumber}`
+    if (!existingDriver) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found. Please Contact Admin.'
       });
-    } catch (smsError) {
-      console.error('SMS sending failed:', smsError);
-      if (process.env.NODE_ENV === 'production') {
-        throw smsError;
-      }
     }
 
-    const response = {
-      success: true,
-      message: 'OTP sent successfully'
-    };
+    // Use Twilio Verify
+    const result = await twilioVerifyService.sendVerification(phoneNumber, countryCode);
 
-    if (process.env.NODE_ENV !== 'production') {
-      response.otp = otpCode;
+    if (result.success) {
+      const response = {
+        success: true,
+        message: 'OTP sent successfully'
+      };
+
+      res.status(200).json(response);
+    } else {
+      res.status(400).json({ success: false, message: 'Failed to send OTP' });
     }
-
-    res.status(200).json(response);
   } catch (error) {
     console.error('Send OTP error:', error);
     res.status(500).json({
@@ -262,54 +209,29 @@ router.post('/send-otp', async (req, res) => {
  */
 router.post('/verify-otp', async (req, res) => {
   try {
-    const { phoneNumber, countryCode = '+966', otp, purpose = 'login' } = req.body;
+    const { phoneNumber, countryCode = '+966', otp } = req.body;
 
-    // Find valid OTP
-    const otpDoc = await DriverOTP.findOne({
-      phoneNumber,
-      countryCode,
-      otp,
-      purpose,
-      isUsed: false,
-      expiresAt: { $gt: new Date() }
-    });
+    // Use Twilio Verify to check the code
+    const verifyResult = await twilioVerifyService.checkVerification(phoneNumber, countryCode, otp);
 
-    if (!otpDoc) {
+    if (!verifyResult.success) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid or expired OTP'
+        message: 'Invalid or expired OTP',
+        details: verifyResult.error
       });
     }
 
-    // Mark OTP as used
-    otpDoc.isUsed = true;
-    await otpDoc.save();
 
-    let driver;
-    let isNewDriver = false;
-
-    if (purpose === 'login') {
-      // Login - driver must exist
-      driver = await Driver.findOne({ phoneNumber, countryCode });
-      if (!driver) {
-        return res.status(404).json({
-          success: false,
-          message: 'Driver not found. Please complete registration first.'
-        });
-      }
-    } else if (purpose === 'registration') {
-      // Registration - create if not exists
-      driver = await Driver.findOne({ phoneNumber, countryCode });
-      if (!driver) {
-        isNewDriver = true;
-        driver = new Driver({
-          phoneNumber,
-          countryCode,
-          driverName: `Driver_${phoneNumber.slice(-4)}`
-        });
-        await driver.save();
-      }
+    // Login - driver must exist
+    const driver = await Driver.findOne({ phoneNumber, countryCode });
+    if (!driver) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found. Please complete registration first.'
+      });
     }
+
 
     // Update last login
     driver.lastLogin = new Date();
@@ -324,7 +246,7 @@ router.post('/verify-otp', async (req, res) => {
 
     const response = {
       success: true,
-      message: isNewDriver ? 'Registration successful' : 'Login successful',
+      message: 'Login successful',
       data: {
         driver: driver.getPublicProfile(),
         tokens: {
@@ -334,7 +256,6 @@ router.post('/verify-otp', async (req, res) => {
           expiresIn: process.env.JWT_ACCESS_EXPIRY || '15m'
         }
       },
-      isNewDriver
     };
 
     res.status(200).json(response);
@@ -350,107 +271,6 @@ router.post('/verify-otp', async (req, res) => {
 
 
 
-/**
- * @route   PATCH /api/drivers/:id/busy-status
- * @desc    Update driver's busy status (Admin or Driver can update)
- * @access  Private (Admin or Driver)
- */
-router.patch('/:id/busy-status',
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { isBusy } = req.body;
-
-      // Validate ID format
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid driver ID format'
-        });
-      }
-
-      // Check if isBusy is provided
-      if (isBusy === undefined) {
-        return res.status(400).json({
-          success: false,
-          message: 'isBusy status is required'
-        });
-      }
-
-      // Find driver
-      const driver = await Driver.findById(id);
-      if (!driver) {
-        return res.status(404).json({
-          success: false,
-          message: 'Driver not found'
-        });
-      }
-
-
-
-      // Update busy status
-      const oldStatus = driver.isBusy;
-      driver.isBusy = isBusy;
-
-
-      driver.lastStatusUpdate = new Date();
-
-      await driver.save();
-
-      console.log(`Driver ${driver.driverName} (${id}) busy status updated: ${oldStatus} -> ${driver.isBusy}`);
-
-      res.status(200).json({
-        success: true,
-        message: driver.isBusy ? 'Driver marked as busy' : 'Driver marked as available',
-        data: {
-          _id: driver._id,
-          driverName: driver.driverName,
-          isBusy: driver.isBusy,
-          currentBookingId: driver.currentBookingId,
-          lastStatusUpdate: driver.lastStatusUpdate,
-          isActive: driver.isActive,
-          isVerified: driver.isVerified,
-          status: driver.isBusy ? 'busy' : 'available'
-        }
-      });
-
-    } catch (error) {
-      console.error('Update driver busy status error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error updating driver busy status',
-        error: error.message
-      });
-    }
-  });
-
-
-/**
- * @route   GET /api/drivers/list/working
- * @desc    Get list of drivers who have started work (isWorkstarted: true)
- * @access  Private (Admin or Driver)
- */
-router.get('/list/working', async (req, res) => {
-  try {
-    const drivers = await Driver.find({ isWorkstarted: true })
-      .select('_id driverName phoneNumber countryCode licenseNumber isWorkstarted isActive')
-      .sort({ driverName: 1 });
-
-    res.status(200).json({
-      success: true,
-      count: drivers.length,
-      data: drivers
-    });
-  } catch (error) {
-    console.error('Get working drivers list error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching working drivers list',
-      error: error.message
-    });
-  }
-});
-
 
 /**
  * @route   PATCH /api/drivers/:id/work-status
@@ -460,21 +280,9 @@ router.get('/list/working', async (req, res) => {
 router.patch('/:id/work-status', async (req, res) => {
   try {
     const { id } = req.params;
-    const { isWorkstarted } = req.body;
 
-    // Validate parameter
-    if (typeof isWorkstarted !== 'boolean') {
-      return res.status(400).json({
-        success: false,
-        message: 'isWorkstarted must be a boolean (true or false)'
-      });
-    }
 
-    const driver = await Driver.findByIdAndUpdate(
-      id,
-      { isWorkstarted },
-      { new: true, runValidators: true }
-    ).select('_id driverName isWorkstarted');
+    const driver = await Driver.findById(id);
 
     if (!driver) {
       return res.status(404).json({
@@ -483,10 +291,17 @@ router.patch('/:id/work-status', async (req, res) => {
       });
     }
 
+    driver.isWorkstarted = !driver.isWorkstarted;
+    await driver.save();
+
     res.status(200).json({
       success: true,
-      message: `Work status updated to ${driver.isWorkstarted}`,
-      data: driver
+      message: `Work status ${driver.isWorkstarted ? 'started' : 'stopped'}`,
+      data: {
+        _id: driver._id,
+        driverName: driver.driverName,
+        isWorkstarted: driver.isWorkstarted
+      }
     });
   } catch (error) {
     console.error('Update driver work status error:', error);
@@ -497,492 +312,6 @@ router.patch('/:id/work-status', async (req, res) => {
     });
   }
 });
-
-
-/**
- * @route   GET /api/drivers/availability/date-wise
- * @desc    Get drivers with their availability status for specific dates
- * @access  Public/Admin (can be used by both)
- */
-router.get('/availability/date-wise', async (req, res) => {
-  try {
-    const {
-      date,
-      startDate,
-      endDate,
-      includeDetails = 'true',
-      status,
-      bookingStatus
-    } = req.query;
-
-    // Validate at least one date parameter
-    if (!date && !startDate && !endDate) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide either date or startDate/endDate parameters'
-      });
-    }
-
-    // Build date range
-    let startDateTime = null;
-    let endDateTime = null;
-    let dateRange = {};
-
-    if (date) {
-      startDateTime = new Date(date);
-      startDateTime.setHours(0, 0, 0, 0);
-      endDateTime = new Date(date);
-      endDateTime.setHours(23, 59, 59, 999);
-      dateRange = { start: startDateTime, end: endDateTime, type: 'single', date: date };
-    } else {
-      startDateTime = startDate ? new Date(startDate) : new Date(0);
-      endDateTime = endDate ? new Date(endDate) : new Date();
-      endDateTime.setHours(23, 59, 59, 999);
-      dateRange = { start: startDateTime, end: endDateTime, type: 'range' };
-    }
-
-    // Get all active drivers
-    const drivers = await Driver.find({ isActive: true })
-      .select('-refreshToken -__v')
-      .sort({ driverName: 1 });
-
-    // Get all bookings without filtering by driverID in query to avoid CastError
-    let hourlyBookings = [];
-    let normalBookings = [];
-
-    try {
-      // Get all hourly bookings first (no driverID filter in query)
-      hourlyBookings = await HourlyBooking.find({});
-
-      // Filter by date if needed
-      if (startDateTime && endDateTime) {
-        hourlyBookings = hourlyBookings.filter(booking => {
-          const bookingDate = booking.pickupDateTime || booking.createdAt;
-          return bookingDate && bookingDate >= startDateTime && bookingDate <= endDateTime;
-        });
-      }
-
-      // Filter by bookingStatus if needed
-      if (bookingStatus && bookingStatus !== 'all') {
-        hourlyBookings = hourlyBookings.filter(booking =>
-          booking.bookingStatus === bookingStatus
-        );
-      }
-    } catch (err) {
-      console.error('Error fetching hourly bookings:', err);
-    }
-
-    try {
-      // Get all normal bookings first (no driverID filter in query)
-      normalBookings = await Booking.find({});
-
-      // Filter by date if needed
-      if (startDateTime && endDateTime) {
-        normalBookings = normalBookings.filter(booking => {
-          const bookingDate = booking.arrival || booking.createdAt;
-          return bookingDate && bookingDate >= startDateTime && bookingDate <= endDateTime;
-        });
-      }
-
-      // Filter by bookingStatus if needed
-      if (bookingStatus && bookingStatus !== 'all') {
-        normalBookings = normalBookings.filter(booking =>
-          booking.bookingStatus === bookingStatus
-        );
-      }
-    } catch (err) {
-      console.error('Error fetching normal bookings:', err);
-    }
-
-    // Map driver availability
-    const driverAvailability = drivers.map((driver) => {
-      const driverIdStr = driver._id.toString();
-
-      // Find bookings for this driver (filter in JavaScript)
-      const driverHourlyBookings = hourlyBookings.filter(b =>
-        b.driverID && b.driverID.toString() === driverIdStr
-      );
-
-      const driverNormalBookings = normalBookings.filter(b =>
-        b.driverID && b.driverID.toString() === driverIdStr
-      );
-
-      const allDriverBookings = [...driverHourlyBookings, ...driverNormalBookings];
-
-
-      const starttrackingBookingsList = allDriverBookings.filter(b =>
-        b.bookingStatus === 'starttracking'
-      );
-      // Separate completed and pending bookings
-      // const completedBookingsList = allDriverBookings.filter(b =>
-      //   b.bookingStatus === 'starttracking'
-      // );
-
-      // const pendingBookingsList = allDriverBookings.filter(b =>
-      //   b.bookingStatus === 'pending'
-      // );
-
-      // const cancelledBookingsList = allDriverBookings.filter(b =>
-      //   b.bookingStatus === 'cancelled'
-      // );
-
-      // Check if driver has active booking
-      const hasActiveBooking = allDriverBookings.some(booking =>
-        ['assigned', 'starttracking', 'stoptracking', 'completed'].includes(booking.bookingStatus)
-      );
-
-      const isBusy = driver.isBusy || hasActiveBooking;
-
-
-
-      // Get active booking details
-      const activeBooking = allDriverBookings.find(booking =>
-        ['assigned', 'starttracking', 'stoptracking', 'completed'].includes(booking.bookingStatus)
-      );
-
-      // Calculate stats
-      const totalBookings = allDriverBookings.length;
-
-      const starttrackingBookings = starttrackingBookingsList.length;
-      // const completedBookings = completedBookingsList.length;
-      // const pendingBookings = pendingBookingsList.length;
-      // const cancelledBookings = cancelledBookingsList.length;
-
-      // const totalEarnings = completedBookingsList.reduce((sum, b) =>
-      //   sum + (parseFloat(b.charge) || 0), 0
-      // );
-      const busyHours = driverHourlyBookings.reduce((sum, b) =>
-        sum + (b.hours || 0), 0
-      );
-
-      // Build response
-      const response = {
-        driver: includeDetails === 'true' ? {
-          _id: driver._id,
-          driverName: driver.driverName,
-          phoneNumber: driver.phoneNumber,
-          countryCode: driver.countryCode,
-          licenseNumber: driver.licenseNumber,
-          rating: driver.rating,
-          totalTrips: driver.totalTrips,
-          earnings: driver.earnings,
-          profileImage: driver.profileImage
-        } : {
-          _id: driver._id,
-          driverName: driver.driverName,
-          phoneNumber: driver.phoneNumber
-        },
-        availability: {
-          status: isBusy ? 'busy' : 'available',
-          isBusy: isBusy,
-          isActive: driver.isActive,
-          isVerified: driver.isVerified,
-          currentBusyStatus: driver.isBusy,
-          hasActiveBooking: hasActiveBooking
-        },
-        stats: {
-          totalBookings,
-          // completedBookings,
-          starttrackingBookings,
-          // pendingBookings,
-          // cancelledBookings,
-          // totalEarnings,
-          busyHours
-        }
-      };
-
-
-
-
-
-      // Add completed bookings details if requested
-      if (bookingStatus === 'starttracking' && includeDetails === 'true'
-        && starttrackingBookingsList.length > 0) {
-        response.starttrackingBookings = starttrackingBookingsList.map(booking => ({
-          id: booking._id,
-          type: booking.hours ? 'hourly' : 'normal',
-          status: booking.bookingStatus,
-          charge: booking.charge,
-          hours: booking.hours,
-          pickupAddress: booking.pickupAddress || booking.pickupAddress,
-          dropOffAddress: booking.dropOffAddress,
-          customerID: booking.customerID,
-          createdAt: booking.createdAt,
-          completedAt: booking.completedAt || booking.updatedAt
-        }));
-      }
-
-
-      // Add completed bookings details if requested
-      // if (bookingStatus === 'completed' && includeDetails === 'true' && completedBookingsList.length > 0) {
-      //   response.completedBookings = completedBookingsList.map(booking => ({
-      //     id: booking._id,
-      //     type: booking.hours ? 'hourly' : 'normal',
-      //     status: booking.bookingStatus,
-      //     charge: booking.charge,
-      //     hours: booking.hours,
-      //     pickupAddress: booking.pickupAddress || booking.pickupAddress,
-      //     dropOffAddress: booking.dropOffAddress,
-      //     customerID: booking.customerID,
-      //     createdAt: booking.createdAt,
-      //     completedAt: booking.completedAt || booking.updatedAt
-      //   }));
-      // }
-
-      // // Add pending bookings details if requested
-      // if (bookingStatus === 'pending' && includeDetails === 'true' && pendingBookingsList.length > 0) {
-      //   response.pendingBookings = pendingBookingsList.map(booking => ({
-      //     id: booking._id,
-      //     type: booking.hours ? 'hourly' : 'normal',
-      //     status: booking.bookingStatus,
-      //     charge: booking.charge,
-      //     hours: booking.hours,
-      //     pickupAddress: booking.pickupAddress || booking.pickupAddress,
-      //     dropOffAddress: booking.dropOffAddress,
-      //     customerID: booking.customerID,
-      //     createdAt: booking.createdAt
-      //   }));
-      // }
-
-
-      // // Add pending bookings details if requested
-      // if (bookingStatus === 'cancelled' && includeDetails === 'true' && cancelledBookingsList.length > 0) {
-      //   response.cancelledBookings = cancelledBookingsList.map(booking => ({
-      //     id: booking._id,
-      //     type: booking.hours ? 'hourly' : 'normal',
-      //     status: booking.bookingStatus,
-      //     charge: booking.charge,
-      //     hours: booking.hours,
-      //     pickupAddress: booking.pickupAddress || booking.pickupAddress,
-      //     dropOffAddress: booking.dropOffAddress,
-      //     customerID: booking.customerID,
-      //     createdAt: booking.createdAt
-      //   }));
-      // }
-
-
-      // Add active booking details if exists
-      if (activeBooking && includeDetails === 'true') {
-        response.activeBooking = {
-          id: activeBooking._id,
-          type: activeBooking.hours ? 'hourly' : 'normal',
-          status: activeBooking.bookingStatus,
-          charge: activeBooking.charge,
-          hours: activeBooking.hours,
-          pickupAddress: activeBooking.pickupAddress || activeBooking.pickupAddress,
-          dropOffAddress: activeBooking.dropOffAddress,
-          customerID: activeBooking.customerID,
-          createdAt: activeBooking.createdAt
-        };
-      }
-
-      return response;
-    });
-
-    // Apply status filter
-    let filteredDrivers = driverAvailability;
-    if (status && status !== 'all') {
-      filteredDrivers = driverAvailability.filter(d => d.availability.status === status);
-    }
-
-    // Calculate summary
-    const summary = {
-      totalDrivers: drivers.length,
-      totalBusyDrivers: driverAvailability.filter(d => d.availability.isBusy).length,
-      totalAvailableDrivers: driverAvailability.filter(d => !d.availability.isBusy).length,
-      totalActiveDrivers: driverAvailability.filter(d => d.availability.isActive).length,
-      totalVerifiedDrivers: driverAvailability.filter(d => d.availability.isVerified).length,
-      totalBookings: driverAvailability.reduce((sum, d) => sum + d.stats.totalBookings, 0),
-      totalCompletedBookings: driverAvailability.reduce((sum, d) => sum + d.stats.completedBookings, 0),
-      totalPendingBookings: driverAvailability.reduce((sum, d) => sum + d.stats.pendingBookings, 0),
-      totalstarttrackingBookings: driverAvailability.reduce((sum, d) => sum + d.stats.starttrackingBookings, 0),
-
-      totalEarnings: driverAvailability.reduce((sum, d) => sum + d.stats.totalEarnings, 0),
-      totalBusyHours: driverAvailability.reduce((sum, d) => sum + d.stats.busyHours, 0)
-    };
-
-    res.status(200).json({
-      success: true,
-      dateRange,
-      filters: { date, startDate, endDate, includeDetails, status, bookingStatus },
-      summary,
-      groupedByStatus: {
-        busy: driverAvailability.filter(d => d.availability.status === 'busy'),
-        available: driverAvailability.filter(d => d.availability.status === 'available')
-      },
-      data: filteredDrivers
-    });
-
-  } catch (error) {
-    console.error('Error getting driver availability:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching driver availability',
-      error: error.message
-    });
-  }
-});
-
-
-
-
-
-
-// Add this temporary route to clean up empty driverID values
-router.get('/cleanup-empty-drivers', async (req, res) => {
-  try {
-    // Clean up HourlyBooking
-    const hourlyResult = await HourlyBooking.updateMany(
-      { driverID: '' },
-      { $set: { driverID: null } }
-    );
-
-    // Clean up Booking
-    const normalResult = await Booking.updateMany(
-      { driverID: '' },
-      { $set: { driverID: null } }
-    );
-
-    // Also fix any documents with invalid date fields
-    const hourlyDateFix = await HourlyBooking.updateMany(
-      { pickupDateTime: { $exists: false } },
-      { $set: { pickupDateTime: new Date() } }
-    );
-
-    const normalDateFix = await Booking.updateMany(
-      { arrival: { $exists: false } },
-      { $set: { arrival: new Date() } }
-    );
-
-    res.json({
-      success: true,
-      message: 'Cleaned up empty driverID fields and fixed missing dates',
-      hourlyBookingsFixed: hourlyResult.modifiedCount,
-      normalBookingsFixed: normalResult.modifiedCount,
-      hourlyDatesFixed: hourlyDateFix.modifiedCount,
-      normalDatesFixed: normalDateFix.modifiedCount
-    });
-
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-
-
-
-
-
-
-
-
-
-
-// GET - Get drivers with their hourly bookings for a specific date
-router.get('/drivers/hourly-bookings',
-
-
-
-
-  async (req, res) => {
-    try {
-      const { date, driverId, status, startDate, endDate } = req.query;
-
-      let dateFilter = {};
-
-      if (date) {
-        // Single date filter
-        const startOfDay = new Date(date);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(date);
-        endOfDay.setHours(23, 59, 59, 999);
-
-        dateFilter.createdAt = {
-          $gte: startOfDay,
-          $lte: endOfDay
-        };
-      } else if (startDate || endDate) {
-        // Date range filter
-        dateFilter.createdAt = {};
-        if (startDate) dateFilter.createdAt.$gte = new Date(startDate);
-        if (endDate) dateFilter.createdAt.$lte = new Date(endDate);
-      }
-
-      // Build hourly booking filter
-      const hourlyFilter = { ...dateFilter };
-      if (driverId) hourlyFilter.driverID = driverId;
-      if (status) hourlyFilter.bookingStatus = status;
-
-      // Get hourly bookings
-      const hourlyBookings = await HourlyBooking.find(hourlyFilter)
-        .sort({ createdAt: -1 });
-
-      // Group by driver
-      const bookingsByDriver = {};
-
-      for (const booking of hourlyBookings) {
-        const driverIdStr = booking.driverID;
-        if (!driverIdStr || driverIdStr === 'null') continue;
-
-        if (!bookingsByDriver[driverIdStr]) {
-          // Get driver details
-          const driver = await Driver.findById(driverIdStr);
-          if (driver) {
-            bookingsByDriver[driverIdStr] = {
-              driver: driver.getPublicProfile(),
-              bookings: [],
-              stats: {
-                totalBookings: 0,
-                totalEarnings: 0,
-                totalHours: 0,
-                byStatus: {}
-              }
-            };
-          }
-        }
-
-        if (bookingsByDriver[driverIdStr]) {
-          bookingsByDriver[driverIdStr].bookings.push(booking);
-          bookingsByDriver[driverIdStr].stats.totalBookings++;
-          bookingsByDriver[driverIdStr].stats.totalEarnings += booking.charge || 0;
-          bookingsByDriver[driverIdStr].stats.totalHours += booking.hours || 0;
-
-          // Status breakdown
-          const statusKey = booking.bookingStatus;
-          if (!bookingsByDriver[driverIdStr].stats.byStatus[statusKey]) {
-            bookingsByDriver[driverIdStr].stats.byStatus[statusKey] = 0;
-          }
-          bookingsByDriver[driverIdStr].stats.byStatus[statusKey]++;
-        }
-      }
-
-      const result = Object.values(bookingsByDriver);
-
-      // Calculate totals
-      const totals = {
-        totalDrivers: result.length,
-        totalBookings: hourlyBookings.length,
-        totalEarnings: result.reduce((sum, d) => sum + d.stats.totalEarnings, 0),
-        totalHours: result.reduce((sum, d) => sum + d.stats.totalHours, 0)
-      };
-
-      res.status(200).json({
-        success: true,
-        filters: { date, startDate, endDate, driverId, status },
-        totals,
-        data: result
-      });
-
-    } catch (error) {
-      console.error('Error getting drivers hourly bookings:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message
-      });
-    }
-  })
-
-
 
 
 // Mark booking as completed by driver, start  tracking veichcle

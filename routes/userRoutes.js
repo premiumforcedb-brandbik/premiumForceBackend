@@ -1,7 +1,6 @@
 // routes/users.js
 const express = require('express');
 const User = require('../models/users_model');
-const { verifyOTP } = require('../middleware/otpMideWare');
 const { upload, deleteFromS3, getS3Url } = require('../config/s3config');
 const Driver = require('../models/driver_model');
 const Booking = require('../models/booking_model');
@@ -249,59 +248,6 @@ router.delete('/:id/fcm-token', async (req, res) => {
 });
 
 
-
-
-// Add this protected route for updating phone number
-// PATCH /api/users/:id/phone - Update phone number (OTP protected)
-router.patch('/:id/phone', verifyOTP, upload.none(), async (req, res) => {
-  try {
-    const { newPhoneNumber, newCountryCode } = req.body;
-
-    if (!newPhoneNumber || !newCountryCode) {
-      return res.status(400).json({
-        success: false,
-        message: 'New phone number and country code required'
-      });
-    }
-
-    // Check if new phone number already exists
-    const existingUser = await User.findOne({
-      countryCode: newCountryCode,
-      phoneNumber: newPhoneNumber,
-      _id: { $ne: req.params.id }
-    });
-
-    if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        message: 'Phone number already in use'
-      });
-    }
-
-    // Update user's phone number
-    const updatedUser = await User.findByIdAndUpdate(
-      req.params.id,
-      {
-        countryCode: newCountryCode,
-        phoneNumber: newPhoneNumber
-      },
-      { new: true, runValidators: true }
-    ).select('-__v');
-
-    res.status(200).json({
-      success: true,
-      message: 'Phone number updated successfully',
-      data: updatedUser
-    });
-  } catch (error) {
-    console.error('Update phone error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error updating phone number',
-      error: error.message
-    });
-  }
-});
 
 
 

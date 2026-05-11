@@ -84,6 +84,11 @@ const hourlyBookingSchema = new mongoose.Schema({
     ref: 'Driver',
     default: null
   },
+  fleetID: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Fleet',
+    default: null
+  },
   passsenrgersCount: {
     type: Number,
     required: true

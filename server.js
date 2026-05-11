@@ -224,8 +224,8 @@ app.use('/', fleetRoutes);
 const fleetHistoryRoutes = require('./routes/fleetHistoryRoutes');
 app.use('/api/fleetHistory', fleetHistoryRoutes);
 
-const assignDriverCarRoutes = require('./routes/assign_admin_car_Routes');
-app.use('/api/assign-car', assignDriverCarRoutes);
+const bookingAssignmentRoutes = require('./routes/bookingAssignmentRoutes');
+app.use('/api/admin/assignments', bookingAssignmentRoutes);
 
 
 const zonePrceRoutes = require('./routes/zonePriceRoutes');

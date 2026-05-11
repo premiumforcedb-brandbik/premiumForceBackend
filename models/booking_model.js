@@ -131,6 +131,11 @@ const bookingSchema = new mongoose.Schema({
     ref: 'Driver',
     default: null
   },
+  fleetID: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Fleet',
+    default: null
+  },
   bookingStatus: {
     type: String,
     enum: ['pending', 'assigned', 'starttracking', 'completed', 'cancelled'],

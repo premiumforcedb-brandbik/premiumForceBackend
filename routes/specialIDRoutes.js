@@ -87,12 +87,12 @@ router.get('/promocode-usage',
                         isDiscountApprovedAt: { $ifNull: ["$isDiscountApprovedAt", null] },
                         specialId: 1,
                         promoDetails: 1,
-                        usedAt: "$updatedAt",
+                        usedAt: "$createdAt",
                         isDiscountApplicable: 1
                     }
                 },
                 // Sort by latest approval date first
-                { $sort: { isDiscountApprovedAt: -1 } },
+                { $sort: { usedAt: -1 } },
 
                 // Facet for pagination
                 {

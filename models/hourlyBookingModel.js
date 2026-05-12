@@ -46,20 +46,8 @@ const hourlyBookingSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  model: {
-    type: String,
-    required: true
-  },
-  categoryID: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Category',
-    required: true
-  },
-  brandID: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Brand',
-    required: true
-  },
+
+
   carID: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Car',

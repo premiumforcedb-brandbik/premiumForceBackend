@@ -6,6 +6,7 @@ const { getAllLiveFleets } = require('../services/afaqyService');
 const mongoose = require('mongoose');
 const Booking = require('../models/booking_model');
 const HourlyBooking = require('../models/hourlyBookingModel');
+const Car = require('../models/car_model');
 
 /**
  * @desc    Assign a driver and fleet to a booking (Regular or Hourly)
@@ -47,10 +48,33 @@ const assignBooking = async (req, res) => {
 
     // 3. Find and Update the Booking
     let bookingModel = bookingType === 'hourly' ? HourlyBooking : Booking;
-    const booking = await bookingModel.findById(bookingID).session(session);
+    const booking = await bookingModel.findById(bookingID).populate('carID').session(session);
 
     if (!booking) {
       throw new Error(`${bookingType === 'hourly' ? 'Hourly booking' : 'Booking'} not found`);
+    }
+
+    // Check car compatibility
+    const requestedCar = booking.carID;
+    const fleetCar = fleet.carID;
+
+    if (!requestedCar) {
+      throw new Error('Booking has no car assigned');
+    }
+
+    if (!booking.allowSimilarVehicle) {
+      // Must be the exact same car model
+      if (fleetCar._id.toString() !== requestedCar._id.toString()) {
+        throw new Error(`Assignment failed: This booking requires exactly a ${requestedCar.carName}. Selected fleet is a ${fleetCar.carName}.`);
+      }
+    } else {
+      // Must be in the same category
+      const requestedCategoryID = requestedCar.categoryID?.toString();
+      const fleetCategoryID = fleetCar.categoryID?.toString();
+
+      if (!requestedCategoryID || !fleetCategoryID || requestedCategoryID !== fleetCategoryID) {
+        throw new Error(`Assignment failed: Selected fleet category does not match the requested category.`);
+      }
     }
 
     if (booking.bookingStatus === 'completed' || booking.bookingStatus === 'cancelled') {
@@ -206,14 +230,51 @@ const getAvailableDrivers = async (req, res) => {
  */
 const getAvailableFleets = async (req, res) => {
   try {
-    const { onlyAvailable } = req.query;
+    const { onlyAvailable, bookingID, bookingType } = req.query;
+
+
+    if (!bookingID || !bookingType) {
+      return res.status(400).json({
+        success: false,
+        message: 'Booking ID and Booking Type are required'
+      });
+    }
 
     let query = { isActive: true };
     if (onlyAvailable === 'true') {
       query.isBusyCar = false;
     }
 
-    // 1. Fetch Live GPS from Afaqy (needed for city filtering)
+    // 1. Handle Booking-specific filtering (CarID or Category)
+    if (bookingID && bookingType) {
+      const bookingModel = bookingType === 'hourly' ? HourlyBooking : Booking;
+      const booking = await bookingModel.findById(bookingID).populate('carID').lean();
+
+      if (!booking) {
+        return res.status(404).json({ success: false, message: 'Booking not found' });
+      }
+
+      const requestedCarID = booking.carID?._id || booking.carID;
+      if (!requestedCarID) {
+        return res.status(400).json({ success: false, message: 'Booking has no car assigned' });
+      }
+
+      if (booking.allowSimilarVehicle) {
+        // Find all cars in the same category
+        const categoryID = booking.carID?.categoryID;
+        if (categoryID) {
+          const similarCars = await Car.find({ categoryID }).select('_id').lean();
+          const carIDs = similarCars.map(c => c._id);
+          query.carID = { $in: carIDs };
+        } else {
+          query.carID = requestedCarID;
+        }
+      } else {
+        query.carID = requestedCarID;
+      }
+    }
+
+    // 2. Fetch Live GPS from Afaqy (needed for city filtering)
     let liveUnits = [];
     try {
       liveUnits = await getAllLiveFleets();
@@ -221,7 +282,7 @@ const getAvailableFleets = async (req, res) => {
       console.error('Afaqy Fetch Error:', err.message);
     }
 
-    // 2. City scoping for dispatchers (Live GPS → Zone check)
+    // 3. City scoping for dispatchers (Live GPS → Zone check)
     if (req.admin?.accessLevel === 1) {
       const adminCityID = req.admin.cityID?._id || req.admin.cityID;
       if (!adminCityID) {
@@ -245,12 +306,12 @@ const getAvailableFleets = async (req, res) => {
       query.carLicenseNumber = { $in: cityPlates };
     }
 
-    // 2. Fetch from Database
+    // 4. Fetch from Database
     const dbFleets = await Fleet.find(query)
-      .populate('carID', 'carName model image numberOfPassengers')
+      .populate('carID', 'carName model image numberOfPassengers categoryID')
       .lean();
 
-    // 3. Merge Data
+    // 5. Merge Data
     const formattedFleets = dbFleets.map(fleet => {
       const live = liveUnits.find(u => u.name?.trim() === fleet.carLicenseNumber?.trim());
 
@@ -273,6 +334,7 @@ const getAvailableFleets = async (req, res) => {
     });
 
   } catch (error) {
+    console.error('Get Available Fleets Error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

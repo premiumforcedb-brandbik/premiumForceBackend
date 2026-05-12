@@ -102,7 +102,7 @@ router.post('/', authenticateToken, async (req, res) => {
     // Fetch the saved review with populated data
     const savedReview = await Review.findById(review._id)
       .populate({ path: 'driverID', select: 'driverName phoneNumber', model: 'Driver' })
-      .populate({ path: 'bookingID', select: 'carmodel pickupAddress dropOffAddress charge', model: 'Booking' })
+      .populate({ path: 'bookingID', select: 'pickupAddress dropOffAddress charge', model: 'Booking' })
       .populate({ path: 'createdBy', select: 'username email', model: 'User' });
 
 
@@ -202,7 +202,7 @@ router.get('/', async (req, res) => {
 
     const reviews = await Review.find(query)
       .populate({ path: 'driverID', select: 'driverName phoneNumber', model: 'Driver' })
-      .populate({ path: 'bookingID', select: 'carmodel pickupAddress dropOffAddress charge createdAt', model: 'Booking' })
+      .populate({ path: 'bookingID', select: 'pickupAddress dropOffAddress charge createdAt', model: 'Booking' })
       .populate({ path: 'createdBy', select: 'username email', model: 'User' })
       .sort(sort)
       .limit(parseInt(limit))
@@ -275,7 +275,7 @@ router.get('/:id', async (req, res) => {
 
     const review = await Review.findById(req.params.id)
       .populate({ path: 'driverID', select: 'driverName phoneNumber', model: 'Driver' })
-      .populate({ path: 'bookingID', select: 'carmodel pickupAddress dropOffAddress charge createdAt', model: 'Booking' })
+      .populate({ path: 'bookingID', select: 'pickupAddress dropOffAddress charge createdAt', model: 'Booking' })
       .populate({ path: 'createdBy', select: 'username email', model: 'User' });
 
     if (!review) {
@@ -320,7 +320,7 @@ router.get('/driver/:driverId', async (req, res) => {
     };
 
     const reviews = await Review.find(query)
-      .populate({ path: 'bookingID', select: 'carmodel pickupAddress dropOffAddress charge', model: 'Booking' })
+      .populate({ path: 'bookingID', select: 'pickupAddress dropOffAddress charge', model: 'Booking' })
       .populate({ path: 'createdBy', select: 'username', model: 'User' })
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
@@ -459,7 +459,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
     await review.populate([
       { path: 'driverID', select: 'driverName phoneNumber' },
-      { path: 'bookingID', select: 'carmodel pickupAddress dropOffAddress charge' },
+      { path: 'bookingID', select: 'pickupAddress dropOffAddress charge' },
       { path: 'createdBy', select: 'username email' }
     ]);
 
@@ -539,7 +539,7 @@ router.patch('/:id', authenticateToken, async (req, res) => {
 
     await review.populate([
       { path: 'driverID', select: 'driverName phoneNumber' },
-      { path: 'bookingID', select: 'carmodel pickupAddress dropOffAddress charge' },
+      { path: 'bookingID', select: 'pickupAddress dropOffAddress charge' },
       { path: 'createdBy', select: 'username email' }
     ]);
 

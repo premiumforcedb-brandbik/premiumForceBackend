@@ -44,7 +44,6 @@ router.post('/',
   },
   (req, res, next) => {
     upload.fields([
-      { name: 'carImage', maxCount: 1 },
       { name: 'specialRequestAudio', maxCount: 1 }
     ])(req, res, (err) => {
       if (err) {
@@ -73,9 +72,8 @@ router.post('/',
       };
 
       const {
-        category,
         hours, pickupLat, pickuplong, pickupAddress,
-        extraHours, model, categoryID, brandID, carID, cityID,
+        extraHours, carID, cityID,
         charge, customerID, driverID, passsenrgersCount,
         passengerMobile, carClass, specialRequestText,
         bookingStatus, passengerNames, isActive, vat,
@@ -87,15 +85,11 @@ router.post('/',
 
       // ========== REQUIRED FIELDS VALIDATION ==========
       const requiredFields = {
-        // category: category,
         hours: hours,
         pickupLat: pickupLat,
-        pickupLong: pickupLong,
+        pickupLong: pickuplong,
         pickupAddress: pickupAddress,
         pickupDateTime: pickupDateTime,
-        model: model,
-        categoryID: categoryID,
-        brandID: brandID,
         carID: carID,
         cityID: cityID,
         charge: charge,
@@ -122,9 +116,6 @@ router.post('/',
       if (missingFields.length > 0 || emptyFields.length > 0) {
         // Delete uploaded files if validation fails
         if (req.files) {
-          if (req.files.carImage) {
-            await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-          }
           if (req.files.specialRequestAudio) {
             await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
@@ -150,31 +141,10 @@ router.post('/',
 
 
       // ========== VALIDATE OBJECT ID FORMAT ==========
-      if (!mongoose.Types.ObjectId.isValid(categoryID)) {
-        if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid categoryID format. Must be a valid ObjectId.'
-        });
-      }
 
-      if (!mongoose.Types.ObjectId.isValid(brandID)) {
-        if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid brandID format. Must be a valid ObjectId.'
-        });
-      }
 
       if (!mongoose.Types.ObjectId.isValid(carID)) {
         if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(400).json({
@@ -185,7 +155,6 @@ router.post('/',
 
       if (!mongoose.Types.ObjectId.isValid(cityID)) {
         if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(400).json({
@@ -196,7 +165,6 @@ router.post('/',
 
       if (!mongoose.Types.ObjectId.isValid(customerID)) {
         if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(400).json({
@@ -219,37 +187,12 @@ router.post('/',
       // }
 
 
-      // Check Category exists
-      const categoryExists = await Category.findById(categoryID);
-      if (!categoryExists) {
-        if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(404).json({
-          success: false,
-          message: 'Category not found with the provided categoryID'
-        });
-      }
 
-      // Check Brand exists
-      const brandExists = await Brand.findById(brandID);
-      if (!brandExists) {
-        if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(404).json({
-          success: false,
-          message: 'Brand not found with the provided brandID'
-        });
-      }
 
       // Check Car exists
       const carExists = await Car.findById(carID);
       if (!carExists) {
         if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(404).json({
@@ -262,69 +205,11 @@ router.post('/',
       const cityExists = await City.findById(cityID);
       if (!cityExists) {
         if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(404).json({
           success: false,
           message: 'City not found with the provided cityID'
-        });
-      }
-
-      // Check Customer exists
-      const customerExists = await User.findById(customerID);
-      if (!customerExists) {
-        if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-          if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-        }
-        return res.status(404).json({
-          success: false,
-          message: 'Customer not found with the provided customerID'
-        });
-      }
-
-
-      const activeBooking = await HourlyBooking.findOne({
-        customerID: String(customerID).trim(),
-        bookingStatus: { $in: ['pending', 'completed', 'starttrack'] },
-        isActive: true
-      });
-
-
-      if (activeBooking) {
-        if (req.files) {
-          if (req.files.carImage) {
-            await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-          }
-          if (req.files.specialRequestAudio) {
-            await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-        }
-
-        try {
-          await notifyUser(
-            String(customerID).trim(),
-            '📅 Booking Already Exists',
-            `You already have an active booking. Please complete or cancel it before creating a new one.`,
-            {
-              type: 'booking_exists',
-              bookingId: activeBooking._id.toString(),
-              status: activeBooking.bookingStatus
-            }
-          );
-        } catch (notifyError) {
-          console.error('Notification error:', notifyError);
-        }
-
-        return res.status(409).json({
-          success: false,
-          message: 'Customer already has an active booking',
-          data: {
-            existingBookingId: activeBooking._id,
-            existingStatus: activeBooking.bookingStatus,
-            message: 'Please complete or cancel your existing booking before creating a new one'
-          }
         });
       }
 
@@ -346,15 +231,7 @@ router.post('/',
         }
       }
 
-      // ========== HANDLE CAR IMAGE (OPTIONAL) ==========
-      let carImageUrl = null;
-      if (req.files && req.files.carImage && req.files.carImage.length > 0) {
-        carImageUrl = getS3Url(req.files.carImage[0].key);
-        console.log('Using uploaded car image:', carImageUrl);
-      } else if (req.body.carImage && isValidValue(req.body.carImage)) {
-        carImageUrl = String(req.body.carImage).trim();
-        console.log('Using car image URL from body:', carImageUrl);
-      }
+
 
       // ========== HANDLE AUDIO (OPTIONAL) ==========
       let audioUrl = null;
@@ -378,7 +255,6 @@ router.post('/',
       // Validate numeric values
       if (isNaN(parsedHours) || parsedHours <= 0) {
         if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(400).json({
@@ -389,7 +265,6 @@ router.post('/',
 
       if (isNaN(parsedPickupLat) || isNaN(parsedPickuplong)) {
         if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(400).json({
@@ -400,7 +275,6 @@ router.post('/',
 
       if (isNaN(parsedCharge) || parsedCharge <= 0) {
         if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(400).json({
@@ -411,7 +285,6 @@ router.post('/',
 
       if (isNaN(parsedPassengersCount) || parsedPassengersCount < 1) {
         if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(400).json({
@@ -467,7 +340,6 @@ router.post('/',
 
       // ========== CREATE BOOKING OBJECT ==========
       const bookingData = {
-        category: String(category).trim(),
         vat: vat,
         extraVat: extraVat,
         hours: parsedHours,
@@ -476,9 +348,6 @@ router.post('/',
         pickupAddress: String(pickupAddress).trim(),
         pickupDateTime: new Date(pickupDateTime),
         extraHours: parsedExtraHours,
-        model: String(model).trim(),
-        categoryID: categoryID,
-        brandID: brandID,
         carID: carID,
         cityID: cityID,
         charge: parsedCharge,
@@ -504,9 +373,7 @@ router.post('/',
       };
 
       // Add optional fields
-      if (carImageUrl) {
-        bookingData.carImage = carImageUrl;
-      }
+
       if (audioUrl) {
         bookingData.specialRequestAudio = audioUrl;
       }
@@ -525,7 +392,7 @@ router.post('/',
         await notifyUser(
           savedBooking.customerID,
           '📅 Booking Created',
-          `Your hourly booking for ${savedBooking.model} has been created successfully.`,
+          `Your hourly booking has been created successfully.`,
           {
             type: 'booking_created',
             bookingId: savedBooking._id.toString(),
@@ -547,9 +414,6 @@ router.post('/',
 
       // Delete uploaded files if error occurs
       if (req.files) {
-        if (req.files.carImage) {
-          await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-        }
         if (req.files.specialRequestAudio) {
           await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
@@ -598,7 +462,6 @@ router.put('/:id',
 
   (req, res, next) => {
     upload.fields([
-      { name: 'carImage', maxCount: 1 },
       { name: 'specialRequestAudio', maxCount: 1 }
     ])(req, res, (err) => {
       if (err) {
@@ -622,7 +485,6 @@ router.put('/:id',
       // Validate booking ID
       if (!mongoose.Types.ObjectId.isValid(id)) {
         if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(400).json({
@@ -644,7 +506,6 @@ router.put('/:id',
       const existingBooking = await HourlyBooking.findById(id);
       if (!existingBooking) {
         if (req.files) {
-          if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
           if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
         return res.status(404).json({
@@ -655,9 +516,8 @@ router.put('/:id',
 
       // Extract fields from request body
       const {
-        category,
         hours, pickupLat, pickupLong, pickupAddress,
-        extraHours, model, categoryID, brandID, carID, cityID,
+        extraHours, carID, cityID,
         charge, customerID, driverID, passsenrgersCount,
         passengerMobile, carClass, specialRequestText,
         passengerNames, isActive, vat, extraVat,
@@ -681,7 +541,6 @@ router.put('/:id',
           updateData.hours = parsedHours;
         } else {
           if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
           return res.status(400).json({
@@ -700,7 +559,6 @@ router.put('/:id',
           updateData.pickupLong = parsedPickupLong;
         } else {
           if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
           return res.status(400).json({
@@ -709,10 +567,7 @@ router.put('/:id',
           });
         }
       }
-      // Handle pickup address
-      // if (isValidValue(category)) {
-      updateData.category = String(category).trim();
-      // }
+
 
       // Handle pickup address
       if (isValidValue(pickupAddress)) {
@@ -724,10 +579,7 @@ router.put('/:id',
         updateData.pickupDateTime = new Date(pickupDateTime);
       }
 
-      // Handle model
-      if (isValidValue(model)) {
-        updateData.model = String(model).trim();
-      }
+
 
       // Handle charge
       if (isValidValue(charge)) {
@@ -736,7 +588,6 @@ router.put('/:id',
           updateData.charge = parsedCharge;
         } else {
           if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
           return res.status(400).json({
@@ -753,7 +604,6 @@ router.put('/:id',
           updateData.passsenrgersCount = parsedPassengersCount;
         } else {
           if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
           return res.status(400).json({
@@ -801,7 +651,7 @@ router.put('/:id',
       if (isValidValue(specialRequestText)) {
         updateData.specialRequestText = String(specialRequestText).trim();
       }
-      
+
       // Handle allowSimilarVehicle
       if (isValidValue(allowSimilarVehicle)) {
         updateData.allowSimilarVehicle = String(allowSimilarVehicle) === 'true';
@@ -841,65 +691,12 @@ router.put('/:id',
 
       // ========== VALIDATE AND UPDATE REFERENCE IDs ==========
 
-      // Handle categoryID
-      if (isValidValue(categoryID)) {
-        if (!mongoose.Types.ObjectId.isValid(categoryID)) {
-          if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid categoryID format. Must be a valid ObjectId.'
-          });
-        }
 
-        const categoryExists = await Category.findById(categoryID);
-        if (!categoryExists) {
-          if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-          return res.status(404).json({
-            success: false,
-            message: 'Category not found with the provided categoryID'
-          });
-        }
-        updateData.categoryID = categoryID;
-      }
-
-      // Handle brandID
-      if (isValidValue(brandID)) {
-        if (!mongoose.Types.ObjectId.isValid(brandID)) {
-          if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid brandID format. Must be a valid ObjectId.'
-          });
-        }
-
-        const brandExists = await Brand.findById(brandID);
-        if (!brandExists) {
-          if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-            if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
-          }
-          return res.status(404).json({
-            success: false,
-            message: 'Brand not found with the provided brandID'
-          });
-        }
-        updateData.brandID = brandID;
-      }
 
       // Handle carID
       if (isValidValue(carID)) {
         if (!mongoose.Types.ObjectId.isValid(carID)) {
           if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
           return res.status(400).json({
@@ -911,7 +708,6 @@ router.put('/:id',
         const carExists = await Car.findById(carID);
         if (!carExists) {
           if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
           return res.status(404).json({
@@ -926,7 +722,6 @@ router.put('/:id',
       if (isValidValue(cityID)) {
         if (!mongoose.Types.ObjectId.isValid(cityID)) {
           if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
           return res.status(400).json({
@@ -938,7 +733,6 @@ router.put('/:id',
         const cityExists = await City.findById(cityID);
         if (!cityExists) {
           if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
           return res.status(404).json({
@@ -953,7 +747,6 @@ router.put('/:id',
       if (isValidValue(customerID)) {
         if (!mongoose.Types.ObjectId.isValid(customerID)) {
           if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
           return res.status(400).json({
@@ -965,7 +758,6 @@ router.put('/:id',
         const customerExists = await User.findById(customerID);
         if (!customerExists) {
           if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
           return res.status(404).json({
@@ -980,7 +772,6 @@ router.put('/:id',
       if (isValidValue(driverID) && driverID !== 'null' && driverID !== 'undefined') {
         if (!mongoose.Types.ObjectId.isValid(driverID)) {
           if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
           return res.status(400).json({
@@ -992,7 +783,6 @@ router.put('/:id',
         const driverExists = await Driver.findById(driverID);
         if (!driverExists) {
           if (req.files) {
-            if (req.files.carImage) await deleteFromS3(req.files.carImage[0].key).catch(console.error);
             if (req.files.specialRequestAudio) await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
           }
           return res.status(404).json({
@@ -1022,19 +812,7 @@ router.put('/:id',
         updateData.passengerNames = parsedPassengerNames;
       }
 
-      // ========== HANDLE CAR IMAGE ==========
-      if (req.files && req.files.carImage && req.files.carImage.length > 0) {
-        // Delete old image from S3 if exists
-        if (existingBooking.carImage) {
-          const oldKey = existingBooking.carImage.split('/').pop();
-          await deleteFromS3(oldKey).catch(console.error);
-        }
-        updateData.carImage = getS3Url(req.files.carImage[0].key);
-        console.log('Updated car image:', updateData.carImage);
-      } else if (req.body.carImage && isValidValue(req.body.carImage)) {
-        updateData.carImage = String(req.body.carImage).trim();
-        console.log('Updated car image URL from body:', updateData.carImage);
-      }
+
 
       // ========== HANDLE AUDIO FILE ==========
       if (req.files && req.files.specialRequestAudio && req.files.specialRequestAudio.length > 0) {
@@ -1170,9 +948,6 @@ router.put('/:id',
 
       // Delete uploaded files if error occurs
       if (req.files) {
-        if (req.files.carImage) {
-          await deleteFromS3(req.files.carImage[0].key).catch(console.error);
-        }
         if (req.files.specialRequestAudio) {
           await deleteFromS3(req.files.specialRequestAudio[0].key).catch(console.error);
         }
@@ -1251,16 +1026,6 @@ router.get('/',
       // Get bookings with full population
       const bookings = await HourlyBooking.find(finalQuery)
         .populate({
-          path: 'categoryID',
-          model: 'Category',
-          select: '_id name  description descriptionAr image isActive'
-        })
-        .populate({
-          path: 'brandID',
-          model: 'Brand',
-          select: '_id brandName brandNameAr logo isActive'
-        })
-        .populate({
           path: 'carID',
           model: 'Car',
           populate: [
@@ -1306,25 +1071,7 @@ router.get('/',
         bookingType: 'hourly',
         bookingNumber: booking.bookingNumber || `HB${booking._id.toString().slice(-8)}`,
 
-        // Category Details
-        category: booking.categoryID ? {
-          _id: booking.categoryID._id,
-          name: booking.categoryID.name,
-          nameAr: booking.categoryID.nameAr,
-          description: booking.categoryID.description,
-          descriptionAr: booking.categoryID.descriptionAr,
-          image: booking.categoryID.image,
-          isActive: booking.categoryID.isActive
-        } : null,
 
-        // Brand Details
-        brand: booking.brandID ? {
-          _id: booking.brandID._id,
-          brandName: booking.brandID.brandName,
-          brandNameAr: booking.brandID.brandNameAr,
-          logo: booking.brandID.logo,
-          isActive: booking.brandID.isActive
-        } : null,
 
         // Car Details with nested relations
         car: booking.carID ? {
@@ -1401,7 +1148,6 @@ router.get('/',
         dropOffAddress: booking.dropOffAddress,
 
         // Car Details from Booking
-        carModel: booking.carModel,
         carImage: booking.carImage,
 
         // Passenger Details
@@ -1494,16 +1240,6 @@ router.get('/:id', async (req, res) => {
 
     const booking = await HourlyBooking.findById(id)
       .populate({
-        path: 'categoryID',
-        model: 'Category',
-        select: '_id name nameAr description descriptionAr image'
-      })
-      .populate({
-        path: 'brandID',
-        model: 'Brand',
-        select: '_id brandName brandNameAr logo'
-      })
-      .populate({
         path: 'carID',
         model: 'Car',
         populate: [
@@ -1559,25 +1295,7 @@ router.get('/:id', async (req, res) => {
         bookingType_en: 'hourly',
 
 
-        // Category with Arabic names
-        category: booking.categoryID ? {
-          _id: booking.categoryID._id,
-          name: booking.categoryID.name,
-          nameAr: booking.categoryID.nameAr,
-          name_en: booking.categoryID.name,
-          description: booking.categoryID.description,
-          descriptionAr: booking.categoryID.descriptionAr,
-          image: booking.categoryID.image
-        } : null,
 
-        // Brand with Arabic names
-        brand: booking.brandID ? {
-          _id: booking.brandID._id,
-          name: booking.brandID.brandName,
-          nameAr: booking.brandID.brandNameAr,
-          name_en: booking.brandID.brandName,
-          logo: booking.brandID.logo
-        } : null,
 
         // Car with full details
         car: booking.carID ? {
@@ -1743,8 +1461,7 @@ router.get('/customer/:customerId', async (req, res) => {
     }
 
     const bookings = await HourlyBooking.find({ customerID: customerId })
-      .populate('categoryID', 'name description')
-      .populate('brandID', 'brandName brandIcon')
+
       .populate('carID', 'name model year licensePlate')
       .populate('cityID', 'cityName cityNameAr')
       .populate('driverID', 'driverName email phoneNumber countryCode rating licenseNumber')
@@ -1788,8 +1505,7 @@ router.get('/driver/:driverId', async (req, res) => {
 
 
     const bookings = await HourlyBooking.find({ driverID: driverId })
-      .populate('categoryID', 'name description')
-      .populate('brandID', 'brandName brandIcon')
+
       .populate('carID', 'name model year licensePlate')
       .populate('cityID', 'cityName cityNameAr')
       .populate('driverID', 'driverName email phoneNumber countryCode rating licenseNumber')
@@ -1826,8 +1542,7 @@ router.get('/status/:status', async (req, res) => {
     }
 
     const bookings = await HourlyBooking.find({ bookingStatus: status })
-      .populate('categoryID', 'name description')
-      .populate('brandID', 'brandName brandIcon')
+
       .populate('carID', 'name model year licensePlate')
       .populate('cityID', 'cityName cityNameAr')
       .populate('customerID', 'username email phoneNumber')
@@ -1892,12 +1607,11 @@ router.patch('/:id/status', async (req, res) => {
         updatedAt: new Date()
       },
       { new: true, runValidators: true }
-    ).populate('categoryID', 'name description')
-      .populate('brandID', 'brandName brandIcon')
-      .populate('carID', 'name model year licensePlate')
-      .populate('cityID', 'cityName cityNameAr')
-      .populate('customerID', 'username email phoneNumber')
-      .populate('driverID', 'driverName phoneNumber licenseNumber');
+
+        .populate('carID', 'name model year licensePlate')
+        .populate('cityID', 'cityName cityNameAr')
+        .populate('customerID', 'username email phoneNumber')
+        .populate('driverID', 'driverName phoneNumber licenseNumber'));
 
     // Send notification
     try {

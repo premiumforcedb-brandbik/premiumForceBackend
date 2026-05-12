@@ -1,15 +1,17 @@
-// models/Booking.js
 const mongoose = require('mongoose');
+const { BookingCategory } = require('../utils/constants');
 
 const bookingSchema = new mongoose.Schema({
-  category: {
-    type: String,
-    required: true
-  },
+
   cityID: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'City',
     required: true
+  },
+  category: {
+    type: String,
+    enum: Object.values(BookingCategory),
+    required: [true, 'Booking category (type) is required']
   },
   airportID: {
     type: mongoose.Schema.Types.ObjectId,
@@ -48,7 +50,7 @@ const bookingSchema = new mongoose.Schema({
   flightNumber: {
     type: String
   },
-  arrival: {
+  pickupDateTime: {
     type: Date,
     required: true
   },
@@ -76,10 +78,7 @@ const bookingSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  carmodel: {
-    type: String,
-    required: true
-  },
+
   charge: {
     type: Number,
     required: true

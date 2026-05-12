@@ -1,5 +1,6 @@
 const { Queue, Worker } = require('bullmq');
-const { notifyDriver, notifyUser } = require('../fcm');
+const { notifyDriver, notifyUser, sendPushNotificationAdmin } = require('../fcm');
+const Admin = require('../models/adminModel');
 const IORedis = require('ioredis');
 
 // 1. Connection setup
@@ -23,6 +24,20 @@ const notificationWorker = new Worker(
         await notifyDriver(recipientId, title, body, data);
       } else if (type === 'user') {
         await notifyUser(recipientId, title, body, data);
+      } else if (type === 'admin_broadcast') {
+        const admins = await Admin.find({
+          isActive: true,
+          fcmToken: { $ne: null, $exists: true }
+        }).select('fcmToken').lean();
+
+        const adminTokens = admins.map(admin => admin.fcmToken).filter(token => token);
+        
+        if (adminTokens.length > 0) {
+          await Promise.allSettled(
+            adminTokens.map(token => sendPushNotificationAdmin(token, title, body, data))
+          );
+          console.log(`[Queue] Broadcast sent to ${adminTokens.length} admins`);
+        }
       }
       console.log(`[Queue] Job ${job.id} completed successfully`);
     } catch (err) {

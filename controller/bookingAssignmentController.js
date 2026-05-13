@@ -182,14 +182,77 @@ const assignBooking = async (req, res) => {
 const getAvailableDrivers = async (req, res) => {
   try {
     const { search } = req.query;
-
-    let query = { isActive: true };
-
-    // If dispatcher, force city scoping
+    const isDispatcher = req.admin?.accessLevel === 1;
     const adminCityID = req.admin?.cityID?._id || req.admin?.cityID;
-    if (req.admin?.accessLevel === 1 && adminCityID) {
-      query.cityID = adminCityID;
+
+    // --- CASE 1: Dispatcher (Spatial/Live GPS Logic) ---
+    if (isDispatcher) {
+      const [liveFleets, zones] = await Promise.all([
+        getAllLiveFleets(),
+        Zone.find({ isActive: true }).select('cityID coordinates').lean()
+      ]);
+
+      if (!liveFleets || liveFleets.length === 0) {
+        return res.json({ success: true, count: 0, data: [] });
+      }
+
+      const zoneModels = zones.map(z => new Zone(z));
+      const validPlates = [];
+
+      liveFleets.forEach(unit => {
+        const lat = unit.last_update?.lat;
+        const lng = unit.last_update?.lng;
+        const plate = unit.name?.trim();
+
+        if (!lat || !lng || !plate) return;
+
+        const currentZone = zoneModels.find(zone => zone.containsPoint(lat, lng));
+        if (currentZone && adminCityID && currentZone.cityID.toString() === adminCityID.toString()) {
+          validPlates.push(plate);
+        }
+      });
+
+      if (validPlates.length === 0) {
+        return res.json({ success: true, count: 0, data: [] });
+      }
+
+      const fleets = await Fleet.find({
+        carLicenseNumber: { $in: validPlates },
+        driverID: { $ne: null },
+        isActive: true
+      })
+        .populate({
+          path: 'driverID',
+          match: { isWorkstarted: true, isActive: true },
+          select: 'driverName phoneNumber email profileImage isBusy'
+        })
+        .lean();
+
+      const driversFromFleets = fleets
+        .filter(f => f.driverID)
+        .map(f => {
+          const d = f.driverID;
+          if (search) {
+            const s = search.toLowerCase();
+            if (!d.driverName?.toLowerCase().includes(s) && !d.phoneNumber?.includes(s)) return null;
+          }
+          return {
+            ...d,
+            fleetID: f._id,
+            carLicenseNumber: f.carLicenseNumber,
+            status: { shift: 'online', availability: d.isBusy ? 'busy' : 'free' }
+          };
+        })
+        .filter(Boolean);
+
+      return res.json({ success: true, count: driversFromFleets.length, data: driversFromFleets });
     }
+
+    // --- CASE 2: Superadmin (Standard Database Logic) ---
+    const query = {
+      isActive: true,
+      isWorkstarted: true
+    };
 
     if (search) {
       query.$or = [
@@ -199,11 +262,9 @@ const getAvailableDrivers = async (req, res) => {
     }
 
     const drivers = await Driver.find(query)
-      .select('driverName phoneNumber email profileImage isWorkstarted isBusy cityID')
-      .populate('cityID', 'cityName')
+      .select('driverName phoneNumber email profileImage isWorkstarted isBusy')
       .lean();
 
-    // Transform to include status labels
     const formattedDrivers = drivers.map(d => ({
       ...d,
       status: {
@@ -212,14 +273,19 @@ const getAvailableDrivers = async (req, res) => {
       }
     }));
 
-    res.status(200).json({
+    res.json({
       success: true,
       count: formattedDrivers.length,
       data: formattedDrivers
     });
 
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error('Get available drivers error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching available drivers',
+      error: error.message
+    });
   }
 };
 

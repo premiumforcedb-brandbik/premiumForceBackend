@@ -77,7 +77,7 @@ const hourlyBookingSchema = new mongoose.Schema({
     ref: 'Fleet',
     default: null
   },
-  passsenrgersCount: {
+  passengerCount: {
     type: Number,
     required: true
   },
@@ -129,9 +129,16 @@ const hourlyBookingSchema = new mongoose.Schema({
     default: ''
   },
   specialRequestAudio: {
-    type: String,
-    default: null
+    key: String,
+    url: String,
+    originalName: String,
+    mimeType: String,
+    size: Number,
+    duration: Number
   },
+  TrackingTimeLine: [{
+    type: String
+  }],
   bookingStatus: {
     type: String,
     enum: ['pending', 'assigned', 'starttracking', 'completed', 'cancelled'],
